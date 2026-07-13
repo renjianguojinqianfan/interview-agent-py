@@ -1,0 +1,11 @@
+#!/bin/sh
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'
+first_line=$(head -1 "$1")
+if ! echo "$first_line" | grep -qE "$pattern"; then
+  echo "Commit message format invalid"
+  echo "  expected: <type>(<scope>): <subject>"
+  echo "  type: feat / fix / docs / style / refactor / perf / test / build / ci / chore / revert"
+  echo "  scope (optional): e.g. api / domain / infrastructure / config / hooks / ci"
+  echo "  got: $first_line"
+  exit 1
+fi
