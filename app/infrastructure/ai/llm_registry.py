@@ -1,0 +1,167 @@
+import logging
+from dataclasses import dataclass
+
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from pydantic import SecretStr
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.api.errors import BusinessException, ErrorCode
+from app.infrastructure.ai.encryption import ApiKeyEncryptionService
+from app.infrastructure.db.models.llm_provider import LlmProvider
+from app.infrastructure.db.session import async_session_factory as _default_session_factory
+
+logger = logging.getLogger(__name__)
+
+_CONNECT_TIMEOUT = 10
+_READ_TIMEOUT = 300
+_MAX_RETRIES = 2
+_DEFAULT_TEMPERATURE = 0.2
+
+_RECOMMENDED_EMBEDDING_MODELS: dict[str, str] = {
+    "dashscope": "text-embedding-v3",
+    "glm": "embedding-3",
+    "zhipu": "embedding-3",
+    "baidu": "Embedding-V1",
+    "minimax": "embo-01",
+}
+
+
+@dataclass
+class ProviderSnapshot:
+    id: int
+    base_url: str
+    api_key: str
+    model: str
+    embedding_model: str | None
+    embedding_dimensions: int
+    supports_embedding: bool
+    temperature: float | None
+
+
+class LlmProviderRegistry:
+    def __init__(
+        self,
+        encryption_service: ApiKeyEncryptionService,
+        session_factory: async_sessionmaker[AsyncSession]
+        | object = _default_session_factory,
+    ) -> None:
+        self._encryption_service = encryption_service
+        self._session_factory = session_factory
+        self._client_cache: dict[str, ChatOpenAI] = {}
+        self._embedding_cache: dict[int, OpenAIEmbeddings] = {}
+
+    async def get_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
+        resolved_id = await self._resolve_provider_id(provider_id)
+        cache_key = f"{resolved_id}:default"
+        if cache_key not in self._client_cache:
+            self._client_cache[cache_key] = await self._create_chat_client(resolved_id)
+        return self._client_cache[cache_key]
+
+    async def get_plain_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
+        resolved_id = await self._resolve_provider_id(provider_id)
+        cache_key = f"{resolved_id}:plain"
+        if cache_key not in self._client_cache:
+            self._client_cache[cache_key] = await self._create_chat_client(resolved_id)
+        return self._client_cache[cache_key]
+
+    async def get_voice_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
+        resolved_id = await self._resolve_provider_id(provider_id)
+        cache_key = f"{resolved_id}:voice"
+        if cache_key not in self._client_cache:
+            self._client_cache[cache_key] = await self._create_chat_client(resolved_id, streaming=True)
+        return self._client_cache[cache_key]
+
+    async def get_embeddings(self, provider_id: int | None = None) -> OpenAIEmbeddings:
+        from app.infrastructure.ai.embeddings import create_embeddings
+
+        resolved_id = await self._resolve_provider_id(provider_id)
+        if resolved_id not in self._embedding_cache:
+            config = await self._load_provider(resolved_id)
+            self._embedding_cache[resolved_id] = create_embeddings(config)
+        return self._embedding_cache[resolved_id]
+
+    async def get_default_embeddings(self) -> OpenAIEmbeddings:
+        return await self.get_embeddings()
+
+    def reload(self) -> None:
+        size = len(self._client_cache) + len(self._embedding_cache)
+        self._client_cache.clear()
+        self._embedding_cache.clear()
+        logger.info("LlmProviderRegistry cache cleared (%d entries)", size)
+
+    @staticmethod
+    def looks_like_chat_model(model: str) -> bool:
+        lower = model.lower()
+        return (
+            lower.startswith("glm-")
+            or lower.startswith("deepseek")
+            or lower.startswith("kimi")
+            or lower.startswith("moonshot")
+            or lower.startswith("qwen")
+            or lower.startswith("ernie")
+        )
+
+    async def _resolve_provider_id(self, provider_id: int | None) -> int:
+        if provider_id is not None:
+            return provider_id
+        return await self._find_default_provider_id()
+
+    async def _find_default_provider_id(self) -> int:
+        async with self._session_factory() as session:  # type: ignore[operator]
+            result = await session.execute(
+                select(LlmProvider).where(LlmProvider.is_default == True).limit(1)  # noqa: E712
+            )
+            entity = result.scalars().first()
+            if entity is None:
+                raise BusinessException(
+                    ErrorCode.PROVIDER_NOT_FOUND,
+                    "未找到默认 LLM Provider，请先配置",
+                )
+            return entity.id
+
+    async def _load_provider(self, provider_id: int) -> ProviderSnapshot:
+        async with self._session_factory() as session:  # type: ignore[operator]
+            result = await session.execute(
+                select(LlmProvider).where(LlmProvider.id == provider_id)
+            )
+            entity = result.scalars().first()
+            if entity is None:
+                raise BusinessException(
+                    ErrorCode.PROVIDER_NOT_FOUND,
+                    f"未找到 LLM Provider: {provider_id}",
+                )
+            return ProviderSnapshot(
+                id=entity.id,
+                base_url=entity.base_url,
+                api_key=self._encryption_service.decrypt(entity.api_key),
+                model=entity.model,
+                embedding_model=entity.embedding_model,
+                embedding_dimensions=entity.embedding_dimensions,
+                supports_embedding=entity.supports_embedding,
+                temperature=entity.temperature,
+            )
+
+    async def _create_chat_client(
+        self, provider_id: int, streaming: bool = False
+    ) -> ChatOpenAI:
+        config = await self._load_provider(provider_id)
+        logger.info(
+            "Creating ChatOpenAI - provider_id=%s, base_url=%s, model=%s, streaming=%s",
+            provider_id,
+            config.base_url,
+            config.model,
+            streaming,
+        )
+        return ChatOpenAI(
+            model=config.model,
+            api_key=SecretStr(config.api_key) if config.api_key else None,
+            base_url=config.base_url,
+            temperature=config.temperature if config.temperature is not None else _DEFAULT_TEMPERATURE,
+            timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT),
+            max_retries=_MAX_RETRIES,
+            streaming=streaming,
+        )
+
+    def get_recommended_embedding_model(self, provider_name: str) -> str | None:
+        return _RECOMMENDED_EMBEDDING_MODELS.get(provider_name.lower())
