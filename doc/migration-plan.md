@@ -183,12 +183,12 @@ app/
 |-----------|------------|------|
 | `FileStorageService` | `infrastructure/storage/s3.py` | `aioboto3`（异步 S3） |
 | `DocumentParseService` | `infrastructure/parsing/parser.py` | `unstructured`（通用解析） |
-| `ContentTypeDetectionService` | `infrastructure/parsing/content_type.py` | `python-magic` 或 `filetype` |
+| `ContentTypeDetectionService` | `infrastructure/parsing/content_type.py` | `filetype`（纯 Python，替代 python-magic。详见 ADR-0009） |
 | `FileHashService` | `infrastructure/storage/hash.py` | `hashlib.sha256()` |
 | `FileValidationService` | `api/deps.py` + Pydantic 验证器 | FastAPI `UploadFile` |
 | `TextCleaningService` | `infrastructure/parsing/text_cleaner.py` | `re` 预编译正则 |
 | `PdfExportService` | `infrastructure/export/pdf.py` | `WeasyPrint`（HTML->PDF） |
-| `VectorRepository` | `infrastructure/vector/repository.py` | `pgvector` + `asyncpg` / LangChain PGVector |
+| `VectorRepository` | `infrastructure/vector/repository.py` | `pgvector` + SQLAlchemy 手写 CRUD（不用 LangChain PGVector。详见 ADR-0006） |
 | `InterviewSessionCache` | `infrastructure/redis/session_cache.py` | `redis.asyncio` + Pydantic 序列化 |
 | `RedisService` | `infrastructure/redis/client.py` | `redis.asyncio`（缓存/锁/Stream） |
 | MapStruct Mappers (4个) | `infrastructure/mappers/` 或直接 Pydantic 转换 | 手写映射函数 |
@@ -245,7 +245,8 @@ app/
 
 | # | 任务 | 产出 |
 |---|------|------|
-| 0.1 | 配置管理 | `app/config/settings.py`（pydantic-settings，对应 application.yml 全部配置项）+ `.env.example` |
+| 0.1 | 配置管理（静态） | `app/config/settings.py`（pydantic-settings，对应 application.yml 静态配置项：DB/Redis/S3/CORS/语音参数/限流参数等）+ `.env.example` |
+| 0.1b | 配置管理（动态） | `app/config/` LLM Provider 动态配置：数据库 + 内存缓存（去掉 Java 的 YAML 中间层），启动时种子默认 dashscope provider（API Key 空）。详见 ADR-0004 |
 | 0.2 | 数据库基础 | `infrastructure/db/session.py`（async engine + session factory）+ Alembic 迁移初始化 |
 | 0.3 | Redis 客户端 | `infrastructure/redis/client.py`（redis.asyncio 连接池） |
 | 0.4 | 统一响应 + 异常 | `api/responses.py`（Result[T]）+ `api/errors.py`（ErrorCode 枚举 50+ 错误码 + BusinessException）+ `api/exception_handlers.py`（全局异常处理，统一 HTTP 200） |
@@ -284,7 +285,7 @@ app/
 | 2.1 | 异步任务基类 | `AbstractStreamConsumer/Producer` | `infrastructure/tasks/base_*.py`：redis.asyncio Stream + 消费者组 + Pending 回收(5min) + 重试(3次) + 幂等(shouldSkip) + 状态机 |
 | 2.2 | S3 文件存储 | `FileStorageService` | `infrastructure/storage/s3.py`：aioboto3 上传/下载/删除，存储键格式 `{prefix}/{yyyy/MM/dd}/{uuid}_{filename}` |
 | 2.3 | 文档解析 | `DocumentParseService` | `infrastructure/parsing/parser.py`：unstructured 通用解析（PDF/DOCX/TXT/MD） |
-| 2.4 | 文件类型检测 | `ContentTypeDetectionService` | `infrastructure/parsing/content_type.py`：python-magic 魔数检测 |
+| 2.4 | 文件类型检测 | `ContentTypeDetectionService` | `infrastructure/parsing/content_type.py`：`filetype` 魔数检测（纯 Python，无 C 依赖。详见 ADR-0009） |
 | 2.5 | 文件哈希 + 校验 | `FileHashService` + `FileValidationService` | SHA-256 去重 + 大小/类型白名单校验 |
 | 2.6 | 文本清洗 | `TextCleaningService` | `infrastructure/parsing/text_cleaner.py`：语义去噪 + 格式规范化 |
 | 2.7 | 向量仓储 | `VectorRepository` | `infrastructure/vector/repository.py`：pgvector CRUD + 两阶段提交(pending->promote) |
@@ -557,7 +558,8 @@ def after_commit(session):
     for task in session.info.get("pending_tasks", []):
         await producer.send(task)
 
-# 方案B：显式顺序（推荐，更清晰）
+# 方案B：显式顺序（✅ 已确认，详见 ADR-0008）
+# 加降级：不在事务中时直接发送（与 Java 降级行为一致）
 async def end_session(session_id):
     async with session.begin():
         session.update(status=COMPLETED, ...)
@@ -598,6 +600,12 @@ async def end_session(session_id):
 ---
 
 ## 附录 A：错误码全量表
+
+### 成功码
+
+| 错误码 | 枚举名 | 含义 |
+|--------|--------|------|
+| 200 | SUCCESS | 成功（`CommonConstants.StatusCode.SUCCESS = 200`，非 0） |
 
 ### 通用错误码
 
@@ -811,3 +819,53 @@ async def end_session(session_id):
 - 暂停超时自动暂停：5分钟
 - ASR 重连：最多 2 次，每次延迟 10 秒
 - 回声抑制冷却期：800ms
+
+---
+
+## 附录 G：Grilling 修正补充
+
+> 以下决策在 grilling 会话中确认，补充原文未覆盖的内容。对应 ADR 见 `docs/adr/`。
+
+### G.1 部署并发模型：单 worker（ADR-0005）
+
+Python 用 `uvicorn --workers 1` + asyncio 并发，与 Java 单进程 + 虚拟线程等价。消除多 worker 下的消费者重复消费、APScheduler 重复触发、WebSocket 跨进程等问题。AI 应用 I/O 密集型，asyncio 单进程足够。水平扩展可后续通过多容器 + Redis 协调实现。
+
+### G.2 LLM 调用重试分层
+
+| 层 | 参数 | 处理的错误 | 与 Java 对应 |
+|----|------|-----------|-------------|
+| SDK 层 | `ChatOpenAI(max_retries=2)` | 429/5xx/网络错误 | Java `spring.ai.retry.max-attempts=1`（Python 加大，因 SDK 只重试传输错误） |
+| 业务层 | `tenacity` 重试 2 次 | 结构化输出 JSON 解析失败 | Java `structured-max-attempts: 2` |
+
+两层互不干扰。业务层重试时追加修复提示词 + 上次错误信息（与 Java 一致）。
+
+### G.3 时间/时区策略
+
+- 数据库：存 aware datetime（UTC）
+- API 序列化：Pydantic 输出带时区后缀的 ISO 8601（如 `2026-07-14T12:00:00+00:00`）
+- 前端 `new Date()` 自动转为本地时区显示，与 Java 的 `LocalDateTime` 行为在前端显示上一致
+- **注意**：Java 返回无时区后缀的本地时间字符串，Python 返回带时区后缀的 UTC 字符串，前端 `new Date()` 均能正确解析
+
+### G.4 评估服务并行分批
+
+Java 顺序分批（batch_size=8），Python 用 `asyncio.gather` + `asyncio.Semaphore(3)` 并行各批。并发数 3 对多数 LLM 供应商安全。某批失败返回 None，后续零分兜底（与 Java 一致）。
+
+### G.5 认证策略（ADR-0007）
+
+不实现认证（与 Java 一致）。限流 USER 维度可选：无 `X-User-Id` header 时跳过 USER 规则，仅执行 GLOBAL + IP。
+
+### G.6 Prompt 模板格式
+
+`.st` 文件用 `{varName}` 占位符，与 LangChain `PromptTemplate` 默认格式直接兼容，无需改语法。
+
+### G.7 知识库分块
+
+LangChain `TokenTextSplitter`，~800 tokens/chunk，标点边界切分，无重叠，embedding batch ≤ 10（与 Java Spring AI `TokenTextSplitter` 默认配置一致）。
+
+### G.8 文件名拼音转换
+
+`pypinyin` 全拼无声调 + 首字母大写（大驼峰），非汉字字符保留（与 Java pinyin4j 一致）。
+
+### G.9 API Key 加密
+
+`cryptography` AES-GCM，密钥从环境变量 `APP_AI_CONFIG_ENCRYPTION_KEY` 读，启动时必须提供，不允许 fallback（与 Java 一致）。
