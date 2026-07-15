@@ -30,5 +30,23 @@ class Settings(BaseSettings):
     secret_key: str = ""
     app_ai_config_encryption_key: str = ""
 
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://localhost:80",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+        "http://127.0.0.1:80",
+    ]
+
+    voice_asr_language: str = "zh-CN"
+    voice_tts_voice: str = "longxiaochun"
+    voice_session_idle_timeout: int = 120
+    voice_reconnect_timeout: int = 30
+
+    rate_limit_global: int = 100
+    rate_limit_per_ip: int = 30
+    rate_limit_per_user: int = 60
+
 
 settings = Settings()
