@@ -67,7 +67,7 @@
 
 ## 二、目标架构
 
-遵循 `AGENTS.md` 已定义的 DDD 分层（**务实 DDD**：domain 层定义仓储接口，infrastructure 层 SQLAlchemy 模型同时充当领域实体），将 Java 的 MVC 三层映射为 Python DDD 四层：
+遵循 `AGENTS.md` 定义的分层架构（依赖方向：api -> application -> domain，infrastructure 实现 domain 定义的接口）。按模块复杂度分层：简单 CRUD 模块（供应商、日程）可不经过 domain 层；复杂业务逻辑（评估算法、出题策略、RAG 检索、语音阶段切换）必须隔离到 `domain/services/` 作为纯 Python 函数/类，接收 dataclass、返回 dataclass，不依赖任何框架。SQLAlchemy 模型留 `infrastructure/db/models/`，application 层负责 Model↔dataclass 转换。
 
 ```
 app/
@@ -81,7 +81,7 @@ app/
 ├── api/                         # API 路由层（仅路由、校验、委托）
 │   ├── deps.py                  # FastAPI Depends 依赖注入
 │   ├── responses.py             # Result[T] 统一响应模型
-│   ├── errors.py                # ErrorCode 枚举 + BusinessException
+│   ├── errors.py                # re-export from domain/errors.py（渐进式兼容）
 │   ├── exception_handlers.py    # 全局异常处理器
 │   └── routers/                 # 8 个 APIRouter（对应 8 个 Controller）
 │       ├── interview.py         # 模拟面试 + 技能管理（15 接口）
@@ -100,19 +100,20 @@ app/
 │   ├── schedule/                # 日程应用服务
 │   ├── llm_provider/            # 供应商应用服务
 │   └── voice/                   # 语音面试应用服务
-├── domain/                      # 领域层
-│   ├── entities/                # 领域实体（SQLAlchemy 模型充当，务实 DDD）
+├── domain/                      # 领域层（纯 Python，零框架依赖）
+│   ├── errors.py                # ErrorCode 枚举 + BusinessException
 │   ├── enums.py                 # 状态枚举（SessionStatus/AsyncTaskStatus/...）
-│   ├── services/                # 领域服务（纯业务逻辑）
+│   ├── services/                # 领域服务（复杂业务逻辑，接收/返回 dataclass）
 │   │   ├── evaluation.py        # 统一评估算法（分批+汇总+降级）
 │   │   ├── question_gen.py      # 出题策略 + 降级链
 │   │   ├── rag_query.py         # RAG 检索策略
 │   │   └── voice_phase.py       # 语音面试阶段切换规则
-│   └── repositories/            # 仓储接口（Protocol/ABC）
+│   └── repositories/            # 仓储接口（Protocol，仅复杂模块需要时定义）
 ├── infrastructure/              # 基础设施层（仓储实现 + 外部服务适配器）
 │   ├── db/                      # SQLAlchemy 数据库层
 │   │   ├── base.py              # Declarative Base + 公共 Mixin
 │   │   ├── session.py           # 异步 Engine + SessionFactory
+│   │   ├── models/              # SQLAlchemy ORM 模型
 │   │   └── repositories/        # 仓储实现类（实现 domain 定义的 Protocol）
 │   ├── redis/                   # Redis 服务
 │   │   ├── client.py            # redis.asyncio 连接池
@@ -123,11 +124,13 @@ app/
 │   │   └── hash.py              # SHA-256 文件哈希
 │   ├── ai/                      # LLM 调用基础设施
 │   │   ├── llm_registry.py      # 多供应商 LLM 管理
+│   │   ├── provider_snapshot.py # ProviderSnapshot + looks_like_chat_model（纯数据）
 │   │   ├── structured_output.py # 结构化输出调用
 │   │   ├── prompt_sanitizer.py  # Prompt 注入防御
 │   │   ├── prompt_constants.py  # 安全指令常量
 │   │   ├── encryption.py        # API Key 加密
-│   │   └── embeddings.py        # Embedding 模型管理
+│   │   ├── embeddings.py        # Embedding 模型管理
+│   │   └── prompt_loader.py     # Prompt 模板加载（aiofiles 异步）
 │   ├── parsing/                 # 文档解析
 │   │   ├── parser.py            # unstructured 通用解析
 │   │   ├── content_type.py      # 文件类型检测

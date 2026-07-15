@@ -54,13 +54,13 @@ make verify
 - **一个对话 = 一个任务**：不混杂多个不相关的改动
 - **类型注解必须完整**：所有函数签名必须有类型注解，新增代码必须通过 `uv run mypy app/`
 - **异步优先**：数据库操作和外部 I/O 使用 async/await，禁止在异步上下文中调用同步阻塞 I/O
-- **DDD 分层依赖**：api -> application -> domain，infrastructure 实现 domain 定义的接口，禁止跨层调用
+- **分层依赖方向**：api -> application -> domain，infrastructure 实现 domain 定义的接口，依赖方向不可逆。简单 CRUD 模块可不经过 domain 层（application 直接调 infrastructure），但复杂业务逻辑（评估算法、出题策略等）必须隔离到 domain/services/ 作为纯函数/类，接收 dataclass、返回 dataclass，不依赖任何框架
+- **domain 层零框架依赖**：禁止在 domain 层引入 FastAPI 或 SQLAlchemy。domain 层只放纯 Python（枚举、dataclass、领域服务算法、Protocol 接口）。SQLAlchemy 模型留 infrastructure/db/models/
 - **依赖注入**：使用 FastAPI 的 `Depends` 进行依赖注入，禁止在模块级别直接实例化服务
 - **禁止硬编码密钥**：API Key、数据库密码等敏感信息只放 `.env`，通过 `app/config/` 读取，不得提交到 Git
 
 ### 禁止事项
 - 禁止提交未经用户确认的代码
-- 禁止在 domain 层引入 FastAPI 或 SQLAlchemy 等框架依赖
 - 禁止执行 `git push`，除非用户在单次对话中明确提出 push
 
 ## 5. 行为边界
