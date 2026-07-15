@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi.responses import Response
 
 from app.api.deps import get_resume_service
 from app.api.rate_limit import global_key, limiter
@@ -54,3 +55,29 @@ async def delete_resume(
 ) -> Result[None]:
     await service.delete(resume_id)
     return Result.success(data=None)
+
+
+@router.post("/{resume_id}/reanalyze")
+@limiter.limit("2/second", key_func=global_key)
+@limiter.limit("2/second")
+async def reanalyze_resume(
+    request: Request,  # noqa: ARG001  slowapi 限流必需
+    resume_id: int,
+    service: ResumeService = Depends(get_resume_service),
+) -> Result[None]:
+    await service.reanalyze(resume_id)
+    return Result.success(data=None)
+
+
+@router.get("/{resume_id}/export")
+async def export_resume_pdf(
+    resume_id: int,
+    service: ResumeService = Depends(get_resume_service),
+) -> Response:
+    pdf_bytes = await service.export_pdf(resume_id)
+    filename = f"resume_{resume_id}_analysis.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

@@ -78,6 +78,8 @@ def _mock_service() -> MagicMock:
     service.list_resumes = AsyncMock()
     service.get_detail = AsyncMock()
     service.delete = AsyncMock()
+    service.reanalyze = AsyncMock()
+    service.export_pdf = AsyncMock()
     return service
 
 
@@ -246,3 +248,62 @@ class TestResumeDetailWithAnalysis:
         body = response.json()
         assert body["data"]["analyses"][0]["overallScore"] == 90
         assert body["data"]["analyses"][0]["strengths"] == ["项目经验丰富"]
+
+
+class TestReanalyzeResume:
+    def test_triggers_reanalyze_successfully(self, mock_service: MagicMock) -> None:
+        mock_service.reanalyze.return_value = None
+
+        response = client.post("/api/resumes/1/reanalyze")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["code"] == 200
+        mock_service.reanalyze.assert_awaited_once_with(1)
+
+    def test_not_found_returns_error(self, mock_service: MagicMock) -> None:
+        mock_service.reanalyze.side_effect = BusinessException(ErrorCode.RESUME_NOT_FOUND)
+
+        response = client.post("/api/resumes/999/reanalyze")
+
+        body = response.json()
+        assert body["code"] == ErrorCode.RESUME_NOT_FOUND.code
+
+    def test_rate_limit_blocks_third_request(self, mock_service: MagicMock) -> None:
+        mock_service.reanalyze.return_value = None
+
+        codes: list[int] = []
+        for _ in range(3):
+            response = client.post("/api/resumes/1/reanalyze")
+            codes.append(response.json()["code"])
+
+        assert codes[:2] == [200, 200]
+        assert codes[2] == ErrorCode.RATE_LIMIT_EXCEEDED.code
+
+
+class TestExportResumePdf:
+    def test_returns_pdf_bytes(self, mock_service: MagicMock) -> None:
+        mock_service.export_pdf.return_value = b"%PDF-1.4 fake report"
+
+        response = client.get("/api/resumes/1/export")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert response.content == b"%PDF-1.4 fake report"
+        assert "attachment" in response.headers["content-disposition"]
+
+    def test_not_found_returns_error(self, mock_service: MagicMock) -> None:
+        mock_service.export_pdf.side_effect = BusinessException(ErrorCode.RESUME_NOT_FOUND)
+
+        response = client.get("/api/resumes/999/export")
+
+        body = response.json()
+        assert body["code"] == ErrorCode.RESUME_NOT_FOUND.code
+
+    def test_no_analysis_returns_error(self, mock_service: MagicMock) -> None:
+        mock_service.export_pdf.side_effect = BusinessException(ErrorCode.RESUME_ANALYSIS_NOT_FOUND)
+
+        response = client.get("/api/resumes/1/export")
+
+        body = response.json()
+        assert body["code"] == ErrorCode.RESUME_ANALYSIS_NOT_FOUND.code

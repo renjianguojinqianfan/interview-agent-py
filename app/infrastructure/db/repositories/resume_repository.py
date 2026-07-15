@@ -37,6 +37,18 @@ class ResumeRepository:
     async def delete(self, session: AsyncSession, resume: Resume) -> None:
         await session.delete(resume)
 
+    async def update_analyze_status(
+        self, session: AsyncSession, resume: Resume, status: str, error: str | None = None
+    ) -> None:
+        resume.analyze_status = status
+        resume.analyze_error = error
+        await session.flush()
+
+    async def save_analysis(self, session: AsyncSession, analysis: ResumeAnalysis) -> ResumeAnalysis:
+        session.add(analysis)
+        await session.flush()
+        return analysis
+
     async def increment_access_count(self, session: AsyncSession, resume: Resume) -> None:
         resume.access_count += 1
         resume.last_accessed_at = datetime.now()

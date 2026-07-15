@@ -1,4 +1,5 @@
 import logging
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIASGIMiddleware
 
+from app.api.deps import (
+    start_resume_analyze_consumer,
+    stop_resume_analyze_consumer,
+)
 from app.api.exception_handlers import register_exception_handlers
 from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
@@ -17,6 +22,8 @@ from app.infrastructure.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
 
+_CONSUMER_AUTO_START = "pytest" not in sys.modules
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
@@ -25,7 +32,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     except Exception:
         logger.warning("Database unavailable, skipping provider seed")
 
+    if _CONSUMER_AUTO_START:
+        await start_resume_analyze_consumer()
+
     yield
+
+    if _CONSUMER_AUTO_START:
+        await stop_resume_analyze_consumer()
 
 
 app = FastAPI(

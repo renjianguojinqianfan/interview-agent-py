@@ -181,3 +181,41 @@ class TestDeleteAnalysesByResumeId:
         count = await repo.delete_analyses_by_resume_id(session, 1)
 
         assert count == 3
+
+
+class TestUpdateAnalyzeStatus:
+    async def test_sets_status_and_error(self, repo: ResumeRepository, session: AsyncMock) -> None:
+        resume = _make_resume(analyze_status="PENDING")
+
+        await repo.update_analyze_status(session, resume, "PROCESSING", None)
+
+        assert resume.analyze_status == "PROCESSING"
+        assert resume.analyze_error is None
+        session.flush.assert_called_once()
+
+    async def test_sets_failed_status_with_error(self, repo: ResumeRepository, session: AsyncMock) -> None:
+        resume = _make_resume(analyze_status="PROCESSING")
+
+        await repo.update_analyze_status(session, resume, "FAILED", "LLM 超时")
+
+        assert resume.analyze_status == "FAILED"
+        assert resume.analyze_error == "LLM 超时"
+
+    async def test_clears_error_when_status_not_failed(self, repo: ResumeRepository, session: AsyncMock) -> None:
+        resume = _make_resume(analyze_status="FAILED", analyze_error="旧错误")
+
+        await repo.update_analyze_status(session, resume, "COMPLETED", None)
+
+        assert resume.analyze_status == "COMPLETED"
+        assert resume.analyze_error is None
+
+
+class TestSaveAnalysis:
+    async def test_adds_and_flushes_returning_same_object(self, repo: ResumeRepository, session: AsyncMock) -> None:
+        analysis = ResumeAnalysis(id=None, resume_id=1, overall_score=88)
+
+        result = await repo.save_analysis(session, analysis)
+
+        session.add.assert_called_once_with(analysis)
+        session.flush.assert_called_once()
+        assert result is analysis

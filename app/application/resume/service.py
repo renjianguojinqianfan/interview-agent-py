@@ -17,10 +17,12 @@ from app.domain.entities.task_status import AsyncTaskStatus
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
+from app.infrastructure.export.pdf import PdfExportService
 from app.infrastructure.parsing.content_type import ContentTypeDetector
 from app.infrastructure.parsing.parser import DocumentParser
 from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService
+from app.infrastructure.tasks.resume_analyze_producer import AnalyzeStreamProducer, ResumeAnalyzePayload
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,8 @@ class ResumeService:
         hash_service: FileHashService,
         content_detector: ContentTypeDetector,
         storage: S3StorageService,
+        producer: AnalyzeStreamProducer,
+        pdf_service: PdfExportService,
         allowed_types: list[str],
         max_file_size: int,
     ) -> None:
@@ -47,6 +51,8 @@ class ResumeService:
         self._hash_service = hash_service
         self._content_detector = content_detector
         self._storage = storage
+        self._producer = producer
+        self._pdf_service = pdf_service
         self._allowed_types = allowed_types
         self._max_file_size = max_file_size
 
@@ -91,6 +97,7 @@ class ResumeService:
         await self._repository.save(self._session, resume)
         await self._session.commit()
         logger.info("简历上传完成: resumeId=%s, filename=%s", resume.id, filename)
+        await self._enqueue_analyze(resume.id)
 
         return ResumeUploadResponse(
             resume=self._to_resume_info(resume),
@@ -160,6 +167,30 @@ class ResumeService:
         await self._repository.delete(self._session, resume)
         await self._session.commit()
         logger.info("简历已删除: resumeId=%s", resume_id)
+
+    async def reanalyze(self, resume_id: int) -> None:
+        resume = await self._repository.get_by_id(self._session, resume_id)
+        if resume is None:
+            raise BusinessException(ErrorCode.RESUME_NOT_FOUND)
+
+        await self._repository.update_analyze_status(self._session, resume, AsyncTaskStatus.PENDING.value, None)
+        await self._session.commit()
+        logger.info("简历重新分析已触发: resumeId=%s", resume_id)
+        await self._enqueue_analyze(resume_id)
+
+    async def export_pdf(self, resume_id: int) -> bytes:
+        resume = await self._repository.get_by_id(self._session, resume_id)
+        if resume is None:
+            raise BusinessException(ErrorCode.RESUME_NOT_FOUND)
+
+        analysis = await self._repository.find_latest_analysis(self._session, resume_id)
+        if analysis is None:
+            raise BusinessException(ErrorCode.RESUME_ANALYSIS_NOT_FOUND)
+
+        return await self._pdf_service.export_resume_analysis(resume, analysis)
+
+    async def _enqueue_analyze(self, resume_id: int) -> None:
+        await self._producer.send_task(ResumeAnalyzePayload(resume_id=resume_id))
 
     def _validate_size(self, data: bytes) -> None:
         if len(data) > self._max_file_size:

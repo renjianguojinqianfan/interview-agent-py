@@ -48,6 +48,9 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
     repository.find_analyses_by_resume_id = AsyncMock()
     repository.delete_analyses_by_resume_id = AsyncMock()
 
+    repository.update_analyze_status = AsyncMock()
+    repository.save_analysis = AsyncMock()
+
     parser = MagicMock()
     hash_service = MagicMock()
     content_detector = MagicMock()
@@ -56,6 +59,12 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
     storage.build_file_url = MagicMock()
     storage.delete_file = AsyncMock()
 
+    producer = MagicMock()
+    producer.send_task = AsyncMock(return_value="100-0")
+
+    pdf_service = MagicMock()
+    pdf_service.export_resume_analysis = AsyncMock(return_value=b"%PDF-1.4 fake")
+
     service = ResumeService(
         session=session,
         repository=repository,
@@ -63,6 +72,8 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
         hash_service=hash_service,
         content_detector=content_detector,
         storage=storage,
+        producer=producer,
+        pdf_service=pdf_service,
         allowed_types=[
             "application/pdf",
             "application/msword",
@@ -79,6 +90,8 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
         "hash_service": hash_service,
         "content_detector": content_detector,
         "storage": storage,
+        "producer": producer,
+        "pdf_service": pdf_service,
     }
 
 
@@ -327,3 +340,90 @@ class TestDeleteResume:
 
         deps["repository"].delete.assert_awaited_once()
         deps["session"].commit.assert_awaited_once()
+
+
+class TestUploadEnqueue:
+    async def test_enqueues_analyze_task_after_commit(self) -> None:
+        service, deps = _make_service()
+        deps["content_detector"].detect.return_value = "application/pdf"
+        deps["hash_service"].calculate_hash.return_value = "abc123"
+        deps["repository"].find_by_hash.return_value = None
+        deps["parser"].parse_content.return_value = "text"
+        deps["storage"].upload_file.return_value = "key"
+        deps["storage"].build_file_url.return_value = "url"
+
+        await service.upload("resume.pdf", "application/pdf", PDF_BYTES)
+
+        deps["session"].commit.assert_awaited_once()
+        deps["producer"].send_task.assert_awaited_once()
+        payload = deps["producer"].send_task.call_args.args[0]
+        assert payload.resume_id == 1
+
+    async def test_does_not_enqueue_on_duplicate(self) -> None:
+        service, deps = _make_service()
+        existing = _make_resume(id=3)
+        deps["content_detector"].detect.return_value = "application/pdf"
+        deps["hash_service"].calculate_hash.return_value = "abc123"
+        deps["repository"].find_by_hash.return_value = existing
+
+        await service.upload("resume.pdf", "application/pdf", PDF_BYTES)
+
+        deps["producer"].send_task.assert_not_awaited()
+
+
+class TestReanalyze:
+    async def test_resets_to_pending_and_enqueues(self) -> None:
+        service, deps = _make_service()
+        resume = _make_resume(id=1, analyze_status="COMPLETED", analyze_error="old err")
+        deps["repository"].get_by_id.return_value = resume
+
+        await service.reanalyze(1)
+
+        deps["repository"].update_analyze_status.assert_awaited_once()
+        args = deps["repository"].update_analyze_status.call_args.args
+        assert args[2] == "PENDING"
+        assert args[3] is None
+        deps["session"].commit.assert_awaited_once()
+        deps["producer"].send_task.assert_awaited_once()
+
+    async def test_raises_not_found_when_missing(self) -> None:
+        service, deps = _make_service()
+        deps["repository"].get_by_id.return_value = None
+
+        with pytest.raises(BusinessException) as exc_info:
+            await service.reanalyze(999)
+
+        assert exc_info.value.error_code == ErrorCode.RESUME_NOT_FOUND
+
+
+class TestExportPdf:
+    async def test_returns_pdf_bytes(self) -> None:
+        service, deps = _make_service()
+        resume = _make_resume(id=1)
+        analysis = ResumeAnalysis(id=1, resume_id=1, overall_score=85)
+        deps["repository"].get_by_id.return_value = resume
+        deps["repository"].find_latest_analysis.return_value = analysis
+
+        result = await service.export_pdf(1)
+
+        assert result == b"%PDF-1.4 fake"
+        deps["pdf_service"].export_resume_analysis.assert_awaited_once()
+
+    async def test_raises_not_found_when_resume_missing(self) -> None:
+        service, deps = _make_service()
+        deps["repository"].get_by_id.return_value = None
+
+        with pytest.raises(BusinessException) as exc_info:
+            await service.export_pdf(999)
+
+        assert exc_info.value.error_code == ErrorCode.RESUME_NOT_FOUND
+
+    async def test_raises_when_no_analysis(self) -> None:
+        service, deps = _make_service()
+        deps["repository"].get_by_id.return_value = _make_resume(id=1)
+        deps["repository"].find_latest_analysis.return_value = None
+
+        with pytest.raises(BusinessException) as exc_info:
+            await service.export_pdf(1)
+
+        assert exc_info.value.error_code == ErrorCode.RESUME_ANALYSIS_NOT_FOUND
