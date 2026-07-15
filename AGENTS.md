@@ -74,10 +74,11 @@ make verify
 
 1. `uv run pytest` 全部通过
 2. `uv run ruff check .` 通过
-3. `uv run mypy app/` 通过
-4. 已获用户确认（**禁止未经确认的提交**）
+3. `uv run ruff format --check .` 通过
+4. `uv run mypy app/` 通过
+5. 已获用户确认（**禁止未经确认的提交**）
 
-等价快捷方式：`make verify` 一键全检通过（test + typecheck + lint）。
+等价快捷方式：`make verify` 一键全检通过（test + typecheck + lint + format-check）。
 
 ## 7. 上下文维护
 

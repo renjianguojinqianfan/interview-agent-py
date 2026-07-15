@@ -54,7 +54,7 @@ cp .env.example .env
 ## 质量门禁
 
 ```bash
-make verify     # test + typecheck + lint 一键检查
+make verify     # test + typecheck + lint + format-check 一键检查
 make format     # ruff 代码格式化
 ```
 

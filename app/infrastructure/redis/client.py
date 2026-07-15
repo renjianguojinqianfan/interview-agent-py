@@ -30,7 +30,10 @@ class RedisClient:
 
     async def xadd(self, stream_key: str, fields: dict[str, str], max_len: int) -> str:
         result = await self._conn.xadd(
-            stream_key, fields, maxlen=max_len, approximate=True,  # type: ignore[arg-type]
+            stream_key,
+            fields,  # type: ignore[arg-type]
+            maxlen=max_len,
+            approximate=True,
         )
         return str(result)
 

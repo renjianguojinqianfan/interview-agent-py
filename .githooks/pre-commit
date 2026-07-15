@@ -1,2 +1,2 @@
 #!/bin/sh
-powershell.exe -NoProfile -Command "uv run pytest; if (\$LASTEXITCODE -ne 0) { Write-Host 'Tests failed'; exit 1 }; uv run ruff check .; if (\$LASTEXITCODE -ne 0) { Write-Host 'Lint failed'; exit 1 }; uv run mypy app/; if (\$LASTEXITCODE -ne 0) { Write-Host 'Typecheck failed'; exit 1 }; Write-Host 'All checks passed'"
+powershell.exe -NoProfile -Command "uv run pytest; if (\$LASTEXITCODE -ne 0) { Write-Host 'Tests failed'; exit 1 }; uv run ruff check .; if (\$LASTEXITCODE -ne 0) { Write-Host 'Lint failed'; exit 1 }; uv run ruff format --check .; if (\$LASTEXITCODE -ne 0) { Write-Host 'Format check failed (run make format)'; exit 1 }; uv run mypy app/; if (\$LASTEXITCODE -ne 0) { Write-Host 'Typecheck failed'; exit 1 }; Write-Host 'All checks passed'"

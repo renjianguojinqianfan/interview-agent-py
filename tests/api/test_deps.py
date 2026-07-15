@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from app.api.deps import get_db_session, get_llm_registry, get_redis_client, get_s3_storage_service
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.redis.client import RedisClient
@@ -34,8 +36,12 @@ class TestGetRedisClient:
 
 
 class TestGetS3StorageService:
-    def test_returns_s3_storage_service(self) -> None:
+    @patch("app.api.deps.create_s3_storage_service")
+    def test_returns_s3_storage_service(self, mock_create: object) -> None:
         import app.api.deps as deps
+
+        mock_service = S3StorageService(client=None)
+        mock_create.return_value = mock_service
 
         deps._s3_storage = None
         service = get_s3_storage_service()
