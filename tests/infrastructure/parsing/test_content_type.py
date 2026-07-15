@@ -33,9 +33,9 @@ class TestTypePredicates:
     def test_is_word_document(self) -> None:
         detector = ContentTypeDetector()
         assert detector.is_word_document("application/msword") is True
-        assert detector.is_word_document(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ) is True
+        assert (
+            detector.is_word_document("application/vnd.openxmlformats-officedocument.wordprocessingml.document") is True
+        )
         assert detector.is_word_document("text/plain") is False
 
     def test_is_plain_text(self) -> None:

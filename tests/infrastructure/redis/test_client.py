@@ -19,9 +19,7 @@ def client(mock_redis: AsyncMock) -> RedisClient:
 class TestCreateStreamGroup:
     async def test_creates_group_with_mkstream(self, client: RedisClient, mock_redis: AsyncMock) -> None:
         await client.create_stream_group("test:stream", "test-group")
-        mock_redis.xgroup_create.assert_called_once_with(
-            "test:stream", "test-group", id="0", mkstream=True
-        )
+        mock_redis.xgroup_create.assert_called_once_with("test:stream", "test-group", id="0", mkstream=True)
 
     async def test_ignores_busygroup_error(self, client: RedisClient, mock_redis: AsyncMock) -> None:
         mock_redis.xgroup_create.side_effect = ResponseError("BUSYGROUP Consumer Group name already exists")
@@ -38,21 +36,15 @@ class TestXAdd:
         mock_redis.xadd.return_value = "1234567890-0"
         result = await client.xadd("test:stream", {"field": "value"}, max_len=1000)
         assert result == "1234567890-0"
-        mock_redis.xadd.assert_called_once_with(
-            "test:stream", {"field": "value"}, maxlen=1000, approximate=True
-        )
+        mock_redis.xadd.assert_called_once_with("test:stream", {"field": "value"}, maxlen=1000, approximate=True)
 
 
 class TestXReadGroup:
     async def test_reads_new_messages(self, client: RedisClient, mock_redis: AsyncMock) -> None:
-        mock_redis.xreadgroup.return_value = [
-            ("test:stream", [(b"123-0", {b"field": b"value"})])
-        ]
+        mock_redis.xreadgroup.return_value = [("test:stream", [(b"123-0", {b"field": b"value"})])]
         result = await client.xreadgroup("test:stream", "group", "consumer", count=10, block_ms=1000)
         assert len(result) == 1
-        mock_redis.xreadgroup.assert_called_once_with(
-            "group", "consumer", {"test:stream": ">"}, count=10, block=1000
-        )
+        mock_redis.xreadgroup.assert_called_once_with("group", "consumer", {"test:stream": ">"}, count=10, block=1000)
 
 
 class TestXAutoClaim:

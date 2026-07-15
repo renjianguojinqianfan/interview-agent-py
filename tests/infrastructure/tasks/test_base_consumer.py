@@ -114,9 +114,7 @@ class TestShouldSkipIdempotency:
 
 
 class TestParseFailure:
-    async def test_none_payload_acks_without_processing(
-        self, consumer: FakeConsumer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_none_payload_acks_without_processing(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         consumer.parse_payload = lambda msg_id, data: None  # type: ignore[method-assign]
         msg = _make_msg("100-0", 1)
         await consumer._process_message(msg[0], msg[1])
@@ -126,9 +124,7 @@ class TestParseFailure:
 
 
 class TestRetryBoundary:
-    async def test_first_failure_retries_with_count_1(
-        self, consumer: FakeConsumer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_first_failure_retries_with_count_1(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         consumer._fail_ids = {1}
         msg = _make_msg("100-0", 1, retry_count=0)
         await consumer._process_message(msg[0], msg[1])
@@ -139,9 +135,7 @@ class TestRetryBoundary:
         assert "mark_failed" not in " ".join(consumer.calls)
         mock_redis.xack.assert_called_once()
 
-    async def test_second_failure_retries_with_count_2(
-        self, consumer: FakeConsumer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_second_failure_retries_with_count_2(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         consumer._fail_ids = {1}
         msg = _make_msg("100-0", 1, retry_count=1)
         await consumer._process_message(msg[0], msg[1])
@@ -149,9 +143,7 @@ class TestRetryBoundary:
         assert "retry_message:1:2" in consumer.calls
         assert "mark_failed" not in " ".join(consumer.calls)
 
-    async def test_third_failure_retries_with_count_3(
-        self, consumer: FakeConsumer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_third_failure_retries_with_count_3(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         consumer._fail_ids = {1}
         msg = _make_msg("100-0", 1, retry_count=2)
         await consumer._process_message(msg[0], msg[1])
@@ -159,9 +151,7 @@ class TestRetryBoundary:
         assert "retry_message:1:3" in consumer.calls
         assert "mark_failed" not in " ".join(consumer.calls)
 
-    async def test_fourth_attempt_marks_failed(
-        self, consumer: FakeConsumer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_fourth_attempt_marks_failed(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         consumer._fail_ids = {1}
         msg = _make_msg("100-0", 1, retry_count=MAX_RETRY_COUNT)
         await consumer._process_message(msg[0], msg[1])
@@ -182,18 +172,14 @@ class TestRetryBoundary:
 
 
 class TestConsumeLoop:
-    async def test_processes_messages_from_xreadgroup(
-        self, consumer: FakeConsumer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_processes_messages_from_xreadgroup(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         call_count = 0
 
         async def fake_xreadgroup(*args: Any, **kwargs: Any) -> list[Any]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return [
-                    ("test:stream", [_make_msg("100-0", 1), _make_msg("100-1", 2)])
-                ]
+                return [("test:stream", [_make_msg("100-0", 1), _make_msg("100-1", 2)])]
             consumer._running = False
             return []
 
@@ -206,9 +192,7 @@ class TestConsumeLoop:
         assert "mark_processing:1" in consumer.calls
         assert "mark_processing:2" in consumer.calls
 
-    async def test_processes_pending_from_xautoclaim(
-        self, consumer: FakeConsumer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_processes_pending_from_xautoclaim(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         call_count = 0
 
         async def fake_xautoclaim(*args: Any, **kwargs: Any) -> tuple[Any, list[Any]]:

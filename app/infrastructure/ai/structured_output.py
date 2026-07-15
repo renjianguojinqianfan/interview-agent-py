@@ -110,9 +110,7 @@ class StructuredOutputInvoker:
             f"{error_prefix}{last_error}" if last_error else f"{error_prefix}unknown",
         )
 
-    def _build_retry_prompt(
-        self, system_prompt: str, last_error: Exception | None
-    ) -> str:
+    def _build_retry_prompt(self, system_prompt: str, last_error: Exception | None) -> str:
         prompt = system_prompt + "\n\n" + _STRICT_JSON_INSTRUCTION + "\n"
         prompt += "上次输出解析失败，请仅返回合法 JSON。"
         if last_error is not None:

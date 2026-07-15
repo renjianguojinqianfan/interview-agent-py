@@ -95,9 +95,7 @@ class LlmProviderRegistry:
 
     async def _load_provider(self, provider_id: int) -> ProviderSnapshot:
         async with self._session_factory() as session:
-            result = await session.execute(
-                select(LlmProvider).where(LlmProvider.id == provider_id)
-            )
+            result = await session.execute(select(LlmProvider).where(LlmProvider.id == provider_id))
             entity = result.scalars().first()
             if entity is None:
                 raise BusinessException(
@@ -115,9 +113,7 @@ class LlmProviderRegistry:
                 temperature=entity.temperature,
             )
 
-    async def _create_chat_client(
-        self, provider_id: int, streaming: bool = False
-    ) -> ChatOpenAI:
+    async def _create_chat_client(self, provider_id: int, streaming: bool = False) -> ChatOpenAI:
         config = await self._load_provider(provider_id)
         logger.info(
             "Creating ChatOpenAI - provider_id=%s, base_url=%s, model=%s, streaming=%s",

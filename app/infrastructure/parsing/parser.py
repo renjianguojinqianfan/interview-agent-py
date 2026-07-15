@@ -35,9 +35,7 @@ class DocumentParser:
 
         try:
             content_type = self._detector.detect(data, filename)
-            if self._detector.is_plain_text(content_type) or self._detector.is_markdown(
-                content_type, filename
-            ):
+            if self._detector.is_plain_text(content_type) or self._detector.is_markdown(content_type, filename):
                 raw = data.decode("utf-8", errors="replace")
             elif self._detector.is_pdf(content_type):
                 elements = _partition_pdf(data)

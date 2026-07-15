@@ -63,6 +63,4 @@ class PromptSanitizer:
     def detect_injection_attempt(self, text: str | None) -> bool:
         if text is None or not text:
             return False
-        return bool(
-            _ROLE_INJECTION_PATTERN.search(text) or _INJECTION_PHRASE_PATTERN.search(text)
-        )
+        return bool(_ROLE_INJECTION_PATTERN.search(text) or _INJECTION_PHRASE_PATTERN.search(text))

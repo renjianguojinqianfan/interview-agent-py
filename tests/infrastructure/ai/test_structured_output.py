@@ -43,9 +43,7 @@ def invoker() -> StructuredOutputInvoker:
 
 
 class TestStructuredOutputInvokerSuccess:
-    async def test_returns_parsed_result_on_first_attempt(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_returns_parsed_result_on_first_attempt(self, invoker: StructuredOutputInvoker) -> None:
         llm = _make_mock_llm()
         result = await invoker.invoke(
             llm=llm,
@@ -59,9 +57,7 @@ class TestStructuredOutputInvokerSuccess:
         assert result.name == "test"
         assert result.score == 90
 
-    async def test_system_prompt_gets_anti_injection_appended(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_system_prompt_gets_anti_injection_appended(self, invoker: StructuredOutputInvoker) -> None:
         llm = _make_mock_llm()
         await invoker.invoke(
             llm=llm,
@@ -80,9 +76,7 @@ class TestStructuredOutputInvokerSuccess:
 
 
 class TestStructuredOutputInvokerRetry:
-    async def test_retries_on_parsing_error_then_succeeds(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_retries_on_parsing_error_then_succeeds(self, invoker: StructuredOutputInvoker) -> None:
         results = [
             _make_raw_result(parsed=None, parsing_error=Exception("invalid json")),
             _make_raw_result(),
@@ -99,9 +93,7 @@ class TestStructuredOutputInvokerRetry:
         )
         assert result.name == "test"
 
-    async def test_raises_after_max_attempts(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_raises_after_max_attempts(self, invoker: StructuredOutputInvoker) -> None:
         results = [
             _make_raw_result(
                 content="not parseable text",
@@ -128,9 +120,7 @@ class TestStructuredOutputInvokerRetry:
         assert exc_info.value.error_code == ErrorCode.AI_SERVICE_ERROR
         assert "err:" in exc_info.value.message
 
-    async def test_retry_prompt_includes_strict_json_instruction(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_retry_prompt_includes_strict_json_instruction(self, invoker: StructuredOutputInvoker) -> None:
         results = [
             _make_raw_result(
                 content="not parseable",
@@ -157,9 +147,7 @@ class TestStructuredOutputInvokerRetry:
 
 
 class TestStructuredOutputInvokerJsonRepair:
-    async def test_json_repair_fixes_broken_json(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_json_repair_fixes_broken_json(self, invoker: StructuredOutputInvoker) -> None:
         broken_content = '{"name": "test", "score": 90,}'  # trailing comma
         results = [
             _make_raw_result(
@@ -183,9 +171,7 @@ class TestStructuredOutputInvokerJsonRepair:
 
 
 class TestStructuredOutputInvokerSdkError:
-    async def test_sdk_error_not_retried_by_tenacity(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_sdk_error_not_retried_by_tenacity(self, invoker: StructuredOutputInvoker) -> None:
         mock_llm = MagicMock()
         mock_runnable = MagicMock()
         mock_runnable.ainvoke = AsyncMock(side_effect=Exception("network error"))
@@ -204,9 +190,7 @@ class TestStructuredOutputInvokerSdkError:
         assert exc_info.value.error_code == ErrorCode.AI_SERVICE_ERROR
         assert mock_runnable.ainvoke.call_count == 1
 
-    async def test_sdk_error_raises_business_exception_not_swallowed(
-        self, invoker: StructuredOutputInvoker
-    ) -> None:
+    async def test_sdk_error_raises_business_exception_not_swallowed(self, invoker: StructuredOutputInvoker) -> None:
         mock_llm = MagicMock()
         mock_runnable = MagicMock()
         sdk_error = RuntimeError("connection refused")

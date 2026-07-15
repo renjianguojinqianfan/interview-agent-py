@@ -60,9 +60,7 @@ class TestSendTask:
         result = await producer.send_task({"id": 1, "data": "hello"})
         assert result == "100-0"
 
-    async def test_send_failure_calls_on_send_failed(
-        self, producer: FakeProducer, mock_redis: AsyncMock
-    ) -> None:
+    async def test_send_failure_calls_on_send_failed(self, producer: FakeProducer, mock_redis: AsyncMock) -> None:
         mock_redis.xadd.side_effect = RuntimeError("Redis error")
         await producer.send_task({"id": 42, "data": "fail"})
 

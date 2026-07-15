@@ -79,9 +79,7 @@ def provider(encryption_service: ApiKeyEncryptionService) -> LlmProvider:
 
 
 @pytest.fixture()
-def registry(
-    encryption_service: ApiKeyEncryptionService, provider: LlmProvider
-) -> LlmProviderRegistry:
+def registry(encryption_service: ApiKeyEncryptionService, provider: LlmProvider) -> LlmProviderRegistry:
     session_factory = _make_mock_session_factory(default_provider=provider)
     return LlmProviderRegistry(encryption_service, session_factory)
 
@@ -139,9 +137,7 @@ class TestLlmProviderRegistryReload:
 
 
 class TestLlmProviderRegistryProviderNotFound:
-    async def test_provider_not_found_raises(
-        self, encryption_service: ApiKeyEncryptionService
-    ) -> None:
+    async def test_provider_not_found_raises(self, encryption_service: ApiKeyEncryptionService) -> None:
         @asynccontextmanager
         async def empty_factory():
             session = AsyncMock()
@@ -159,9 +155,7 @@ class TestLlmProviderRegistryProviderNotFound:
 
 
 class TestLlmProviderRegistryTemperatureDefault:
-    async def test_default_temperature_when_null(
-        self, encryption_service: ApiKeyEncryptionService
-    ) -> None:
+    async def test_default_temperature_when_null(self, encryption_service: ApiKeyEncryptionService) -> None:
         provider = _make_provider(
             api_key=encryption_service.encrypt("sk-test"),
             temperature=None,

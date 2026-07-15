@@ -79,9 +79,7 @@ class VectorRepository:
         )
 
         try:
-            result = await session.execute(
-                sql, {"kb_id": str(kb_id), "job_id": job_id}
-            )
+            result = await session.execute(sql, {"kb_id": str(kb_id), "job_id": job_id})
             updated = getattr(result, "rowcount", 0) or 0
             logger.info("提升临时向量为正式数据: kbId=%s, jobId=%s, 更新行数=%d", kb_id, job_id, updated)
             return updated
@@ -97,15 +95,10 @@ class VectorRepository:
         session: AsyncSession,
         kb_id: int,
     ) -> int:
-        sql = text(
-            "DELETE FROM vector_store "
-            "WHERE metadata->>'kb_id' = :kb_id"
-        )
+        sql = text("DELETE FROM vector_store WHERE metadata->>'kb_id' = :kb_id")
 
         try:
-            result = await session.execute(
-                sql, {"kb_id": str(kb_id)}
-            )
+            result = await session.execute(sql, {"kb_id": str(kb_id)})
             deleted = getattr(result, "rowcount", 0) or 0
             logger.info("删除知识库向量: kbId=%s, 删除行数=%d", kb_id, deleted)
             return deleted
@@ -121,10 +114,7 @@ class VectorRepository:
         session: AsyncSession,
         job_id: str,
     ) -> int:
-        sql = text(
-            "DELETE FROM vector_store "
-            "WHERE metadata->>'kb_vector_job_id' = :job_id"
-        )
+        sql = text("DELETE FROM vector_store WHERE metadata->>'kb_vector_job_id' = :job_id")
 
         try:
             result = await session.execute(sql, {"job_id": job_id})

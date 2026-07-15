@@ -39,10 +39,7 @@ def upgrade() -> None:
 
     op.execute("ALTER TABLE vector_store ADD COLUMN embedding vector(1024)")
 
-    op.execute(
-        "CREATE INDEX vector_store_embedding_hnsw_idx "
-        "ON vector_store USING hnsw (embedding vector_cosine_ops)"
-    )
+    op.execute("CREATE INDEX vector_store_embedding_hnsw_idx ON vector_store USING hnsw (embedding vector_cosine_ops)")
 
 
 def downgrade() -> None:
