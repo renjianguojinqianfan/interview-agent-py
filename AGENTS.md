@@ -34,8 +34,6 @@ uv run mypy app/                         # 提交前必须通过
 
 # 一键质量门禁（推荐提交前运行）
 make verify
-# Windows 无 make 时的等价命令：
-# uv run pytest && uv run ruff check . && uv run mypy app/
 ```
 
 ## 3. 目录结构（DDD 分层）
