@@ -54,6 +54,17 @@ extend-exclude = ["check_services.py"]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM"]
 ignore = ["N818"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 依赖注入与查询参数习惯在默认值中调用 Depends/Query/File 等，此处放行 B008
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.File",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Form",
+]
+
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
 
