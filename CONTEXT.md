@@ -86,6 +86,10 @@ _Avoid_: 会话状态（用 SessionStatus 精确指代）
 知识库向量的两阶段状态：pending（待定）-> promoted（正式，可检索）。
 _Avoid_: 向量状态
 
+**AsyncTaskStatus**:
+异步任务状态机，复用于简历分析、知识库向量化、语音评估等 Stream 消费者：PENDING -> PROCESSING -> COMPLETED / FAILED。
+_Avoid_: 任务状态（用 AsyncTaskStatus 精确指代）
+
 ### LLM 配置
 
 **LlmProvider**:
