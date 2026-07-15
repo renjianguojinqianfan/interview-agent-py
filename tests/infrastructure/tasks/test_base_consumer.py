@@ -29,7 +29,7 @@ class FakeConsumer(BaseStreamConsumer[dict[str, Any]]):
     def task_display_name(self) -> str:
         return "test-task"
 
-    def parse_payload(self, msg_id: Any, data: dict[bytes, bytes]) -> dict[str, Any] | None:
+    def parse_payload(self, msg_id: str, data: dict[bytes, bytes]) -> dict[str, Any] | None:
         id_val = data.get(b"testId", b"0")
         retry_val = data.get(FIELD_RETRY_COUNT.encode(), b"0")
         return {"id": int(id_val), "retryCount": int(retry_val)}
@@ -68,12 +68,12 @@ def consumer(mock_redis: AsyncMock) -> FakeConsumer:
     return FakeConsumer(RedisClient(mock_redis))
 
 
-def _make_msg(msg_id: str, payload_id: int, retry_count: int = 0) -> tuple[bytes, dict[bytes, bytes]]:
+def _make_msg(msg_id: str, payload_id: int, retry_count: int = 0) -> tuple[str, dict[bytes, bytes]]:
     data = {
         b"testId": str(payload_id).encode(),
         FIELD_RETRY_COUNT.encode(): str(retry_count).encode(),
     }
-    return (msg_id.encode(), data)
+    return (msg_id, data)
 
 
 class TestProcessMessageStateMachine:
@@ -197,7 +197,7 @@ class TestConsumeLoop:
             consumer._running = False
             return []
 
-        mock_redis.xautoclaim.return_value = (b"0-0", [])
+        mock_redis.xautoclaim.return_value = ("0-0", [])
         mock_redis.xreadgroup.side_effect = fake_xreadgroup
 
         consumer._running = True
@@ -215,9 +215,9 @@ class TestConsumeLoop:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return (b"0-0", [_make_msg("200-0", 3)])
+                return ("0-0", [_make_msg("200-0", 3)])
             consumer._running = False
-            return (b"0-0", [])
+            return ("0-0", [])
 
         mock_redis.xautoclaim.side_effect = fake_xautoclaim
         mock_redis.xreadgroup.return_value = []

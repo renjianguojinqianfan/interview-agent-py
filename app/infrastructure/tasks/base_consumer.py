@@ -2,7 +2,6 @@ import asyncio
 import logging
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any
 
 from app.infrastructure.redis.client import RedisClient
 from app.infrastructure.tasks.constants import (
@@ -66,7 +65,7 @@ class BaseStreamConsumer[T](ABC):
 
             await asyncio.sleep(0)
 
-    async def _process_message(self, msg_id: Any, data: dict[bytes, bytes]) -> None:
+    async def _process_message(self, msg_id: str, data: dict[bytes, bytes]) -> None:
         try:
             payload = self.parse_payload(msg_id, data)
         except Exception as e:
@@ -117,10 +116,9 @@ class BaseStreamConsumer[T](ABC):
         except (ValueError, TypeError):
             return 0
 
-    async def _ack(self, msg_id: Any) -> None:
+    async def _ack(self, msg_id: str) -> None:
         try:
-            msg_id_str = msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id)
-            await self._redis.xack(self._config.stream_key, self._config.group_name, msg_id_str)
+            await self._redis.xack(self._config.stream_key, self._config.group_name, msg_id)
         except Exception as e:
             logger.error("%s ack failed: msgId=%s, error=%s", self.task_display_name(), msg_id, e)
 
@@ -129,7 +127,7 @@ class BaseStreamConsumer[T](ABC):
         ...
 
     @abstractmethod
-    def parse_payload(self, msg_id: Any, data: dict[bytes, bytes]) -> T | None:
+    def parse_payload(self, msg_id: str, data: dict[bytes, bytes]) -> T | None:
         ...
 
     @abstractmethod
