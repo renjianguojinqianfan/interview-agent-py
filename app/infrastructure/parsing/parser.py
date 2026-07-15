@@ -2,7 +2,7 @@ import logging
 from io import BytesIO
 from typing import Any
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.parsing.content_type import ContentTypeDetector
 from app.infrastructure.parsing.text_cleaner import TextCleaner
 

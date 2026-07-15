@@ -6,8 +6,8 @@ from typing import Any
 
 from pypinyin import Style, lazy_pinyin
 
-from app.api.errors import BusinessException, ErrorCode
 from app.config.settings import settings
+from app.domain.errors import BusinessException, ErrorCode
 
 logger = logging.getLogger(__name__)
 
