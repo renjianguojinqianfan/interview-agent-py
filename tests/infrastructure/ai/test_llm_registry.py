@@ -1,3 +1,4 @@
+import base64
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
@@ -6,10 +7,11 @@ from langchain_openai import ChatOpenAI
 
 from app.api.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
-from app.infrastructure.ai.llm_registry import LlmProviderRegistry, ProviderSnapshot
+from app.infrastructure.ai.llm_registry import LlmProviderRegistry
+from app.infrastructure.ai.provider_snapshot import ProviderSnapshot, looks_like_chat_model
 from app.infrastructure.db.models.llm_provider import LlmProvider
 
-_ENCRYPTION_KEY = "test-encryption-key-for-unit-tests"
+_ENCRYPTION_KEY = base64.b64encode(b"a" * 32).decode()
 
 
 def _make_provider(
@@ -189,16 +191,16 @@ class TestProviderSnapshot:
 
 class TestLooksLikeChatModel:
     def test_qwen_model_detected_as_chat(self) -> None:
-        assert LlmProviderRegistry.looks_like_chat_model("qwen-plus") is True
+        assert looks_like_chat_model("qwen-plus") is True
 
     def test_glm_model_detected_as_chat(self) -> None:
-        assert LlmProviderRegistry.looks_like_chat_model("glm-4") is True
+        assert looks_like_chat_model("glm-4") is True
 
     def test_deepseek_model_detected_as_chat(self) -> None:
-        assert LlmProviderRegistry.looks_like_chat_model("deepseek-chat") is True
+        assert looks_like_chat_model("deepseek-chat") is True
 
     def test_embedding_model_not_detected_as_chat(self) -> None:
-        assert LlmProviderRegistry.looks_like_chat_model("text-embedding-v3") is False
+        assert looks_like_chat_model("text-embedding-v3") is False
 
     def test_case_insensitive(self) -> None:
-        assert LlmProviderRegistry.looks_like_chat_model("Qwen-Plus") is True
+        assert looks_like_chat_model("Qwen-Plus") is True

@@ -1,15 +1,17 @@
 import logging
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.infrastructure.db.models.llm_provider import LlmProvider
-from app.infrastructure.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
 
 
-async def seed_default_provider() -> None:
-    async with async_session_factory() as session:
+async def seed_default_provider(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    async with session_factory() as session:
         result = await session.execute(select(LlmProvider))
         if result.scalars().first() is None:
             session.add(

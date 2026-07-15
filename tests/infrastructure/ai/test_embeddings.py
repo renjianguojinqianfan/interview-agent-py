@@ -1,3 +1,4 @@
+import base64
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,10 +8,11 @@ from langchain_openai import OpenAIEmbeddings
 from app.api.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.embeddings import create_embeddings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
-from app.infrastructure.ai.llm_registry import LlmProviderRegistry, ProviderSnapshot
+from app.infrastructure.ai.llm_registry import LlmProviderRegistry
+from app.infrastructure.ai.provider_snapshot import ProviderSnapshot
 from app.infrastructure.db.models.llm_provider import LlmProvider
 
-_ENCRYPTION_KEY = "test-encryption-key-for-unit-tests"
+_ENCRYPTION_KEY = base64.b64encode(b"a" * 32).decode()
 
 
 def _make_snapshot(

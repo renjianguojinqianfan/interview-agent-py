@@ -1,8 +1,8 @@
 from langchain_openai import OpenAIEmbeddings
 from pydantic import SecretStr
 
-from app.api.errors import BusinessException, ErrorCode
-from app.infrastructure.ai.llm_registry import LlmProviderRegistry, ProviderSnapshot
+from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.ai.provider_snapshot import ProviderSnapshot, looks_like_chat_model
 
 
 def create_embeddings(config: ProviderSnapshot) -> OpenAIEmbeddings:
@@ -11,7 +11,7 @@ def create_embeddings(config: ProviderSnapshot) -> OpenAIEmbeddings:
             ErrorCode.PROVIDER_CONFIG_READ_FAILED,
             f"Provider '{config.id}' 未配置可用的 Embedding 模型，无法执行知识库向量化",
         )
-    if LlmProviderRegistry.looks_like_chat_model(config.embedding_model):
+    if looks_like_chat_model(config.embedding_model):
         raise BusinessException(
             ErrorCode.PROVIDER_CONFIG_READ_FAILED,
             f"Provider '{config.id}' 的 Embedding Model 配成了聊天模型 "

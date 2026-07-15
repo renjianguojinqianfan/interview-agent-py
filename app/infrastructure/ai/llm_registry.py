@@ -1,15 +1,15 @@
 import logging
-from dataclasses import dataclass
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.ai.embeddings import create_embeddings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
+from app.infrastructure.ai.provider_snapshot import ProviderSnapshot
 from app.infrastructure.db.models.llm_provider import LlmProvider
-from app.infrastructure.db.session import async_session_factory as _default_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -27,24 +27,11 @@ _RECOMMENDED_EMBEDDING_MODELS: dict[str, str] = {
 }
 
 
-@dataclass
-class ProviderSnapshot:
-    id: int
-    base_url: str
-    api_key: str
-    model: str
-    embedding_model: str | None
-    embedding_dimensions: int
-    supports_embedding: bool
-    temperature: float | None
-
-
 class LlmProviderRegistry:
     def __init__(
         self,
         encryption_service: ApiKeyEncryptionService,
-        session_factory: async_sessionmaker[AsyncSession]
-        | object = _default_session_factory,
+        session_factory: async_sessionmaker[AsyncSession],
     ) -> None:
         self._encryption_service = encryption_service
         self._session_factory = session_factory
@@ -73,8 +60,6 @@ class LlmProviderRegistry:
         return self._client_cache[cache_key]
 
     async def get_embeddings(self, provider_id: int | None = None) -> OpenAIEmbeddings:
-        from app.infrastructure.ai.embeddings import create_embeddings
-
         resolved_id = await self._resolve_provider_id(provider_id)
         if resolved_id not in self._embedding_cache:
             config = await self._load_provider(resolved_id)
@@ -90,25 +75,13 @@ class LlmProviderRegistry:
         self._embedding_cache.clear()
         logger.info("LlmProviderRegistry cache cleared (%d entries)", size)
 
-    @staticmethod
-    def looks_like_chat_model(model: str) -> bool:
-        lower = model.lower()
-        return (
-            lower.startswith("glm-")
-            or lower.startswith("deepseek")
-            or lower.startswith("kimi")
-            or lower.startswith("moonshot")
-            or lower.startswith("qwen")
-            or lower.startswith("ernie")
-        )
-
     async def _resolve_provider_id(self, provider_id: int | None) -> int:
         if provider_id is not None:
             return provider_id
         return await self._find_default_provider_id()
 
     async def _find_default_provider_id(self) -> int:
-        async with self._session_factory() as session:  # type: ignore[operator]
+        async with self._session_factory() as session:
             result = await session.execute(
                 select(LlmProvider).where(LlmProvider.is_default == True).limit(1)  # noqa: E712
             )
@@ -121,7 +94,7 @@ class LlmProviderRegistry:
             return entity.id
 
     async def _load_provider(self, provider_id: int) -> ProviderSnapshot:
-        async with self._session_factory() as session:  # type: ignore[operator]
+        async with self._session_factory() as session:
             result = await session.execute(
                 select(LlmProvider).where(LlmProvider.id == provider_id)
             )
