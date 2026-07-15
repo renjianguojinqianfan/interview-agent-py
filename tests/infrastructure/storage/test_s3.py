@@ -101,3 +101,12 @@ class TestFileExists:
     async def test_returns_false_when_not_found(self, service: S3StorageService) -> None:
         service._client.head_object.side_effect = Exception("not found")
         assert await service.file_exists("nonexistent") is False
+
+
+class TestBuildFileUrl:
+    def test_builds_url_from_endpoint_bucket_and_key(self, service: S3StorageService) -> None:
+        url = service.build_file_url("resumes/2026/07/15/uuid_resume.pdf")
+        assert url == "http://localhost:9000/test-bucket/resumes/2026/07/15/uuid_resume.pdf"
+
+    def test_empty_key_returns_empty(self, service: S3StorageService) -> None:
+        assert service.build_file_url("") == ""

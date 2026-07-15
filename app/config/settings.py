@@ -48,5 +48,14 @@ class Settings(BaseSettings):
     rate_limit_per_ip: int = 30
     rate_limit_per_user: int = 60
 
+    resume_max_file_size: int = 10 * 1024 * 1024
+    resume_allowed_content_types: list[str] = [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "text/markdown",
+    ]
+
 
 settings = Settings()

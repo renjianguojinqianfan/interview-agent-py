@@ -68,6 +68,11 @@ class S3StorageService:
         except Exception:
             return False
 
+    def build_file_url(self, key: str) -> str:
+        if not key:
+            return ""
+        return f"{settings.s3_endpoint}/{self._bucket}/{key}"
+
     def _generate_file_key(self, filename: str, prefix: str) -> str:
         date_path = datetime.now().strftime("%Y/%m/%d")
         file_uuid = str(uuid.uuid4())

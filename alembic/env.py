@@ -9,6 +9,7 @@ from alembic import context
 from app.config.settings import settings
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models.llm_provider import LlmProvider  # noqa: F401
+from app.infrastructure.db.models.resume import Resume, ResumeAnalysis  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

@@ -4,9 +4,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIASGIMiddleware
 
 from app.api.exception_handlers import register_exception_handlers
+from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
+from app.api.routers.resume import router as resume_router
 from app.application.llm_provider.service import seed_default_provider
 from app.config.settings import settings
 from app.infrastructure.db.session import async_session_factory
@@ -38,7 +42,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_middleware(SlowAPIASGIMiddleware)
+
 register_exception_handlers(app)
+app.include_router(resume_router)
 
 
 @app.get("/health")
