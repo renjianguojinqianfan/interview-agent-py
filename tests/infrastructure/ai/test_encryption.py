@@ -1,15 +1,16 @@
 import base64
-import hashlib
 
 import pytest
 
 from app.api.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 
+_VALID_KEY = base64.b64encode(b"a" * 32).decode()
+
 
 @pytest.fixture()
 def encryption_key() -> str:
-    return "test-encryption-key-for-unit-tests"
+    return _VALID_KEY
 
 
 @pytest.fixture()
@@ -63,11 +64,12 @@ class TestApiKeyEncryptionServiceKeyResolution:
         encrypted = service.encrypt(plaintext)
         assert service.decrypt(encrypted) == plaintext
 
-    def test_human_readable_key_sha256_derived(self, encryption_key: str) -> None:
-        service = ApiKeyEncryptionService(encryption_key)
-        service.encrypt("trigger-key-resolution")
-        expected_key = hashlib.sha256(encryption_key.encode("utf-8")).digest()
-        assert service._secret_key == expected_key
+    def test_malformed_key_raises(self) -> None:
+        service = ApiKeyEncryptionService("not-a-valid-base64-key")
+        with pytest.raises(BusinessException) as exc_info:
+            service.encrypt("test")
+        assert exc_info.value.error_code == ErrorCode.PROVIDER_CONFIG_READ_FAILED
+        assert "base64" in exc_info.value.message or "32" in exc_info.value.message
 
     def test_empty_key_raises_on_encrypt(self) -> None:
         service = ApiKeyEncryptionService("")

@@ -5,9 +5,9 @@ from json_repair import repair_json
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
-from tenacity import AsyncRetrying, stop_after_attempt
+from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.prompt_constants import ANTI_INJECTION_INSTRUCTION
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,10 @@ _STRICT_JSON_INSTRUCTION = """
 """
 
 _ERROR_MESSAGE_MAX_LENGTH = 200
+
+
+class _ParseError(Exception):
+    """Internal exception for structured output JSON parse failures (tenacity-retryable)."""
 
 
 class StructuredOutputInvoker:
@@ -45,7 +49,10 @@ class StructuredOutputInvoker:
         attempt_num = 0
 
         try:
-            async for attempt in AsyncRetrying(stop=stop_after_attempt(self._max_attempts)):
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(self._max_attempts),
+                retry=retry_if_exception_type(_ParseError),
+            ):
                 with attempt:
                     attempt_num += 1
                     attempt_prompt = (
@@ -58,46 +65,45 @@ class StructuredOutputInvoker:
                         HumanMessage(content=user_prompt),
                     ]
 
-                    try:
-                        result = await structured_llm.ainvoke(messages)
-                        parsed = result.get("parsed")
-                        if parsed is not None:
-                            return cast(T, parsed)
+                    result = await structured_llm.ainvoke(messages)
+                    parsed = result.get("parsed")
+                    if parsed is not None:
+                        return cast(T, parsed)
 
-                        parsing_error = result.get("parsing_error")
-                        raw = result.get("raw")
-                        if raw is not None and parsing_error is not None:
-                            repaired = self._try_repair_json(raw, output_model)
-                            if repaired is not None:
-                                logger.warning(
-                                    "%s 结构化 JSON 通过 json-repair 修复后解析成功",
-                                    log_context,
-                                )
-                                return repaired
-
-                        err = parsing_error or Exception("Unknown parsing error")
-                        last_error = err
-                        raise err
-                    except Exception as e:
-                        last_error = e
-                        if attempt_num < self._max_attempts:
+                    parsing_error = result.get("parsing_error")
+                    raw = result.get("raw")
+                    if raw is not None and parsing_error is not None:
+                        repaired = self._try_repair_json(raw, output_model)
+                        if repaired is not None:
                             logger.warning(
-                                "%s 结构化解析失败，准备重试: attempt=%d/%d, error=%s",
+                                "%s 结构化 JSON 通过 json-repair 修复后解析成功",
                                 log_context,
-                                attempt_num,
-                                self._max_attempts,
-                                str(last_error),
                             )
-                        else:
-                            logger.error(
-                                "%s 结构化解析失败，已达最大重试次数: attempts=%d, error=%s",
-                                log_context,
-                                self._max_attempts,
-                                str(last_error),
-                            )
-                        raise
-        except Exception:
+                            return repaired
+
+                    err = parsing_error or Exception("Unknown parsing error")
+                    last_error = err
+                    if attempt_num < self._max_attempts:
+                        logger.warning(
+                            "%s 结构化解析失败，准备重试: attempt=%d/%d, error=%s",
+                            log_context,
+                            attempt_num,
+                            self._max_attempts,
+                            str(last_error),
+                        )
+                    else:
+                        logger.error(
+                            "%s 结构化解析失败，已达最大重试次数: attempts=%d, error=%s",
+                            log_context,
+                            self._max_attempts,
+                            str(last_error),
+                        )
+                    raise _ParseError(str(err)) from err
+        except _ParseError:
             pass
+        except Exception as e:
+            last_error = e
+            logger.error("%s SDK 调用失败（不重试）: error=%s", log_context, e)
 
         raise BusinessException(
             error_code,

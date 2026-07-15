@@ -182,30 +182,49 @@ class TestStructuredOutputInvokerJsonRepair:
         assert result.score == 90
 
 
-class TestStructuredOutputInvokerAinvokeException:
-    async def test_retries_on_ainvoke_exception(
+class TestStructuredOutputInvokerSdkError:
+    async def test_sdk_error_not_retried_by_tenacity(
         self, invoker: StructuredOutputInvoker
     ) -> None:
         mock_llm = MagicMock()
         mock_runnable = MagicMock()
-        mock_runnable.ainvoke = AsyncMock(
-            side_effect=[
-                Exception("network error"),
-                _make_raw_result(),
-            ]
-        )
+        mock_runnable.ainvoke = AsyncMock(side_effect=Exception("network error"))
         mock_llm.with_structured_output = MagicMock(return_value=mock_runnable)
 
-        result = await invoker.invoke(
-            llm=mock_llm,
-            system_prompt="system",
-            user_prompt="user",
-            output_model=SampleOutput,
-            error_code=ErrorCode.AI_SERVICE_ERROR,
-            error_prefix="err: ",
-            log_context="test",
-        )
-        assert result.name == "test"
+        with pytest.raises(BusinessException) as exc_info:
+            await invoker.invoke(
+                llm=mock_llm,
+                system_prompt="system",
+                user_prompt="user",
+                output_model=SampleOutput,
+                error_code=ErrorCode.AI_SERVICE_ERROR,
+                error_prefix="err: ",
+                log_context="test",
+            )
+        assert exc_info.value.error_code == ErrorCode.AI_SERVICE_ERROR
+        assert mock_runnable.ainvoke.call_count == 1
+
+    async def test_sdk_error_raises_business_exception_not_swallowed(
+        self, invoker: StructuredOutputInvoker
+    ) -> None:
+        mock_llm = MagicMock()
+        mock_runnable = MagicMock()
+        sdk_error = RuntimeError("connection refused")
+        mock_runnable.ainvoke = AsyncMock(side_effect=sdk_error)
+        mock_llm.with_structured_output = MagicMock(return_value=mock_runnable)
+
+        with pytest.raises(BusinessException) as exc_info:
+            await invoker.invoke(
+                llm=mock_llm,
+                system_prompt="system",
+                user_prompt="user",
+                output_model=SampleOutput,
+                error_code=ErrorCode.AI_SERVICE_TIMEOUT,
+                error_prefix="timeout: ",
+                log_context="test",
+            )
+        assert exc_info.value.error_code == ErrorCode.AI_SERVICE_TIMEOUT
+        assert "connection refused" in exc_info.value.message
 
 
 class TestStructuredOutputInvokerMaxAttemptsConfig:

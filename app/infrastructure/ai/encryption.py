@@ -1,11 +1,10 @@
 import base64
-import hashlib
 import logging
 import secrets
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +36,10 @@ class ApiKeyEncryptionService:
         except (ValueError, UnicodeDecodeError):
             pass
 
-        self._secret_key = hashlib.sha256(trimmed.encode("utf-8")).digest()
-        return self._secret_key
+        raise BusinessException(
+            ErrorCode.PROVIDER_CONFIG_READ_FAILED,
+            "APP_AI_CONFIG_ENCRYPTION_KEY 必须是 base64 编码的 32 字节密钥",
+        )
 
     def encrypt(self, plaintext: str) -> str:
         if not plaintext:
