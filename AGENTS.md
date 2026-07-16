@@ -86,7 +86,7 @@ make verify
 
 - **AGENTS.md** - 行为边界、约定、命令等有变化时更新
 - **CONTEXT.md** - 领域术语增减或含义变化时更新（参见 `docs/agents/domain.md`）
-- **doc/migration-plan.md** - 架构、目录结构、阶段任务有变化时更新
+- **docs/migration-plan.md** - 架构、目录结构、阶段任务有变化时更新
 - **docs/agents/review-plan.md** - review 节奏或分组有变化时更新
 
 Git hooks 位于 `.githooks/` 目录（通过 `core.hooksPath` 配置），自动执行质量门禁，无需手动维护：

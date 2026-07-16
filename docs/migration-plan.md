@@ -51,9 +51,11 @@
 
 ### 1.2 Python 项目现状（几乎空白）
 
+> **进度注记**：本节为迁移前快照。阶段 0-3（项目骨架 / AI 基础设施 / 异步任务+文件 / 简历模块）已完成，下方"待实现"列已不反映当前状态，仅作历史对照。当前进度详见 `docs/agents/review-plan.md` 的 Review 日历。
+
 | 已就绪 | 待实现 |
 |--------|--------|
-| `pyproject.toml` 全部依赖已定义（FastAPI/LangGraph/SQLAlchemy/pgvector/redis/arq/aioboto3/unstructured/weasyprint/slowapi 等） | 无任何业务代码 |
+| `pyproject.toml` 全部依赖已定义（FastAPI/LangGraph/SQLAlchemy/pgvector/redis/aioboto3/unstructured/weasyprint/slowapi 等） | 无任何业务代码 |
 | `docker-compose.yml` 三件套就绪（PostgreSQL+pgvector / Redis / MinIO） | 无数据库模型 |
 | `AGENTS.md` 定义 DDD 分层规范（api->application->domain<-infrastructure） | 无 API 路由 |
 | `Makefile` 质量门禁（test+typecheck+lint） | 无配置管理 |

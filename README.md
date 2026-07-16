@@ -50,6 +50,9 @@ cp .env.example .env
 | `AI_BASE_URL` | LLM API 基础 URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `AI_MODEL` | 默认模型 | `qwen3.5-flash` |
 | `SECRET_KEY` | 应用密钥 | - |
+| `APP_AI_CONFIG_ENCRYPTION_KEY` | LLM Provider API Key 加密密钥（base64 编码 32 字节，启动 seed 需要） | - |
+
+> 完整环境变量清单（含语音、限流、简历等配置）见 `.env.example`。
 
 ## 质量门禁
 
