@@ -26,27 +26,3 @@ RESUME_ANALYZE = StreamConfig(
     consumer_prefix="analyze-consumer-",
     id_field="resumeId",
 )
-
-INTERVIEW_EVALUATE = StreamConfig(
-    # Used by issue #8 (text interview evaluation)
-    stream_key="interview:evaluate:stream",
-    group_name="evaluate-group",
-    consumer_prefix="evaluate-consumer-",
-    id_field="sessionId",
-)
-
-KB_VECTORIZE = StreamConfig(
-    # Used by issue #10 (knowledge base vectorization)
-    stream_key="knowledgebase:vectorize:stream",
-    group_name="vectorize-group",
-    consumer_prefix="vectorize-consumer-",
-    id_field="kbId",
-)
-
-VOICE_EVALUATE = StreamConfig(
-    # Used by issue #14 (voice interview evaluation)
-    stream_key="voice:evaluate:stream",
-    group_name="voice-evaluate-group",
-    consumer_prefix="voice-evaluate-consumer-",
-    id_field="voiceSessionId",
-)
