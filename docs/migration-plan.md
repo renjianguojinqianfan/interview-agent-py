@@ -59,7 +59,7 @@
 | `docker-compose.yml` 三件套就绪（PostgreSQL+pgvector / Redis / MinIO） | 无数据库模型 |
 | `AGENTS.md` 定义 DDD 分层规范（api->application->domain<-infrastructure） | 无 API 路由 |
 | `Makefile` 质量门禁（test+typecheck+lint） | 无配置管理 |
-| `check_services.py` 基础设施连通性测试 | 无 Prompt 模板 |
+| `scripts/check_services.py` 基础设施连通性测试 | 无 Prompt 模板 |
 | `README.md` 环境变量文档 | 无技能配置 |
 | `app/main.py` 仅 8 行 Hello World | 无异步任务框架 |
 
