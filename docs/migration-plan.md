@@ -327,7 +327,7 @@ app/
 | 4.4 | 会话缓存 | - | `infrastructure/redis/session_cache.py`：双写策略（先DB后Redis）+ resume->session 映射 + TTL 24h |
 | 4.5 | 应用服务 | - | `application/interview/`：SessionService（生命周期）、QuestionService、EvaluationService、PersistenceService |
 | 4.6 | 异步评估任务 | - | `infrastructure/tasks/interview_evaluate.py`：消费 interview:evaluate:stream，调用 UnifiedEvaluationService |
-| 4.7 | 技能管理 | - | `domain/services/skill.py` + 技能配置（skills/ 目录迁移）+ JD 解析 |
+| 4.7 | 技能管理 | - | `domain/services/skill_service.py` + 技能配置（skills/ 目录迁移）+ JD 解析 |
 | 4.8 | API 路由 | 15 | `api/routers/interview.py`：sessions CRUD + answers + report + export + skills + parse-jd |
 | 4.9 | 限流 | - | create: GLOBAL=5/s+IP=5/s，answers: GLOBAL=10/s，parse-jd: IP=5/s |
 | 4.10 | PDF 导出 | - | 面试报告 PDF（评分颜色 + 逐题详情） |

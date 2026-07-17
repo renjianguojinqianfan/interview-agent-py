@@ -48,7 +48,7 @@
   R2: #5 #6 阶段 review ✅
 
 阶段 4: 文字面试（P0 核心）
-  #7 完成 -> 单 issue review
+  #7 完成 -> 单 issue review ✅
   #8 完成 -> 单 issue review
   #9 完成 -> 单 issue review
   R3: #7 #8 #9 阶段 review（创建->出题->答题->评估->报告闭环）

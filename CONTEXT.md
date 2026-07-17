@@ -43,8 +43,16 @@ _Avoid_: 回复、Response
 _Avoid_: 面试评分（Evaluation 是会话级评估，非单次评分）、Score
 
 **Skill**:
-面试的可选方向领域（如"Spring Boot"、"数据库设计"），用于出题定向。
+面试的可选方向领域（如"Spring Boot"、"数据库设计"），用于出题定向。每个 Skill 含多个 SkillCategory（考察方向，如 JAVA/MYSQL/REDIS），按 CategoryPriority（CORE/NORMAL/ALWAYS_ONE）分配题量。
 _Avoid_: 技能（在业务上下文中用 Skill 或"方向"）、Competency
+
+**SkillCategory**:
+Skill 内的考察方向（如 java-backend 技能下的 JAVA、MYSQL、REDIS），携带参考基线（ref 文件名）与优先级，是出题定向与题量分配的最小单元。
+_Avoid_: 分类（用 SkillCategory 精确指代）、Category
+
+**allocation**:
+题量分配算法：按 CategoryPriority 三阶段分配 total_questions--ALWAYS_ONE 保底各 1 题 -> 全覆盖各 1 题（CORE 优先）-> 剩余按 CORE->NORMAL 轮转。
+_Avoid_: 分配（用 allocation 精确指代）、Distribution
 
 **JD (Job Description)**:
 面试者提供的岗位描述文本，用于定制出题方向。
