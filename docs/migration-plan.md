@@ -83,7 +83,6 @@ app/
 ├── api/                         # API 路由层（仅路由、校验、委托）
 │   ├── deps.py                  # FastAPI Depends 依赖注入
 │   ├── responses.py             # Result[T] 统一响应模型
-│   ├── errors.py                # re-export from domain/errors.py（渐进式兼容）
 │   ├── exception_handlers.py    # 全局异常处理器
 │   └── routers/                 # 8 个 APIRouter（对应 8 个 Controller）
 │       ├── interview.py         # 模拟面试 + 技能管理（15 接口）
@@ -177,7 +176,7 @@ app/
 | `AbstractStreamConsumer/Producer` | `infrastructure/tasks/base_consumer.py` + `base_producer.py` | redis.asyncio Stream 原生实现（XREADGROUP/XADD/XAUTOCLAIM） |
 | `RateLimitAspect` + `@RateLimit` | `slowapi` 装饰器 | 滑动窗口限流 |
 | `GlobalExceptionHandler` | `api/exception_handlers.py` | FastAPI `@app.exception_handler`，统一 HTTP 200 |
-| `ErrorCode` / `BusinessException` | `api/errors.py` | Python Enum + Exception 类 |
+| `ErrorCode` / `BusinessException` | `domain/errors.py` | Python Enum + Exception 类 |
 | `Result<T>` | `api/responses.py` | Pydantic 泛型模型 |
 | `TransactionalExecutor` | SQLAlchemy `async with session.begin()` | Python 无 AOP 代理问题 |
 | `ApiPathResolver` | `infrastructure/ai/llm_registry.py` 内部 | `openai` SDK `base_url` + `httpx` 超时配置 |
@@ -254,7 +253,7 @@ app/
 | 0.1b | 配置管理（动态） | `app/config/` LLM Provider 动态配置：数据库 + 内存缓存（去掉 Java 的 YAML 中间层），启动时种子默认 dashscope provider（API Key 空）。详见 ADR-0004 |
 | 0.2 | 数据库基础 | `infrastructure/db/session.py`（async engine + session factory）+ Alembic 迁移初始化 |
 | 0.3 | Redis 客户端 | `infrastructure/redis/client.py`（redis.asyncio 连接池） |
-| 0.4 | 统一响应 + 异常 | `api/responses.py`（Result[T]）+ `api/errors.py`（ErrorCode 枚举 50+ 错误码 + BusinessException）+ `api/exception_handlers.py`（全局异常处理，统一 HTTP 200） |
+| 0.4 | 统一响应 + 异常 | `api/responses.py`（Result[T]）+ `domain/errors.py`（ErrorCode 枚举 50+ 错误码 + BusinessException）+ `api/exception_handlers.py`（全局异常处理，统一 HTTP 200） |
 | 0.5 | CORS + 中间件 | `main.py` 注册 CORSMiddleware + slowapi Limiter |
 | 0.6 | 健康检查 | `/health` 端点 + OpenAPI 文档配置 |
 | 0.7 | 依赖注入框架 | `api/deps.py`（DB session、Redis、S3、LLM Registry 的 Depends provider） |
@@ -306,7 +305,7 @@ app/
 |---|------|--------|------|
 | 3.1 | 数据模型 | - | `Resume` + `ResumeAnalysis` ORM 模型 + Alembic 迁移 |
 | 3.2 | 领域层 | - | `domain/entities/resume.py`（analyzeStatus 状态机）+ 仓储接口 |
-| 3.3 | 应用服务 | - | `application/resume/`：UploadService（上传->解析->去重->入队）、GradingService（LLM 评分+降级）、PersistenceService |
+| 3.3 | 应用服务 | - | `application/resume/`：UploadService（上传->解析->去重->入队）、ResumeAnalysisService（LLM 分析+降级）、PersistenceService |
 | 3.4 | 异步任务 | - | `infrastructure/tasks/resume_analyze.py`：消费 resume:analyze:stream |
 | 3.5 | API 路由 | 7 | `api/routers/resume.py`：upload/list/detail/export/delete/reanalyze/health |
 | 3.6 | PDF 导出 | - | `infrastructure/export/pdf.py`：WeasyPrint 简历分析报告 |
