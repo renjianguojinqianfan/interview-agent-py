@@ -22,7 +22,7 @@ uv sync
 docker compose up -d
 
 # 3. 验证服务连接（可选）
-python check_services.py
+python scripts/check_services.py
 
 # 4. 启动开发服务器
 uv run uvicorn app.main:app --reload

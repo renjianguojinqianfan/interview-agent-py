@@ -94,7 +94,7 @@
 
 ### 9. `git add -A` 误纳入计划文档
 
-**现象**：`docs/review-r1-r2-fix-plan.md` 在 Commit 2（ErrorCode 导入统一）中被 `git add -A` 误纳入，与 commit message 不符。
+**现象**：`docs/review-r1-r2-fix-plan.md`（已删除）在 Commit 2（ErrorCode 导入统一）中被 `git add -A` 误纳入，与 commit message 不符。
 
 **根因**：`git add -A` 会暂存所有变更文件，包括与当前 commit 无关的文件。
 
@@ -164,7 +164,7 @@
 
 ### 16. 大文件写入失败
 
-**现象**：`docs/review-r1-r2-fix-plan.md`（238 行）通过 Write 工具一次写入失败（JSON parse error，content too long）。
+**现象**：`docs/review-r1-r2-fix-plan.md`（已删除，原 238 行）通过 Write 工具一次写入失败（JSON parse error，content too long）。
 
 **根因**：Write 工具对单次 content 有长度限制。
 
