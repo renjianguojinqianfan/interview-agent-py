@@ -45,7 +45,7 @@
 阶段 3: 简历模块
   #5 完成 -> 单 issue review ✅
   #6 完成 -> 单 issue review ✅
-  R2: #5 #6 阶段 review（上传->解析->分析->PDF 闭环）
+  R2: #5 #6 阶段 review ✅
 
 阶段 4: 文字面试（P0 核心）
   #7 完成 -> 单 issue review
