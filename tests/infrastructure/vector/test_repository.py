@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.vector.repository import VectorItem, VectorRepository
 
 

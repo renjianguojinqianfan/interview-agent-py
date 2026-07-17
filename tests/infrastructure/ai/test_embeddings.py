@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_openai import OpenAIEmbeddings
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.embeddings import create_embeddings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry

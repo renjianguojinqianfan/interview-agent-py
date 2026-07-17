@@ -58,7 +58,7 @@ class TestParseContentUnit:
             assert "DOCX paragraph 1" in result
 
     def test_unstructured_failure_raises_business_exception(self) -> None:
-        from app.api.errors import BusinessException
+        from app.domain.errors import BusinessException
         from app.infrastructure.parsing.parser import DocumentParser
 
         parser = DocumentParser(TextCleaner())

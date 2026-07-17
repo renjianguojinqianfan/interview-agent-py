@@ -2,13 +2,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.api.errors import BusinessException, ErrorCode
 from app.application.resume.analysis import (
     ResumeAnalysisResult,
     ResumeAnalysisService,
     ScoreDetail,
     Suggestion,
 )
+from app.domain.errors import BusinessException, ErrorCode
 
 
 def _make_result() -> ResumeAnalysisResult:

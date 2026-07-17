@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from app.api.errors import BusinessException, ErrorCode
 from app.api.responses import Result
+from app.domain.errors import BusinessException, ErrorCode
 from app.main import app
 
 client = TestClient(app)

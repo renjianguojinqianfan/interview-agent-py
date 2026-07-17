@@ -4,13 +4,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.api.errors import BusinessException, ErrorCode
 from app.application.resume.schemas import (
     ResumeDetailDTO,
     ResumePageDTO,
     ResumeUploadResponse,
 )
 from app.application.resume.service import ResumeService
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
 
 

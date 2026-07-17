@@ -1,7 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from app.api.errors import ErrorCode
+from app.domain.errors import ErrorCode
 
 
 class BaseSchema(BaseModel):

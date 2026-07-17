@@ -6,7 +6,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_resume_service
-from app.api.errors import BusinessException, ErrorCode
 from app.api.rate_limit import limiter
 from app.application.resume.schemas import (
     AnalysisHistoryDTO,
@@ -17,6 +16,7 @@ from app.application.resume.schemas import (
     ResumeUploadResponse,
     StorageInfoDTO,
 )
+from app.domain.errors import BusinessException, ErrorCode
 from app.main import app
 
 client = TestClient(app)

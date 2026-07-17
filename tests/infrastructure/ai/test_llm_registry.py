@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_openai import ChatOpenAI
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.provider_snapshot import ProviderSnapshot, looks_like_chat_model

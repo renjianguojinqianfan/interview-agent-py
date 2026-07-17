@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.prompt_constants import ANTI_INJECTION_INSTRUCTION
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 

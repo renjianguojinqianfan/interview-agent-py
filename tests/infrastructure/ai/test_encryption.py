@@ -2,7 +2,7 @@ import base64
 
 import pytest
 
-from app.api.errors import BusinessException, ErrorCode
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 
 _VALID_KEY = base64.b64encode(b"a" * 32).decode()
