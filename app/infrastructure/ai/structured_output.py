@@ -29,7 +29,7 @@ class _ParseError(Exception):
 
 
 class StructuredOutputInvoker:
-    def __init__(self, max_attempts: int = 2) -> None:
+    def __init__(self, max_attempts: int = 3) -> None:
         self._max_attempts = max(1, max_attempts)
 
     async def invoke(
