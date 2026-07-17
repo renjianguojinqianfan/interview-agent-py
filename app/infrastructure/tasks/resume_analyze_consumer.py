@@ -3,7 +3,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.resume.grading import GradingService, ResumeAnalysisResult
+from app.application.resume.analysis import ResumeAnalysisResult, ResumeAnalysisService
 from app.domain.entities.task_status import AsyncTaskStatus
 from app.infrastructure.db.models.resume import ResumeAnalysis
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
@@ -28,12 +28,12 @@ class AnalyzeStreamConsumer(BaseStreamConsumer[ResumeAnalyzePayload]):
         config: StreamConfig,
         session_factory: async_sessionmaker[AsyncSession],
         repository: ResumeRepository,
-        grading_service: GradingService,
+        analysis_service: ResumeAnalysisService,
     ) -> None:
         super().__init__(redis_client, config)
         self._session_factory = session_factory
         self._repository = repository
-        self._grading = grading_service
+        self._analysis_service = analysis_service
 
     def task_display_name(self) -> str:
         return "简历分析"
@@ -77,7 +77,7 @@ class AnalyzeStreamConsumer(BaseStreamConsumer[ResumeAnalyzePayload]):
                 logger.info("简历已分析完成，跳过重复评分: resumeId=%s", payload.resume_id)
                 return
 
-            result = await self._grading.analyze_resume(resume.resume_text or "")
+            result = await self._analysis_service.analyze_resume(resume.resume_text or "")
             await self._repository.delete_analyses_by_resume_id(session, payload.resume_id)
             analysis = self._to_analysis_entity(payload.resume_id, result)
             await self._repository.save_analysis(session, analysis)

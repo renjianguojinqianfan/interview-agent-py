@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.resume.grading import GradingService
+from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.config.settings import settings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
@@ -28,7 +28,7 @@ _s3_storage: S3StorageService | None = None
 _llm_registry: LlmProviderRegistry | None = None
 _producer: AnalyzeStreamProducer | None = None
 _pdf_service: PdfExportService | None = None
-_grading_service: GradingService | None = None
+_resume_analysis_service: ResumeAnalysisService | None = None
 _resume_consumer: AnalyzeStreamConsumer | None = None
 
 logger = logging.getLogger(__name__)
@@ -78,11 +78,14 @@ def get_pdf_service() -> PdfExportService:
     return _pdf_service
 
 
-def get_grading_service() -> GradingService:
-    global _grading_service
-    if _grading_service is None:
-        _grading_service = GradingService(llm_registry=get_llm_registry(), invoker=StructuredOutputInvoker())
-    return _grading_service
+def get_resume_analysis_service() -> ResumeAnalysisService:
+    global _resume_analysis_service
+    if _resume_analysis_service is None:
+        _resume_analysis_service = ResumeAnalysisService(
+            llm_registry=get_llm_registry(),
+            invoker=StructuredOutputInvoker(),
+        )
+    return _resume_analysis_service
 
 
 def get_resume_service(
@@ -110,7 +113,7 @@ async def start_resume_analyze_consumer() -> AnalyzeStreamConsumer | None:
             config=RESUME_ANALYZE,
             session_factory=async_session_factory,
             repository=ResumeRepository(),
-            grading_service=get_grading_service(),
+            analysis_service=get_resume_analysis_service(),
         )
         await _resume_consumer.start()
         return _resume_consumer

@@ -1,7 +1,7 @@
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-from app.application.resume.grading import ResumeAnalysisResult, ScoreDetail, Suggestion
+from app.application.resume.analysis import ResumeAnalysisResult, ScoreDetail, Suggestion
 from app.domain.entities.task_status import AsyncTaskStatus
 from app.infrastructure.db.models.resume import Resume
 from app.infrastructure.redis.client import RedisClient
@@ -22,7 +22,7 @@ def _make_resume(**overrides: object) -> Resume:
     return Resume(**defaults)
 
 
-def _make_grading_result() -> ResumeAnalysisResult:
+def _make_analysis_result() -> ResumeAnalysisResult:
     return ResumeAnalysisResult(
         overallScore=85,
         scoreDetail=ScoreDetail(
@@ -49,17 +49,17 @@ def _make_consumer() -> tuple[AnalyzeStreamConsumer, dict[str, MagicMock]]:
     repository.update_analyze_status = AsyncMock()
     repository.save_analysis = AsyncMock()
     repository.delete_analyses_by_resume_id = AsyncMock(return_value=0)
-    grading = MagicMock()
-    grading.analyze_resume = AsyncMock(return_value=_make_grading_result())
+    analysis_service = MagicMock()
+    analysis_service.analyze_resume = AsyncMock(return_value=_make_analysis_result())
     redis_client = RedisClient(AsyncMock())
     consumer = AnalyzeStreamConsumer(
         redis_client=redis_client,
         config=RESUME_ANALYZE,
         session_factory=factory,
         repository=repository,
-        grading_service=grading,
+        analysis_service=analysis_service,
     )
-    return consumer, {"repository": repository, "grading": grading}
+    return consumer, {"repository": repository, "analysis_service": analysis_service}
 
 
 class TestParsePayload:
@@ -122,7 +122,7 @@ class TestProcessBusiness:
 
         await consumer.process_business(ResumeAnalyzePayload(resume_id=1))
 
-        deps["grading"].analyze_resume.assert_awaited_once_with("张三简历文本")
+        deps["analysis_service"].analyze_resume.assert_awaited_once_with("张三简历文本")
         deps["repository"].save_analysis.assert_awaited_once()
         saved = deps["repository"].save_analysis.call_args.args[1]
         assert saved.resume_id == 1
@@ -140,7 +140,7 @@ class TestProcessBusiness:
 
         await consumer.process_business(ResumeAnalyzePayload(resume_id=1))
 
-        deps["grading"].analyze_resume.assert_not_awaited()
+        deps["analysis_service"].analyze_resume.assert_not_awaited()
         deps["repository"].save_analysis.assert_not_awaited()
 
     async def test_skips_deleted_resume(self) -> None:
@@ -149,7 +149,7 @@ class TestProcessBusiness:
 
         await consumer.process_business(ResumeAnalyzePayload(resume_id=1))
 
-        deps["grading"].analyze_resume.assert_not_awaited()
+        deps["analysis_service"].analyze_resume.assert_not_awaited()
         deps["repository"].save_analysis.assert_not_awaited()
 
     async def test_deletes_old_analyses_before_saving_new_one(self) -> None:

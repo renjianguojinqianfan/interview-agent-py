@@ -36,8 +36,8 @@ class ResumeAnalysisResult(BaseModel):
     suggestions: list[Suggestion]
 
 
-class GradingService:
-    """简历 LLM 评分服务：加载 prompt -> 结构化输出调用 -> 映射结果；LLM 失败时降级。"""
+class ResumeAnalysisService:
+    """简历 LLM 分析服务：加载 prompt -> 结构化输出调用 -> 映射结果；LLM 失败时降级。"""
 
     def __init__(self, llm_registry: LlmProviderRegistry, invoker: StructuredOutputInvoker) -> None:
         self._llm_registry = llm_registry

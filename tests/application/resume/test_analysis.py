@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.api.errors import BusinessException, ErrorCode
-from app.application.resume.grading import (
-    GradingService,
+from app.application.resume.analysis import (
     ResumeAnalysisResult,
+    ResumeAnalysisService,
     ScoreDetail,
     Suggestion,
 )
@@ -29,12 +29,12 @@ def _make_result() -> ResumeAnalysisResult:
     )
 
 
-def _make_service() -> tuple[GradingService, dict[str, MagicMock]]:
+def _make_service() -> tuple[ResumeAnalysisService, dict[str, MagicMock]]:
     llm_registry = MagicMock()
     llm_registry.get_chat_client = AsyncMock(return_value=MagicMock())
     invoker = MagicMock()
     invoker.invoke = AsyncMock(return_value=_make_result())
-    service = GradingService(llm_registry=llm_registry, invoker=invoker)
+    service = ResumeAnalysisService(llm_registry=llm_registry, invoker=invoker)
     return service, {"llm_registry": llm_registry, "invoker": invoker}
 
 
@@ -45,7 +45,7 @@ def _mock_prompt(name: str) -> MagicMock:
 
 
 class TestAnalyzeResumeSuccess:
-    @patch("app.application.resume.grading.load_prompt")
+    @patch("app.application.resume.analysis.load_prompt")
     async def test_returns_llm_result_with_scores(self, mock_load: MagicMock) -> None:
         service, deps = _make_service()
         mock_load.side_effect = [_mock_prompt("system"), _mock_prompt("user")]
@@ -61,7 +61,7 @@ class TestAnalyzeResumeSuccess:
         assert len(result.suggestions) == 1
         assert result.suggestions[0].category == "项目"
 
-    @patch("app.application.resume.grading.load_prompt")
+    @patch("app.application.resume.analysis.load_prompt")
     async def test_renders_user_prompt_with_resume_text(self, mock_load: MagicMock) -> None:
         service, deps = _make_service()
         user_tpl = MagicMock()
@@ -74,7 +74,7 @@ class TestAnalyzeResumeSuccess:
 
         user_tpl.format.assert_called_once_with(resumeText="简历内容XYZ")
 
-    @patch("app.application.resume.grading.load_prompt")
+    @patch("app.application.resume.analysis.load_prompt")
     async def test_passes_prompts_and_model_to_invoker(self, mock_load: MagicMock) -> None:
         service, deps = _make_service()
         mock_load.side_effect = [_mock_prompt("system"), _mock_prompt("user")]
@@ -89,7 +89,7 @@ class TestAnalyzeResumeSuccess:
 
 
 class TestAnalyzeResumeDegradation:
-    @patch("app.application.resume.grading.load_prompt")
+    @patch("app.application.resume.analysis.load_prompt")
     async def test_returns_degraded_result_on_llm_failure(self, mock_load: MagicMock) -> None:
         service, deps = _make_service()
         mock_load.side_effect = [_mock_prompt("system"), _mock_prompt("user")]
@@ -104,7 +104,7 @@ class TestAnalyzeResumeDegradation:
         assert result.suggestions[0].category == "系统"
         assert result.suggestions[0].priority == "高"
 
-    @patch("app.application.resume.grading.load_prompt")
+    @patch("app.application.resume.analysis.load_prompt")
     async def test_degraded_result_has_zero_scores(self, mock_load: MagicMock) -> None:
         service, deps = _make_service()
         mock_load.side_effect = [_mock_prompt("system"), _mock_prompt("user")]
@@ -120,7 +120,7 @@ class TestAnalyzeResumeDegradation:
         assert result.scoreDetail.projectScore == 0
         assert result.strengths == []
 
-    @patch("app.application.resume.grading.load_prompt")
+    @patch("app.application.resume.analysis.load_prompt")
     async def test_does_not_raise_on_failure(self, mock_load: MagicMock) -> None:
         service, deps = _make_service()
         mock_load.side_effect = [_mock_prompt("system"), _mock_prompt("user")]
@@ -128,7 +128,7 @@ class TestAnalyzeResumeDegradation:
 
         await service.analyze_resume("text")
 
-    @patch("app.application.resume.grading.load_prompt")
+    @patch("app.application.resume.analysis.load_prompt")
     async def test_non_llm_error_propagates(self, mock_load: MagicMock) -> None:
         service, _ = _make_service()
         mock_load.side_effect = FileNotFoundError("prompt template missing")
