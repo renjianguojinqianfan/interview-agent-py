@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
+from app.application.skill.service import SkillService
 from app.config.settings import settings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
@@ -17,6 +18,7 @@ from app.infrastructure.parsing.content_type import ContentTypeDetector
 from app.infrastructure.parsing.parser import DocumentParser
 from app.infrastructure.parsing.text_cleaner import TextCleaner
 from app.infrastructure.redis.client import RedisClient, create_redis_client
+from app.infrastructure.skills.loader import SkillLoader
 from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService, create_s3_storage_service
 from app.infrastructure.tasks.constants import RESUME_ANALYZE
@@ -30,6 +32,7 @@ _producer: AnalyzeStreamProducer | None = None
 _pdf_service: PdfExportService | None = None
 _resume_analysis_service: ResumeAnalysisService | None = None
 _resume_consumer: AnalyzeStreamConsumer | None = None
+_skill_service: SkillService | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +106,17 @@ def get_resume_service(
         allowed_types=settings.resume_allowed_content_types,
         max_file_size=settings.resume_max_file_size,
     )
+
+
+def get_skill_service() -> SkillService:
+    global _skill_service
+    if _skill_service is None:
+        _skill_service = SkillService(
+            loader=SkillLoader(),
+            llm_registry=get_llm_registry(),
+            invoker=StructuredOutputInvoker(),
+        )
+    return _skill_service
 
 
 async def start_resume_analyze_consumer() -> AnalyzeStreamConsumer | None:
