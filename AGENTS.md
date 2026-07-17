@@ -91,7 +91,7 @@ make verify
 
 Git hooks 位于 `.githooks/` 目录（通过 `core.hooksPath` 配置），自动执行质量门禁，无需手动维护：
 
-- `pre-commit` - 提交前运行 `pytest` + `ruff check` + `mypy`，失败阻止提交
+- `pre-commit` - 提交前运行 `pytest` + `ruff check` + `ruff format --check` + `mypy`，失败阻止提交
 - `commit-msg` - 校验 commit message 格式（`<type>(<scope>): <subject>`），不符合阻止提交
 
 ## 8. Git 提交规范

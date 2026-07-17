@@ -130,6 +130,16 @@
 
 **教训**：重命名为更长名字时，预检行宽。pre-commit hook 是有效的计算型传感器。
 
+### 17. review 整个漏出 todo 清单
+
+**现象**：harness 第一批实施（F1+F4）时，todo 清单止于 `make verify + commit`，未包含 `/code-review` 步骤。用户提醒后才补做 review。
+
+**根因**：`/implement` skill 的顺序（TDD -> /code-review -> commit）只在加载该 skill 时绑定。本次由 harness plan（文档）驱动，未加载 `/implement`，todo 清单照搬 plan 步骤，review 闸门从清单掉出。AGENTS.md §9 原仅对 `/implement` 写了 review 顺序，无通用规则。
+
+**修复**：AGENTS.md §9 补充 scoped 规则——凡涉及 `app/` 或 `tests/` 代码改动的实施任务，todo 清单必含 `/code-review` 为提交前倒数第二步（commit 为最后一步）；纯文档/配置/单行修复可豁免（commit 5024515）。
+
+**教训**：写在 skill 里的纪律只在该 skill 激活时生效。跨 skill 的常驻纪律必须编码进 AGENTS.md。与 #10（增量 review 漏启动 Spec 子代理）同源但不同：#10 是 review 中漏了子代理，#17 是 review 整个漏出清单。
+
 ## 五、工具类
 
 ### 13. prompt_sanitizer.py 触发安全拦截
@@ -171,3 +181,13 @@
 **绕过**：分 5 次用 Python `open(..., 'a')` 追加写入。
 
 **教训**：大文档用 Python 脚本分段写入，不用 Write 工具。
+
+### 18. fitness 测试的 `from app import X` 绕过
+
+**现象**：F1 架构 fitness 测试 `tests/test_architecture.py` 首版全绿，但 `_collect_imports` 对 `ImportFrom` 只记录 `node.module`、忽略 `node.names`。`from app import infrastructure` 会绕过跨层专用规则，落到 catch-all 给出误导信息（“禁止导入 app”）；`from app import domain` 误报。
+
+**根因**：负向验证（注入假违规）只测了 `_check_import` 决策函数，直接传入 `(lineno, full, top)`，未测 `_collect_imports` 解析器。bypass 在解析层，决策层测不到。
+
+**修复**：`ImportFrom` 按 alias 重构完整路径 `f"{node.module}.{alias.name}"`，使 `from app import infrastructure` 被跨层规则捕获、`from app import domain` 放行（commit 1d255de 内修复）。
+
+**教训**：fitness 测试全绿不等于无 bypass。负向验证须覆盖完整管线（parse -> decide），不能只测决策函数。与 #5（定义但不集成=虚假安全感）同类：机械传感器的“看似工作”比“没有”更危险。
