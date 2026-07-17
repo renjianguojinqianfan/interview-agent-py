@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.prompt_loader import load_prompt
+from app.infrastructure.ai.prompt_sanitizer import PromptSanitizer
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 
 logger = logging.getLogger(__name__)
@@ -39,16 +40,24 @@ class ResumeAnalysisResult(BaseModel):
 class ResumeAnalysisService:
     """简历 LLM 分析服务：加载 prompt -> 结构化输出调用 -> 映射结果；LLM 失败时降级。"""
 
-    def __init__(self, llm_registry: LlmProviderRegistry, invoker: StructuredOutputInvoker) -> None:
+    def __init__(
+        self,
+        llm_registry: LlmProviderRegistry,
+        invoker: StructuredOutputInvoker,
+        sanitizer: PromptSanitizer | None = None,
+    ) -> None:
         self._llm_registry = llm_registry
         self._invoker = invoker
+        self._sanitizer = sanitizer or PromptSanitizer()
 
     async def analyze_resume(self, resume_text: str) -> ResumeAnalysisResult:
         try:
             system_tpl = await load_prompt("resume-analysis-system")
             user_tpl = await load_prompt("resume-analysis-user")
             system_prompt = system_tpl.format()
-            user_prompt = user_tpl.format(resumeText=resume_text)
+            sanitized_text = self._sanitizer.sanitize(resume_text) or ""
+            wrapped_text = self._sanitizer.wrap_with_delimiters("简历内容", sanitized_text)
+            user_prompt = user_tpl.format(resumeText=wrapped_text)
 
             llm = await self._llm_registry.get_chat_client()
             result = await self._invoker.invoke(

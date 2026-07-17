@@ -34,8 +34,15 @@ def _make_service() -> tuple[ResumeAnalysisService, dict[str, MagicMock]]:
     llm_registry.get_chat_client = AsyncMock(return_value=MagicMock())
     invoker = MagicMock()
     invoker.invoke = AsyncMock(return_value=_make_result())
-    service = ResumeAnalysisService(llm_registry=llm_registry, invoker=invoker)
-    return service, {"llm_registry": llm_registry, "invoker": invoker}
+    sanitizer = MagicMock()
+    sanitizer.sanitize = MagicMock(return_value="sanitized")
+    sanitizer.wrap_with_delimiters = MagicMock(return_value="wrapped")
+    service = ResumeAnalysisService(
+        llm_registry=llm_registry,
+        invoker=invoker,
+        sanitizer=sanitizer,
+    )
+    return service, {"llm_registry": llm_registry, "invoker": invoker, "sanitizer": sanitizer}
 
 
 def _mock_prompt(name: str) -> MagicMock:
@@ -64,6 +71,8 @@ class TestAnalyzeResumeSuccess:
     @patch("app.application.resume.analysis.load_prompt")
     async def test_renders_user_prompt_with_resume_text(self, mock_load: MagicMock) -> None:
         service, deps = _make_service()
+        deps["sanitizer"].sanitize.return_value = "clean_text"
+        deps["sanitizer"].wrap_with_delimiters.return_value = "wrapped_text"
         user_tpl = MagicMock()
         user_tpl.format = MagicMock(return_value="rendered-user-prompt")
         system_tpl = MagicMock()
@@ -72,7 +81,9 @@ class TestAnalyzeResumeSuccess:
 
         await service.analyze_resume("简历内容XYZ")
 
-        user_tpl.format.assert_called_once_with(resumeText="简历内容XYZ")
+        deps["sanitizer"].sanitize.assert_called_once_with("简历内容XYZ")
+        deps["sanitizer"].wrap_with_delimiters.assert_called_once_with("简历内容", "clean_text")
+        user_tpl.format.assert_called_once_with(resumeText="wrapped_text")
 
     @patch("app.application.resume.analysis.load_prompt")
     async def test_passes_prompts_and_model_to_invoker(self, mock_load: MagicMock) -> None:
