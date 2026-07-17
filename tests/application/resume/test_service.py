@@ -251,7 +251,6 @@ class TestListResumes:
         assert len(result.items) == 2
         assert result.items[0].id == 1
         assert result.items[0].latest_score is None
-        assert result.items[0].interview_count == 0
         assert result.items[0].analyze_status == "PENDING"
 
     async def test_populates_latest_score_when_analysis_exists(self) -> None:

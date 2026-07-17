@@ -29,7 +29,6 @@ class ResumeListItemDTO(BaseSchema):
     access_count: int
     latest_score: int | None
     last_analyzed_at: datetime | None
-    interview_count: int
     analyze_status: str
     analyze_error: str | None
 

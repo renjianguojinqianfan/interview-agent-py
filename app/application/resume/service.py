@@ -123,7 +123,6 @@ class ResumeService:
                     access_count=resume.access_count,
                     latest_score=latest_analysis.overall_score if latest_analysis else None,
                     last_analyzed_at=latest_analysis.analyzed_at if latest_analysis else None,
-                    interview_count=0,
                     analyze_status=resume.analyze_status,
                     analyze_error=resume.analyze_error,
                 )

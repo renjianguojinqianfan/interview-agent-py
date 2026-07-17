@@ -45,7 +45,6 @@ def _page_dto() -> ResumePageDTO:
                 access_count=1,
                 latest_score=None,
                 last_analyzed_at=None,
-                interview_count=0,
                 analyze_status="PENDING",
                 analyze_error=None,
             )
