@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.resume.analysis import ResumeAnalysisResult, ResumeAnalysisService
 from app.domain.entities.task_status import AsyncTaskStatus
-from app.infrastructure.db.models.resume import ResumeAnalysis
+from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
 from app.infrastructure.redis.client import RedisClient
 from app.infrastructure.tasks.base_consumer import BaseStreamConsumer
@@ -55,9 +55,12 @@ class AnalyzeStreamConsumer(BaseStreamConsumer[ResumeAnalyzePayload]):
     def should_skip(self, payload: ResumeAnalyzePayload) -> bool:
         return False
 
+    async def _get_resume(self, session: AsyncSession, resume_id: int) -> Resume | None:
+        return await self._repository.get_by_id(session, resume_id)
+
     async def mark_processing(self, payload: ResumeAnalyzePayload) -> None:
         async with self._session_factory() as session:
-            resume = await self._repository.get_by_id(session, payload.resume_id)
+            resume = await self._get_resume(session, payload.resume_id)
             if resume is None:
                 logger.warning("简历已删除，跳过 mark_processing: resumeId=%s", payload.resume_id)
                 return
@@ -69,7 +72,7 @@ class AnalyzeStreamConsumer(BaseStreamConsumer[ResumeAnalyzePayload]):
 
     async def process_business(self, payload: ResumeAnalyzePayload) -> None:
         async with self._session_factory() as session:
-            resume = await self._repository.get_by_id(session, payload.resume_id)
+            resume = await self._get_resume(session, payload.resume_id)
             if resume is None:
                 logger.warning("简历已删除，跳过分析: resumeId=%s", payload.resume_id)
                 return
@@ -86,7 +89,7 @@ class AnalyzeStreamConsumer(BaseStreamConsumer[ResumeAnalyzePayload]):
 
     async def mark_completed(self, payload: ResumeAnalyzePayload) -> None:
         async with self._session_factory() as session:
-            resume = await self._repository.get_by_id(session, payload.resume_id)
+            resume = await self._get_resume(session, payload.resume_id)
             if resume is None:
                 return
             await self._repository.update_analyze_status(session, resume, AsyncTaskStatus.COMPLETED.value, None)
@@ -94,7 +97,7 @@ class AnalyzeStreamConsumer(BaseStreamConsumer[ResumeAnalyzePayload]):
 
     async def mark_failed(self, payload: ResumeAnalyzePayload, error: str) -> None:
         async with self._session_factory() as session:
-            resume = await self._repository.get_by_id(session, payload.resume_id)
+            resume = await self._get_resume(session, payload.resume_id)
             if resume is None:
                 return
             await self._repository.update_analyze_status(session, resume, AsyncTaskStatus.FAILED.value, error)
