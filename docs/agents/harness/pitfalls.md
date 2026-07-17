@@ -202,3 +202,14 @@
 **绕过**：缩短内容分段用 Write 工具多次写入；或用 python 脚本从 stdin 读取写入（避开 heredoc 安全过滤）。
 
 **教训**：与 16（大文件写入失败）同类但不同层--16 是 Write 工具长度限制，19 是 JSON 转义边界。长且含特殊字符的内容优先用 Python 脚本写入，不依赖 Write 工具或 bash heredoc。
+
+
+### 20. GITHUB_TOKEN 细粒度 PAT 缺 issue 写权限
+
+**现象**：`gh issue close` / `gh issue comment` 报 403 `Resource not accessible by personal access token`，但 `git push` 正常。
+
+**根因**：环境变量 `GITHUB_TOKEN` 是细粒度 PAT（github_pat_），仅含代码读写权限，不含 issue 写权限。gh CLI 优先使用 `GITHUB_TOKEN` 环境变量，覆盖 keyring 中具有 `repo` 完整 scope 的 OAuth token（gho_）。
+
+**修复**：`unset GITHUB_TOKEN` 后 gh 回退到 keyring OAuth token（scopes: gist, read:org, repo, workflow），issue 操作恢复正常。
+
+**教训**：细粒度 PAT 的权限是精确切片的，`git push` 通不代表 `issue close` 通。gh CLI 认证优先级：GITHUB_TOKEN 环境变量 > keyring。遇到 403 先 `gh auth status` 确认当前 token 类型与 scopes。
