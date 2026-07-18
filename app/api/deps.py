@@ -11,6 +11,7 @@ from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.application.skill.service import SkillService
 from app.config.settings import settings
+from app.graphs.evaluation import EvaluationGraph
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
@@ -28,6 +29,7 @@ from app.infrastructure.skills.reference_loader import ReferenceLoader
 from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService, create_s3_storage_service
 from app.infrastructure.tasks.constants import INTERVIEW_EVALUATE, RESUME_ANALYZE
+from app.infrastructure.tasks.interview_evaluate_consumer import EvaluateStreamConsumer
 from app.infrastructure.tasks.interview_evaluate_producer import EvaluateStreamProducer
 from app.infrastructure.tasks.resume_analyze_consumer import AnalyzeStreamConsumer
 from app.infrastructure.tasks.resume_analyze_producer import AnalyzeStreamProducer
@@ -44,6 +46,8 @@ _interview_repository: InterviewRepository | None = None
 _interview_session_cache: InterviewSessionCache | None = None
 _evaluate_producer: EvaluateStreamProducer | None = None
 _question_service: QuestionService | None = None
+_evaluation_graph: EvaluationGraph | None = None
+_interview_evaluate_consumer: EvaluateStreamConsumer | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +156,39 @@ async def stop_resume_analyze_consumer() -> None:
     if _resume_consumer is not None:
         await _resume_consumer.stop()
         _resume_consumer = None
+
+
+def get_evaluation_graph() -> EvaluationGraph:
+    global _evaluation_graph
+    if _evaluation_graph is None:
+        _evaluation_graph = EvaluationGraph(invoker=StructuredOutputInvoker())
+    return _evaluation_graph
+
+
+async def start_interview_evaluate_consumer() -> EvaluateStreamConsumer | None:
+    global _interview_evaluate_consumer
+    try:
+        _interview_evaluate_consumer = EvaluateStreamConsumer(
+            redis_client=get_redis_client(),
+            config=INTERVIEW_EVALUATE,
+            session_factory=async_session_factory,
+            repository=get_interview_repository(),
+            resume_repository=ResumeRepository(),
+            llm_registry=get_llm_registry(),
+            evaluation_graph=get_evaluation_graph(),
+        )
+        await _interview_evaluate_consumer.start()
+        return _interview_evaluate_consumer
+    except Exception:
+        logger.warning("启动面试评估消费者失败，跳过")
+        return None
+
+
+async def stop_interview_evaluate_consumer() -> None:
+    global _interview_evaluate_consumer
+    if _interview_evaluate_consumer is not None:
+        await _interview_evaluate_consumer.stop()
+        _interview_evaluate_consumer = None
 
 
 def get_interview_repository() -> InterviewRepository:

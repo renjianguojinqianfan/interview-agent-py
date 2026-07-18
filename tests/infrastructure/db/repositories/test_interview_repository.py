@@ -212,3 +212,47 @@ class TestDelete:
         orm = _make_session_orm()
         await repo.delete(session, orm)
         session.delete.assert_awaited_once_with(orm)
+
+
+class TestSaveEvaluationResult:
+    async def test_writes_evaluation_fields_and_evaluated_status(
+        self, repo: InterviewRepository, session: AsyncMock
+    ) -> None:
+        orm = _make_session_orm(status="COMPLETED")
+        await repo.save_evaluation_result(
+            session,
+            orm,
+            overall_score=85,
+            overall_feedback="优秀",
+            strengths_json='["扎实"]',
+            improvements_json='["需补深度"]',
+            reference_answers_json='[{"questionIndex":0}]',
+        )
+        assert orm.overall_score == 85
+        assert orm.overall_feedback == "优秀"
+        assert orm.strengths_json == '["扎实"]'
+        assert orm.improvements_json == '["需补深度"]'
+        assert orm.reference_answers_json == '[{"questionIndex":0}]'
+        assert orm.status == "EVALUATED"
+        assert orm.completed_at is not None
+        session.flush.assert_awaited_once()
+
+
+class TestUpdateAnswerEvaluation:
+    async def test_writes_score_feedback_reference_keypoints(
+        self, repo: InterviewRepository, session: AsyncMock
+    ) -> None:
+        answer = _make_answer_orm(question_index=0)
+        await repo.update_answer_evaluation(
+            session,
+            answer,
+            score=90,
+            feedback="回答优秀",
+            reference_answer="标准答案",
+            key_points_json='["要点1"]',
+        )
+        assert answer.score == 90
+        assert answer.feedback == "回答优秀"
+        assert answer.reference_answer == "标准答案"
+        assert answer.key_points_json == '["要点1"]'
+        session.flush.assert_awaited_once()

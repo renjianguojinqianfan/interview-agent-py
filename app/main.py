@@ -9,7 +9,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIASGIMiddleware
 
 from app.api.deps import (
+    start_interview_evaluate_consumer,
     start_resume_analyze_consumer,
+    stop_interview_evaluate_consumer,
     stop_resume_analyze_consumer,
 )
 from app.api.exception_handlers import register_exception_handlers
@@ -36,11 +38,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     if _CONSUMER_AUTO_START:
         await start_resume_analyze_consumer()
+        await start_interview_evaluate_consumer()
 
     yield
 
     if _CONSUMER_AUTO_START:
         await stop_resume_analyze_consumer()
+        await stop_interview_evaluate_consumer()
 
 
 app = FastAPI(

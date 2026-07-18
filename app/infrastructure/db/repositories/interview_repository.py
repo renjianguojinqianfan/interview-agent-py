@@ -63,6 +63,42 @@ class InterviewRepository:
         interview_session.evaluate_error = error
         await session.flush()
 
+    async def save_evaluation_result(
+        self,
+        session: AsyncSession,
+        interview_session: InterviewSessionORM,
+        overall_score: int,
+        overall_feedback: str,
+        strengths_json: str,
+        improvements_json: str,
+        reference_answers_json: str,
+    ) -> None:
+        """写入评估结果并将会话置 EVALUATED（评估消费侧专用，#9）。"""
+        interview_session.overall_score = overall_score
+        interview_session.overall_feedback = overall_feedback
+        interview_session.strengths_json = strengths_json
+        interview_session.improvements_json = improvements_json
+        interview_session.reference_answers_json = reference_answers_json
+        interview_session.status = SessionStatus.EVALUATED.value
+        interview_session.completed_at = datetime.now()
+        await session.flush()
+
+    async def update_answer_evaluation(
+        self,
+        session: AsyncSession,
+        answer: InterviewAnswerORM,
+        score: int,
+        feedback: str,
+        reference_answer: str,
+        key_points_json: str,
+    ) -> None:
+        """回写单题评估结果（score/feedback/reference_answer/key_points）。"""
+        answer.score = score
+        answer.feedback = feedback
+        answer.reference_answer = reference_answer
+        answer.key_points_json = key_points_json
+        await session.flush()
+
     async def find_unfinished_by_resume_id(
         self,
         session: AsyncSession,
