@@ -212,6 +212,8 @@
 
 **修复**：~~临时绕过：`unset GITHUB_TOKEN` 后 gh 回退到 keyring OAuth token~~。**永久修复**：在 GitHub PAT 管理页给该 token 加 `Issues: Read and Write` 权限，同一 token 字符串即时生效，无需更换。
 
+**教训**：细粒度 PAT 的权限是精确切片的，`git push` 通不代表 `issue close` 通。gh CLI 认证优先级：GITHUB_TOKEN 环境变量 > keyring。遇到 403 先 `gh auth status` 确认当前 token 类型与 scopes。
+
 
 ### 21. Pydantic to_camel alias 与 camelCase 字段名冲突
 
@@ -222,5 +224,3 @@
 **修复**：所有继承 `BaseSchema` 的 DTO 字段名必须用 snake_case（`question_count`），让 `to_camel` 正确生成 camelCase alias（`questionCount`）。JSON body 用 camelCase key，Pydantic 属性访问用 snake_case。
 
 **教训**：`to_camel` 的输入必须是 snake_case。已有项目惯例（`SkillDTO` 等单词字段不受影响），多词字段（`questionCount`/`isFollowUp`）必须写成 `question_count`/`is_follow_up`。
-
-**教训**：细粒度 PAT 的权限是精确切片的，`git push` 通不代表 `issue close` 通。gh CLI 认证优先级：GITHUB_TOKEN 环境变量 > keyring。遇到 403 先 `gh auth status` 确认当前 token 类型与 scopes。
