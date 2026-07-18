@@ -26,3 +26,11 @@ RESUME_ANALYZE = StreamConfig(
     consumer_prefix="analyze-consumer-",
     id_field="resumeId",
 )
+
+INTERVIEW_EVALUATE = StreamConfig(
+    # Used by issue #8 (interview async evaluation producer; consumer in #9)
+    stream_key="interview:evaluate:stream",
+    group_name="evaluate-group",
+    consumer_prefix="evaluate-consumer-",
+    id_field="sessionId",
+)

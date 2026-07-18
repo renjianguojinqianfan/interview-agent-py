@@ -75,6 +75,33 @@ class RedisClient:
         result = await self._conn.xack(stream_key, group_name, message_id)
         return int(result)
 
+    async def hset(self, key: str, mapping: dict[str, str]) -> None:
+        await self._conn.hset(
+            key.encode(),
+            mapping={k.encode(): v.encode() for k, v in mapping.items()},
+        )
+
+    async def hgetall(self, key: str) -> dict[str, str]:
+        raw = cast(dict[bytes, bytes], await self._conn.hgetall(key.encode()))
+        return {k.decode(): v.decode() for k, v in raw.items()}
+
+    async def get(self, key: str) -> str | None:
+        raw = cast(bytes | None, await self._conn.get(key.encode()))
+        return raw.decode() if raw is not None else None
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        await self._conn.set(key.encode(), value.encode(), ex=ex)
+
+    async def delete(self, key: str) -> int:
+        result = await self._conn.delete(key.encode())
+        return int(result)
+
+    async def expire(self, key: str, seconds: int) -> None:
+        await self._conn.expire(key.encode(), seconds)
+
+    async def ttl(self, key: str) -> int:
+        return int(await self._conn.ttl(key.encode()))
+
 
 def create_redis_client() -> RedisClient:
     from app.config.settings import settings
