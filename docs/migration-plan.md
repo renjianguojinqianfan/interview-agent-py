@@ -322,15 +322,15 @@ app/
 | # | 任务 | 接口数 | 说明 |
 |---|------|--------|------|
 | 4.1 | 数据模型 ✅ | - | `InterviewSession` + `InterviewAnswer` ORM + Alembic 迁移 004（#8） |
-| 4.2 | 领域层 ✅ | - | `domain/entities/interview.py`（SessionStatus 状态机：CREATED->IN_PROGRESS->COMPLETED->EVALUATED）+ 出题领域服务 question_gen + session_state（#8）；评估领域服务延后到 #9 |
+| 4.2 | 领域层 ✅ | - | `domain/entities/interview.py`（SessionStatus 状态机：CREATED->IN_PROGRESS->COMPLETED->EVALUATED）+ 出题领域服务 question_gen + session_state（#8）；评估领域服务 evaluation + 评估实体（#9） |
 | 4.3 | 出题服务 ✅ | - | `domain/services/question_gen.py`：有简历->并行出题（asyncio.gather 简历题60%+方向题40%）+ 降级链；无简历->方向出题。追问机制(MAX_FOLLOW_UP=2)（#8） |
 | 4.4 | 会话缓存 ✅ | - | `infrastructure/redis/session_cache.py`：双写策略（先DB后Redis）+ resume->session 映射 + TTL 24h（#8） |
-| 4.5 | 应用服务 ✅ | - | `application/interview/`：SessionService（生命周期）、QuestionService、PersistenceService（#8）；EvaluationService 延后到 #9 |
-| 4.6 | 异步评估任务 | - | `infrastructure/tasks/interview_evaluate.py`：消费 interview:evaluate:stream，调用 UnifiedEvaluationService（#9，#8 仅生产者） |
+| 4.5 | 应用服务 ✅ | - | `application/interview/`：SessionService（生命周期）、QuestionService、PersistenceService（#8）；EvaluationService 读侧服务（#9） |
+| 4.6 | 异步评估任务 ✅ | - | `infrastructure/tasks/interview_evaluate_consumer.py`：消费 interview:evaluate:stream，调用统一评估子图（#9，#8 仅生产者） |
 | 4.7 | 技能管理 ✅ | - | `domain/services/skill_service.py` + 技能配置（skills/ 目录迁移）+ JD 解析（#7） |
-| 4.8 | API 路由 ✅ | 9 | `api/routers/interview.py`：sessions CRUD + answers + complete + question（#8）；report + export + details 延后到 #9 |
+| 4.8 | API 路由 ✅ | 11 | `api/routers/interview.py`：sessions CRUD + answers + complete + question（#8）；evaluation 查询 + export 导出 + list ?status 过滤（#9） |
 | 4.9 | 限流 ✅ | - | create: GLOBAL=5/s+IP=5/s，answers: GLOBAL=10/s（#8） |
-| 4.10 | PDF 导出 | - | 面试报告 PDF（评分颜色 + 逐题详情）（#9） |
+| 4.10 | PDF 导出 ✅ | - | 面试报告 PDF（评分颜色对齐 prompt 5 档 + 逐题详情）（#9） |
 
 **验收**：创建面试 -> 答题 -> 提前交卷/答完 -> 异步评估 -> 查看报告 -> 导出 PDF，含断线续答、并行出题降级。
 

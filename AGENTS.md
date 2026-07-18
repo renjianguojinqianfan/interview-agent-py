@@ -43,6 +43,7 @@ make verify
 - `app/domain/` - 领域层（实体、值对象、领域服务、仓储接口）
 - `app/infrastructure/` - 基础设施层（仓储实现、外部服务适配器、数据库模型）
 - `app/config/` - 配置管理（环境变量、应用配置）
+- `graphs/` - LangGraph 子图（仅统一评估子图 + 语音管线，D3 决策；可依赖 domain + infrastructure，不属于 DDD 分层）
 - `tests/` - 测试代码（单元测试 + 集成测试，镜像 app/ 目录结构）
 - `.githooks/` - Git hooks（commit-msg + pre-commit，通过 `core.hooksPath` 配置）
 - `Makefile` - 质量门禁命令
