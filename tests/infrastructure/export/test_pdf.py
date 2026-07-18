@@ -3,6 +3,13 @@ from datetime import datetime
 
 import pytest
 
+from app.domain.entities.evaluation import (
+    CategoryScore,
+    EvaluationReport,
+    QuestionEvaluation,
+    ReferenceAnswer,
+)
+from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
 from app.infrastructure.export.pdf import PdfExportService
 
@@ -137,3 +144,128 @@ class TestExportResumeAnalysis:
 
         assert result == b"%PDF-1.4 fake pdf bytes"
         assert "优势" not in renderer.captured_html or "暂无" in renderer.captured_html
+
+
+def _make_interview_session_orm() -> InterviewSessionORM:
+    return InterviewSessionORM(
+        id=1,
+        session_id="sess123",
+        skill_id="java-backend",
+        difficulty="mid",
+        total_questions=2,
+        current_question_index=2,
+        status="EVALUATED",
+        created_at=datetime(2026, 7, 18, 10, 0, 0),
+        completed_at=datetime(2026, 7, 18, 11, 0, 0),
+    )
+
+
+def _make_evaluation_report() -> EvaluationReport:
+    return EvaluationReport(
+        session_id="sess123",
+        total_questions=2,
+        overall_score=85,
+        category_scores=[CategoryScore(category="Java", score=85, question_count=2)],
+        question_details=[
+            QuestionEvaluation(0, "什么是 JVM", "Java", "虚拟机", 92, "源码级理解"),
+            QuestionEvaluation(1, "MySQL 索引", "Java", "B+树", 50, "概念有误"),
+        ],
+        overall_feedback="整体表现良好",
+        strengths=["基础扎实"],
+        improvements=["需补 MySQL"],
+        reference_answers=[
+            ReferenceAnswer(0, "什么是 JVM", "JVM 是 Java 虚拟机...", ["字节码", "内存模型"]),
+            ReferenceAnswer(1, "MySQL 索引", "B+树索引结构...", ["聚簇索引"]),
+        ],
+    )
+
+
+class TestExportInterviewReport:
+    async def test_returns_renderer_output(self, service: PdfExportService) -> None:
+        result = await service.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        assert result == b"%PDF-1.4 fake pdf bytes"
+
+    async def test_html_contains_title(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        assert "面试报告" in renderer.captured_html
+
+    async def test_html_contains_overall_score(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        assert "85" in renderer.captured_html
+
+    async def test_overall_score_color_aligned_to_prompt_band(self, service: PdfExportService) -> None:
+        # 85 属 75-89 良好 -> 蓝色 #2980b9
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        assert "#2980b9" in renderer.captured_html
+
+    async def test_per_question_scores_use_distinct_colors(self, service: PdfExportService) -> None:
+        # 题0=92(>=90 绿 #27ae60)，题1=50(<60 红 #e74c3c)
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        assert "#27ae60" in renderer.captured_html
+        assert "#e74c3c" in renderer.captured_html
+
+    async def test_html_contains_question_and_feedback(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        html = renderer.captured_html
+        assert "什么是 JVM" in html
+        assert "源码级理解" in html
+        assert "虚拟机" in html
+
+    async def test_html_contains_reference_answers_and_key_points(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        html = renderer.captured_html
+        assert "JVM 是 Java 虚拟机" in html
+        assert "字节码" in html
+        assert "聚簇索引" in html
+
+    async def test_html_contains_strengths_and_improvements(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        html = renderer.captured_html
+        assert "基础扎实" in html
+        assert "需补 MySQL" in html
+        assert "整体表现良好" in html
+
+    async def test_html_contains_category_scores(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        html = renderer.captured_html
+        assert "Java" in html
+
+    async def test_html_references_chinese_font(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
+        assert "ZhuqueFangsong" in renderer.captured_html or "@font-face" in renderer.captured_html
+
+    async def test_handles_empty_strengths_and_improvements(self, service: PdfExportService) -> None:
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        report = _make_evaluation_report()
+        report = EvaluationReport(
+            session_id=report.session_id,
+            total_questions=report.total_questions,
+            overall_score=report.overall_score,
+            category_scores=report.category_scores,
+            question_details=report.question_details,
+            overall_feedback="",
+            strengths=[],
+            improvements=[],
+            reference_answers=report.reference_answers,
+        )
+        result = await svc.export_interview_report(_make_interview_session_orm(), report)
+        assert result == b"%PDF-1.4 fake pdf bytes"

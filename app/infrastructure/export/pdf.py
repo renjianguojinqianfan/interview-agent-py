@@ -4,7 +4,9 @@ import logging
 import os
 from typing import Protocol
 
+from app.domain.entities.evaluation import EvaluationReport, QuestionEvaluation
 from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
 
 logger = logging.getLogger(__name__)
@@ -138,3 +140,132 @@ td {{ border: 1px solid #ccc; padding: 8px; }}
             return ""
         s = str(text)
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+    async def export_interview_report(
+        self,
+        session: InterviewSessionORM,
+        report: EvaluationReport,
+    ) -> bytes:
+        """面试报告 PDF 导出：评分颜色（对齐 interview-evaluation-system.st 5 档）+ 逐题详情。"""
+        html = self._build_interview_html(session, report)
+        try:
+            return await asyncio.to_thread(self._renderer.render, html)
+        except Exception as e:
+            logger.error("面试报告 PDF 导出失败: sessionId=%s, error=%s", session.session_id, e)
+            raise BusinessException(ErrorCode.EXPORT_PDF_FAILED, f"PDF导出失败: {e}") from e
+
+    def _build_interview_html(self, session: InterviewSessionORM, report: EvaluationReport) -> str:
+        font_face = self._font_face_css()
+        created = session.created_at.strftime("%Y-%m-%d %H:%M:%S") if session.created_at else "未知"
+        completed = session.completed_at.strftime("%Y-%m-%d %H:%M:%S") if session.completed_at else "未知"
+        overall_color = self._score_color(report.overall_score)
+
+        category_rows = (
+            "\n".join(
+                f"<tr><td>{self._escape(c.category)}</td>"
+                f"<td style='color:{self._score_color(c.score)};font-weight:bold'>{c.score}</td>"
+                f"<td>{c.question_count}</td></tr>"
+                for c in report.category_scores
+            )
+            or "<tr><td colspan='3'>暂无</td></tr>"
+        )
+
+        question_blocks = (
+            "\n".join(
+                self._render_question_block(i, detail, report) for i, detail in enumerate(report.question_details)
+            )
+            or "<p>暂无</p>"
+        )
+
+        strengths_html = (
+            "".join(f"<li>{self._escape(s)}</li>" for s in report.strengths) if report.strengths else "<p>暂无</p>"
+        )
+        improvements_html = (
+            "".join(f"<li>{self._escape(s)}</li>" for s in report.improvements)
+            if report.improvements
+            else "<p>暂无</p>"
+        )
+
+        return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+{font_face}
+body {{ font-family: "ZhuqueFangsong", "Microsoft YaHei", "SimSun", sans-serif; padding: 40px; }}
+h1 {{ text-align: center; color: #2980b9; }}
+h2 {{ color: #34495e; border-bottom: 2px solid #2980b9; padding-bottom: 5px; }}
+table {{ width: 100%; border-collapse: collapse; margin-bottom: 12px; }}
+td, th {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+.score {{ font-size: 28px; font-weight: bold; }}
+.question {{ margin-bottom: 16px; padding: 12px; background: #f9f9f9; border-left: 4px solid #2980b9; }}
+.question-score {{ font-size: 18px; font-weight: bold; }}
+.reference {{ margin-top: 6px; padding: 8px; background: #fffde7; border: 1px dashed #ccc; }}
+.key-points {{ color: #555; }}
+</style>
+</head>
+<body>
+<h1>面试报告</h1>
+<h2>基本信息</h2>
+<p>面试方向：{self._escape(session.skill_id)}</p>
+<p>难度：{self._escape(session.difficulty)}</p>
+<p>开始时间：{created}</p>
+<p>结束时间：{completed}</p>
+<h2>综合评分</h2>
+<p class="score" style="color:{overall_color}">{report.overall_score} / 100</p>
+<h2>分类得分</h2>
+<table>
+<tr><th>分类</th><th>平均分</th><th>题数</th></tr>
+{category_rows}
+</table>
+<h2>总体评价</h2>
+<p>{self._escape(report.overall_feedback or "")}</p>
+<h2>逐题评估</h2>
+{question_blocks}
+<h2>优势</h2>
+<ul>{strengths_html}</ul>
+<h2>改进建议</h2>
+<ul>{improvements_html}</ul>
+</body>
+</html>"""
+
+    def _render_question_block(
+        self,
+        index: int,
+        detail: QuestionEvaluation,
+        report: EvaluationReport,
+    ) -> str:
+        color = self._score_color(detail.score)
+        ref = report.reference_answers[index] if index < len(report.reference_answers) else None
+        key_points_html = (
+            "".join(f"<span class='key-points'>· {self._escape(k)}</span> " for k in ref.key_points)
+            if ref and ref.key_points
+            else ""
+        )
+        ref_answer_html = (
+            f"<div class='reference'><b>参考答案：</b>{self._escape(ref.reference_answer)}</div>"
+            if ref and ref.reference_answer
+            else ""
+        )
+        user_answer = detail.user_answer if detail.user_answer else "(未回答)"
+        return (
+            f"<div class='question'>"
+            f"<p><b>Q{index + 1} [{self._escape(detail.category)}]</b> {self._escape(detail.question)}</p>"
+            f"<p><b>你的回答：</b>{self._escape(user_answer)}</p>"
+            f"<p class='question-score' style='color:{color}'>得分：{detail.score}</p>"
+            f"<p><b>反馈：</b>{self._escape(detail.feedback)}</p>"
+            f"{ref_answer_html}"
+            f"<p>{key_points_html}</p>"
+            f"</div>"
+        )
+
+    @staticmethod
+    def _score_color(score: int) -> str:
+        """评分颜色，对齐 interview-evaluation-system.st:19-25 的评分区间。"""
+        if score >= 90:
+            return "#27ae60"  # 优秀
+        if score >= 75:
+            return "#2980b9"  # 良好
+        if score >= 60:
+            return "#f39c12"  # 及格
+        return "#e74c3c"  # 不及格+较差
