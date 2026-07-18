@@ -6,12 +6,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_interview_session_service
+from app.api.deps import get_interview_evaluation_service, get_interview_session_service
 from app.api.rate_limit import limiter
 from app.application.interview.schemas import (
+    CategoryScoreDTO,
     CurrentQuestionResponse,
+    EvaluationResultDTO,
     InterviewQuestionDTO,
     InterviewSessionDTO,
+    QuestionEvaluationDetailDTO,
+    ReferenceAnswerDTO,
     SessionListItemDTO,
     SessionPageDTO,
     SubmitAnswerResponse,
@@ -237,3 +241,83 @@ class TestDeleteSession:
         resp = client.delete("/api/interview/sessions/sess123")
         assert resp.status_code == 200
         assert resp.json()["code"] == 200
+
+
+def _evaluation_dto() -> EvaluationResultDTO:
+    return EvaluationResultDTO(
+        sessionId="sess123",
+        totalQuestions=2,
+        overallScore=80,
+        overallFeedback="整体良好",
+        categoryScores=[CategoryScoreDTO(category="Java", score=80, questionCount=2)],
+        questionDetails=[
+            QuestionEvaluationDetailDTO(
+                questionIndex=0, question="Q1", category="Java", userAnswer="A1", score=90, feedback="优"
+            ),
+            QuestionEvaluationDetailDTO(
+                questionIndex=1, question="Q2", category="Java", userAnswer="A2", score=70, feedback="良"
+            ),
+        ],
+        strengths=["基础扎实"],
+        improvements=["需补深度"],
+        referenceAnswers=[
+            ReferenceAnswerDTO(questionIndex=0, question="Q1", referenceAnswer="参考1", keyPoints=["要点1"])
+        ],
+        evaluateStatus="COMPLETED",
+    )
+
+
+def _mock_eval_service() -> MagicMock:
+    service = MagicMock()
+    service.get_evaluation = AsyncMock()
+    service.export_report = AsyncMock()
+    return service
+
+
+@pytest.fixture()
+def mock_eval_service() -> Iterator[MagicMock]:
+    service = _mock_eval_service()
+    app.dependency_overrides[get_interview_evaluation_service] = lambda: service
+    yield service
+    app.dependency_overrides.pop(get_interview_evaluation_service, None)
+
+
+class TestListSessionsStatusFilter:
+    def test_passes_status_filter(self, mock_service: MagicMock) -> None:
+        mock_service.list_sessions.return_value = SessionPageDTO(items=[], total=0, page=1, size=10)
+        resp = client.get("/api/interview/sessions?status=EVALUATED")
+        assert resp.status_code == 200
+        mock_service.list_sessions.assert_awaited_once_with(page=1, size=10, status="EVALUATED")
+
+
+class TestGetEvaluation:
+    def test_returns_evaluation(self, mock_eval_service: MagicMock) -> None:
+        mock_eval_service.get_evaluation.return_value = _evaluation_dto()
+        resp = client.get("/api/interview/sessions/sess123/evaluation")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 200
+        assert body["data"]["overallScore"] == 80
+        assert body["data"]["questionDetails"][0]["score"] == 90
+        assert body["data"]["referenceAnswers"][0]["keyPoints"] == ["要点1"]
+
+    def test_not_evaluated_returns_error_code(self, mock_eval_service: MagicMock) -> None:
+        mock_eval_service.get_evaluation.side_effect = BusinessException(ErrorCode.INTERVIEW_EVALUATION_NOT_FOUND)
+        resp = client.get("/api/interview/sessions/sess123/evaluation")
+        assert resp.status_code == 200
+        assert resp.json()["code"] == ErrorCode.INTERVIEW_EVALUATION_NOT_FOUND.code
+
+
+class TestExportReport:
+    def test_returns_pdf(self, mock_eval_service: MagicMock) -> None:
+        mock_eval_service.export_report.return_value = b"%PDF-1.4 fake"
+        resp = client.get("/api/interview/sessions/sess123/export")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/pdf"
+        assert b"%PDF-1.4 fake" in resp.content
+        assert "attachment" in resp.headers["content-disposition"]
+
+    def test_not_evaluated_returns_error_code(self, mock_eval_service: MagicMock) -> None:
+        mock_eval_service.export_report.side_effect = BusinessException(ErrorCode.INTERVIEW_EVALUATION_NOT_FOUND)
+        resp = client.get("/api/interview/sessions/sess123/export")
+        assert resp.json()["code"] == ErrorCode.INTERVIEW_EVALUATION_NOT_FOUND.code

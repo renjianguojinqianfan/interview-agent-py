@@ -219,8 +219,8 @@ class InterviewSessionService:
             raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND, "未找到未完成的面试会话")
         return dto
 
-    async def list_sessions(self, page: int, size: int) -> SessionPageDTO:
-        items, total = await self._persistence.find_all_paginated(page, size)
+    async def list_sessions(self, page: int, size: int, status: str | None = None) -> SessionPageDTO:
+        items, total = await self._persistence.find_all_paginated(page, size, status)
         dtos = [self._orm_to_list_item(s) for s in items]
         return SessionPageDTO(items=dtos, total=total, page=page, size=size)
 

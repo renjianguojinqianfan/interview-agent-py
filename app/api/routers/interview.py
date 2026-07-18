@@ -1,13 +1,16 @@
 """文字面试 API 路由：会话创建、问答交互、提前交卷、断线续答。"""
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import Response
 
-from app.api.deps import get_interview_session_service
+from app.api.deps import get_interview_evaluation_service, get_interview_session_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
+from app.application.interview.evaluation_service import InterviewEvaluationService
 from app.application.interview.schemas import (
     CreateSessionRequest,
     CurrentQuestionResponse,
+    EvaluationResultDTO,
     InterviewSessionDTO,
     SessionPageDTO,
     SubmitAnswerRequest,
@@ -34,9 +37,10 @@ async def create_session(
 async def list_sessions(
     page: int = Query(1, ge=1),
     size: int = Query(10, ge=1, le=100),
+    status: str | None = Query(None, description="按会话状态过滤（如 EVALUATED）"),
     service: InterviewSessionService = Depends(get_interview_session_service),
 ) -> Result[SessionPageDTO]:
-    data = await service.list_sessions(page=page, size=size)
+    data = await service.list_sessions(page=page, size=size, status=status)
     return Result.success(data=data)
 
 
@@ -105,3 +109,26 @@ async def delete_session(
 ) -> Result[None]:
     await service.delete_session(session_id)
     return Result.success(data=None)
+
+
+@router.get("/sessions/{session_id}/evaluation", response_model=Result[EvaluationResultDTO])
+async def get_evaluation(
+    session_id: str,
+    service: InterviewEvaluationService = Depends(get_interview_evaluation_service),
+) -> Result[EvaluationResultDTO]:
+    data = await service.get_evaluation(session_id)
+    return Result.success(data=data)
+
+
+@router.get("/sessions/{session_id}/export")
+async def export_report(
+    session_id: str,
+    service: InterviewEvaluationService = Depends(get_interview_evaluation_service),
+) -> Response:
+    pdf_bytes = await service.export_report(session_id)
+    filename = f"interview_{session_id}_report.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

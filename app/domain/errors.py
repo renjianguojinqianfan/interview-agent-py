@@ -25,6 +25,7 @@ class ErrorCode(Enum):
     INTERVIEW_QUESTION_GENERATION_FAILED = (3006, "面试问题生成失败")
     INTERVIEW_NOT_COMPLETED = (3007, "面试尚未完成")
     INTERVIEW_ANSWER_SAVE_FAILED = (3008, "面试答案保存失败")
+    INTERVIEW_EVALUATION_NOT_FOUND = (3011, "面试评估结果不存在")  # 3009/3010 被 SKILL/JD 占用
     SKILL_NOT_FOUND = (3009, "技能不存在")
     JD_PARSE_FAILED = (3010, "JD 解析失败")
 

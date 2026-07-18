@@ -109,8 +109,9 @@ class InterviewPersistenceService:
         self,
         page: int,
         size: int,
+        status: str | None = None,
     ) -> tuple[list[InterviewSessionORM], int]:
-        return await self._repository.find_all_paginated(self._session, page, size)
+        return await self._repository.find_all_paginated(self._session, page, size, status)
 
     async def find_answers_by_session_id(self, session_id: str) -> list[InterviewAnswerORM]:
         orm = await self.find_by_session_id(session_id)

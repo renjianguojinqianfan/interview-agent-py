@@ -91,3 +91,38 @@ class CreateSessionRequest(BaseSchema):
     llm_provider_id: int | None = None
     custom_categories: list[dict[str, object]] = Field(default_factory=list)
     jd_text: str | None = None
+
+
+class CategoryScoreDTO(BaseSchema):
+    category: str
+    score: int
+    question_count: int
+
+
+class QuestionEvaluationDetailDTO(BaseSchema):
+    question_index: int
+    question: str
+    category: str
+    user_answer: str | None = None
+    score: int
+    feedback: str
+
+
+class ReferenceAnswerDTO(BaseSchema):
+    question_index: int
+    question: str
+    reference_answer: str
+    key_points: list[str] = Field(default_factory=list)
+
+
+class EvaluationResultDTO(BaseSchema):
+    session_id: str
+    total_questions: int
+    overall_score: int
+    overall_feedback: str
+    category_scores: list[CategoryScoreDTO]
+    question_details: list[QuestionEvaluationDetailDTO]
+    strengths: list[str]
+    improvements: list[str]
+    reference_answers: list[ReferenceAnswerDTO]
+    evaluate_status: str

@@ -1,0 +1,173 @@
+"""面试评估读侧应用服务：查询评估结果 + 导出报告 PDF。
+
+从 DB（session 聚合字段 + answers 逐题字段）重建 EvaluationReport，供 API 查询与 PDF 导出复用。
+"""
+
+import json
+import logging
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.application.interview.schemas import (
+    CategoryScoreDTO,
+    EvaluationResultDTO,
+    QuestionEvaluationDetailDTO,
+    ReferenceAnswerDTO,
+)
+from app.domain.entities.evaluation import (
+    CategoryScore,
+    EvaluationReport,
+    QuestionEvaluation,
+    ReferenceAnswer,
+)
+from app.domain.entities.interview import SessionStatus
+from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
+from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
+from app.infrastructure.db.repositories.interview_repository import InterviewRepository
+from app.infrastructure.export.pdf import PdfExportService
+
+logger = logging.getLogger(__name__)
+
+
+class InterviewEvaluationService:
+    """面试评估读侧服务：查询评估结果、导出报告。每个方法接收 AsyncSession（由 DI 注入）。"""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        repository: InterviewRepository,
+        pdf_service: PdfExportService,
+    ) -> None:
+        self._session = session
+        self._repository = repository
+        self._pdf_service = pdf_service
+
+    async def get_evaluation(self, session_id: str) -> EvaluationResultDTO:
+        orm, answers = await self._load_evaluated(session_id)
+        report = self._reconstruct_report(orm, answers)
+        return self._to_dto(report, orm.evaluate_status or "")
+
+    async def export_report(self, session_id: str) -> bytes:
+        orm, answers = await self._load_evaluated(session_id)
+        report = self._reconstruct_report(orm, answers)
+        return await self._pdf_service.export_interview_report(orm, report)
+
+    async def _load_evaluated(self, session_id: str) -> tuple[InterviewSessionORM, list[InterviewAnswerORM]]:
+        orm = await self._repository.find_by_session_id(self._session, session_id)
+        if orm is None:
+            raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND)
+        if orm.status != SessionStatus.EVALUATED.value:
+            raise BusinessException(ErrorCode.INTERVIEW_EVALUATION_NOT_FOUND)
+        answers = await self._repository.find_answers_by_session_id(self._session, orm.id)
+        return orm, answers
+
+    def _reconstruct_report(self, orm: InterviewSessionORM, answers: list[InterviewAnswerORM]) -> EvaluationReport:
+        question_details = [
+            QuestionEvaluation(
+                question_index=a.question_index,
+                question=a.question or "",
+                category=a.category or "",
+                user_answer=a.user_answer,
+                score=a.score or 0,
+                feedback=a.feedback or "",
+            )
+            for a in answers
+        ]
+        category_scores = self._compute_category_scores(answers)
+        reference_answers = self._parse_reference_answers(orm.reference_answers_json)
+        return EvaluationReport(
+            session_id=orm.session_id,
+            total_questions=orm.total_questions,
+            overall_score=orm.overall_score or 0,
+            category_scores=category_scores,
+            question_details=question_details,
+            overall_feedback=orm.overall_feedback or "",
+            strengths=self._parse_list(orm.strengths_json),
+            improvements=self._parse_list(orm.improvements_json),
+            reference_answers=reference_answers,
+        )
+
+    @staticmethod
+    def _compute_category_scores(answers: list[InterviewAnswerORM]) -> list[CategoryScore]:
+        scores_by_category: dict[str, list[int]] = {}
+        for a in answers:
+            cat = a.category or "未知"
+            scores_by_category.setdefault(cat, []).append(a.score or 0)
+        return [
+            CategoryScore(
+                category=cat,
+                score=int(sum(scores) / len(scores)),
+                question_count=len(scores),
+            )
+            for cat, scores in scores_by_category.items()
+        ]
+
+    @staticmethod
+    def _parse_reference_answers(raw: str | None) -> list[ReferenceAnswer]:
+        if not raw:
+            return []
+        try:
+            items = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("reference_answers_json 解析失败")
+            return []
+        result: list[ReferenceAnswer] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            result.append(
+                ReferenceAnswer(
+                    question_index=int(item.get("questionIndex", 0)),
+                    question=str(item.get("question", "")),
+                    reference_answer=str(item.get("referenceAnswer", "")),
+                    key_points=list(item.get("keyPoints", [])),
+                )
+            )
+        return result
+
+    @staticmethod
+    def _parse_list(raw: str | None) -> list[str]:
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            return [str(s) for s in parsed] if isinstance(parsed, list) else []
+        except json.JSONDecodeError:
+            return []
+
+    @staticmethod
+    def _to_dto(report: EvaluationReport, evaluate_status: str) -> EvaluationResultDTO:
+        return EvaluationResultDTO(
+            session_id=report.session_id,
+            total_questions=report.total_questions,
+            overall_score=report.overall_score,
+            overall_feedback=report.overall_feedback,
+            category_scores=[
+                CategoryScoreDTO(category=c.category, score=c.score, question_count=c.question_count)
+                for c in report.category_scores
+            ],
+            question_details=[
+                QuestionEvaluationDetailDTO(
+                    question_index=d.question_index,
+                    question=d.question,
+                    category=d.category,
+                    user_answer=d.user_answer,
+                    score=d.score,
+                    feedback=d.feedback,
+                )
+                for d in report.question_details
+            ],
+            strengths=report.strengths,
+            improvements=report.improvements,
+            reference_answers=[
+                ReferenceAnswerDTO(
+                    question_index=r.question_index,
+                    question=r.question,
+                    reference_answer=r.reference_answer,
+                    key_points=list(r.key_points),
+                )
+                for r in report.reference_answers
+            ],
+            evaluate_status=evaluate_status,
+        )

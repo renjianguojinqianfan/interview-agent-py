@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.interview.evaluation_service import InterviewEvaluationService
 from app.application.interview.persistence_service import InterviewPersistenceService
 from app.application.interview.question_service import QuestionService
 from app.application.interview.session_service import InterviewSessionService
@@ -239,4 +240,14 @@ def get_interview_session_service(
         session_cache=get_interview_session_cache(),
         evaluate_producer=get_evaluate_producer(),
         resume_repository=ResumeRepository(),
+    )
+
+
+def get_interview_evaluation_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewEvaluationService:
+    return InterviewEvaluationService(
+        session=session,
+        repository=get_interview_repository(),
+        pdf_service=get_pdf_service(),
     )
