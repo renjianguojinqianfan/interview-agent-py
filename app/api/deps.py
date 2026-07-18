@@ -4,6 +4,9 @@ from collections.abc import AsyncGenerator
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.interview.persistence_service import InterviewPersistenceService
+from app.application.interview.question_service import QuestionService
+from app.application.interview.session_service import InterviewSessionService
 from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.application.skill.service import SkillService
@@ -11,6 +14,7 @@ from app.config.settings import settings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
+from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
 from app.infrastructure.db.session import async_session_factory
 from app.infrastructure.export.pdf import PdfExportService, WeasyPrintRenderer
@@ -18,10 +22,13 @@ from app.infrastructure.parsing.content_type import ContentTypeDetector
 from app.infrastructure.parsing.parser import DocumentParser
 from app.infrastructure.parsing.text_cleaner import TextCleaner
 from app.infrastructure.redis.client import RedisClient, create_redis_client
+from app.infrastructure.redis.session_cache import InterviewSessionCache
 from app.infrastructure.skills.loader import SkillLoader
+from app.infrastructure.skills.reference_loader import ReferenceLoader
 from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService, create_s3_storage_service
-from app.infrastructure.tasks.constants import RESUME_ANALYZE
+from app.infrastructure.tasks.constants import INTERVIEW_EVALUATE, RESUME_ANALYZE
+from app.infrastructure.tasks.interview_evaluate_producer import EvaluateStreamProducer
 from app.infrastructure.tasks.resume_analyze_consumer import AnalyzeStreamConsumer
 from app.infrastructure.tasks.resume_analyze_producer import AnalyzeStreamProducer
 
@@ -33,6 +40,10 @@ _pdf_service: PdfExportService | None = None
 _resume_analysis_service: ResumeAnalysisService | None = None
 _resume_consumer: AnalyzeStreamConsumer | None = None
 _skill_service: SkillService | None = None
+_interview_repository: InterviewRepository | None = None
+_interview_session_cache: InterviewSessionCache | None = None
+_evaluate_producer: EvaluateStreamProducer | None = None
+_question_service: QuestionService | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -141,3 +152,54 @@ async def stop_resume_analyze_consumer() -> None:
     if _resume_consumer is not None:
         await _resume_consumer.stop()
         _resume_consumer = None
+
+
+def get_interview_repository() -> InterviewRepository:
+    global _interview_repository
+    if _interview_repository is None:
+        _interview_repository = InterviewRepository()
+    return _interview_repository
+
+
+def get_interview_session_cache() -> InterviewSessionCache:
+    global _interview_session_cache
+    if _interview_session_cache is None:
+        _interview_session_cache = InterviewSessionCache(get_redis_client())
+    return _interview_session_cache
+
+
+def get_evaluate_producer() -> EvaluateStreamProducer:
+    global _evaluate_producer
+    if _evaluate_producer is None:
+        _evaluate_producer = EvaluateStreamProducer(
+            redis_client=get_redis_client(),
+            config=INTERVIEW_EVALUATE,
+            session_factory=async_session_factory,
+            repository=get_interview_repository(),
+        )
+    return _evaluate_producer
+
+
+def get_question_service() -> QuestionService:
+    global _question_service
+    if _question_service is None:
+        _question_service = QuestionService(
+            skill_loader=SkillLoader(),
+            reference_loader=ReferenceLoader(),
+            llm_registry=get_llm_registry(),
+            invoker=StructuredOutputInvoker(),
+        )
+    return _question_service
+
+
+def get_interview_session_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewSessionService:
+    return InterviewSessionService(
+        session=session,
+        question_service=get_question_service(),
+        persistence_service=InterviewPersistenceService(session, get_interview_repository()),
+        session_cache=get_interview_session_cache(),
+        evaluate_producer=get_evaluate_producer(),
+        resume_repository=ResumeRepository(),
+    )

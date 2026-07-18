@@ -15,6 +15,7 @@ from app.api.deps import (
 from app.api.exception_handlers import register_exception_handlers
 from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
+from app.api.routers.interview import router as interview_router
 from app.api.routers.resume import router as resume_router
 from app.api.routers.skill import router as skill_router
 from app.application.llm_provider.service import seed_default_provider
@@ -63,6 +64,7 @@ app.add_middleware(SlowAPIASGIMiddleware)
 register_exception_handlers(app)
 app.include_router(resume_router)
 app.include_router(skill_router)
+app.include_router(interview_router)
 
 
 @app.get("/health")
