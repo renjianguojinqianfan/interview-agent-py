@@ -21,10 +21,11 @@ from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
 from app.api.routers.interview import router as interview_router
 from app.api.routers.knowledgebase import router as knowledgebase_router
+from app.api.routers.llm_provider import router as llm_provider_router
 from app.api.routers.rag_chat import router as rag_chat_router
 from app.api.routers.resume import router as resume_router
 from app.api.routers.skill import router as skill_router
-from app.application.llm_provider.service import seed_default_provider
+from app.application.llm_provider.service import seed_default_provider, seed_global_setting, seed_voice_config
 from app.config.settings import settings
 from app.infrastructure.db.session import async_session_factory
 
@@ -37,6 +38,8 @@ _CONSUMER_AUTO_START = "pytest" not in sys.modules
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     try:
         await seed_default_provider(async_session_factory)
+        await seed_global_setting(async_session_factory)
+        await seed_voice_config(async_session_factory)
     except Exception:
         logger.warning("Database unavailable, skipping provider seed")
 
@@ -77,6 +80,7 @@ app.include_router(skill_router)
 app.include_router(interview_router)
 app.include_router(knowledgebase_router)
 app.include_router(rag_chat_router)
+app.include_router(llm_provider_router)
 
 
 @app.get("/health")

@@ -9,6 +9,7 @@ from app.application.interview.persistence_service import InterviewPersistenceSe
 from app.application.interview.question_service import QuestionService
 from app.application.interview.session_service import InterviewSessionService
 from app.application.knowledgebase.service import KnowledgeBaseService
+from app.application.llm_provider.service import LlmProviderService
 from app.application.rag.service import RagChatService, RagConfig
 from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
@@ -20,8 +21,11 @@ from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
+from app.infrastructure.db.repositories.llm_global_setting_repository import LlmGlobalSettingRepository
+from app.infrastructure.db.repositories.llm_provider_repository import LlmProviderRepository
 from app.infrastructure.db.repositories.rag_chat_repository import RagChatRepository
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
+from app.infrastructure.db.repositories.voice_config_repository import VoiceConfigRepository
 from app.infrastructure.db.session import async_session_factory
 from app.infrastructure.export.pdf import PdfExportService, WeasyPrintRenderer
 from app.infrastructure.parsing.chunker import TokenChunker
@@ -92,6 +96,19 @@ def get_llm_registry(
         factory = session_factory or async_session_factory
         _llm_registry = LlmProviderRegistry(encryption_service, factory)
     return _llm_registry
+
+
+def get_llm_provider_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> LlmProviderService:
+    return LlmProviderService(
+        session=session,
+        provider_repository=LlmProviderRepository(),
+        global_setting_repository=LlmGlobalSettingRepository(),
+        voice_config_repository=VoiceConfigRepository(),
+        encryption_service=ApiKeyEncryptionService(settings.app_ai_config_encryption_key),
+        registry=get_llm_registry(),
+    )
 
 
 def get_resume_producer() -> AnalyzeStreamProducer:
