@@ -56,7 +56,7 @@
 阶段 5: 知识库+RAG
   #10 完成 -> 单 issue review ✅
   #11 完成 -> 单 issue review ✅
-  R4: #10 #11 阶段 review（上传->向量化->RAG 流式问答闭环）
+  R4: #10 #11 阶段 review（上传->向量化->RAG 流式问答闭环） ✅
 
 阶段 6: 供应商+日程
   #12 完成 -> 单 issue review

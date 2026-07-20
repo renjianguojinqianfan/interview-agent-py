@@ -1,6 +1,6 @@
-# R1+R2 Review 踩坑总结
+# Review 踩坑总结（R1-R4）
 
-> 记录 stages 0-3（issues #2-#6）R1+R2 全量 review 中发现的 8 个 finding 的根因、修复过程中的问题、以及对 harness 改进的启示。
+> 记录 stages 0-5（issues #2-#11）R1-R4 全量 review 中发现的 finding 的根因、修复过程中的问题、以及对 harness 改进的启示。
 >
 > 时间线：R1+R2 双轴 review -> 9 commit 修复 -> 增量 review -> 文档同步 -> harness 分析。
 
@@ -258,3 +258,16 @@
 1. 状态机转换函数不要无脑复用时间戳设置--COMPLETED 是"面试结束"，EVALUATED 是"评估完成"，语义不同不应覆写。
 2. domain 层已有纯函数实现某逻辑时，application 层不得绕过自行实现，否则逻辑分叉。
 3. 条件分支中"不需要更新 X"容易连带遗漏"也不需要更新 Y"--每个分支应独立审查所有副作用（DB、cache、status）是否一致。
+
+
+### 24. spec 参数保真度：函数存在 ≠ 参数正确（R4 阶段 review 发现）
+
+**现象**：R4 阶段 review（#10+#11 闭环）发现 RAG 检索策略两处 spec 偏差：
+1. 探测窗口归一化：spec 要求"前 120 字符判断'无信息'模板 -> 替换为标准提示"，实现 `normalize_probe_window` 仅压缩空白+截断，缺模板检测与替换。
+2. 动态 topK/minScore：spec 挑战 4 给出三档硬数值（短≤4 topK=20/minScore=0.18；中≤12 topK=12；长 topK=8），实现用阈值 8/60 + `base_k*2` 公式 + 固定 minScore=0.3，绝对值与阈值均不符。
+
+**根因**：迁移 Java 逻辑时，函数已实现、单 issue 测试通过（测试用了偏离 spec 的值），但参数/逻辑分支未逐值对照 spec 原文。单 issue review 聚焦"功能存在"，未深挖"参数是否忠于一手规格"。Java 参考实现（`isNoResultLike` 5 模式、`STREAM_PROBE_CHARS=120`、`resolveSearchParams` 三档）是权威，但实现时凭记忆/概要迁移，未回查源码逐值核对。
+
+**修复**：`compute_top_k` -> `compute_retrieval_params`，三档硬数值（20/12/8、0.18）下沉 domain 常量；新增 `is_no_info_answer`（对齐 Java 5 模式）+ 流式 probe buffer（前 120 字符增量检测、passthrough、流末归一化）；退役 `rag_default_top_k` config。
+
+**教训**：迁移参考实现时，spec/源码的精确数值与完整逻辑分支是领域规则，不是部署旋钮。单 issue review 易因"函数存在+测试绿"放过参数偏差；阶段 review 须对照 spec 原文（含挑战章节的具体数值）逐值核对，而非只看功能存在。与 #5（定义但不集成=虚假安全感）同类但不同层：#5 是"没调用"，本条是"调用了但值错"。

@@ -339,7 +339,7 @@ app/
 
 **目标**：完成知识库文件管理和 RAG 问答（含 SSE 流式）。
 
-> **进度注记**：阶段 5 已完成。#10（知识库上传+向量化）覆盖 5.1 的 KnowledgeBase 表（迁移 005）、5.3 上传服务、5.4 向量化任务，分块用 tiktoken 手写 TokenChunker（800 token，重叠 100），KnowledgeBase.vector_status 复用 AsyncTaskStatus。#11（RAG 聊天+流式问答）覆盖 5.2 RAG 检索领域服务 rag_query（纯函数）、5.5 动态 topK/minScore + 探测窗口归一化(120) + 多候选检索(asyncio.gather，各分支独立 session) + 无结果检测、5.6 RagChatSession + RagChatMessage（迁移 006）+ SSE 流式(prepare->流->complete)、5.7 rag_chat.py(8 端点)、5.8 限流(query 10/s、query/stream 5/s)；VectorRepository 新增 pgvector 余弦检索、llm_registry 新增 get_streaming_chat_client。下一步：R4 阶段 review（#10+#11 集成闭环）。
+> **进度注记**：阶段 5 已完成。#10（知识库上传+向量化）覆盖 5.1 的 KnowledgeBase 表（迁移 005）、5.3 上传服务、5.4 向量化任务，分块用 tiktoken 手写 TokenChunker（800 token，重叠 100），KnowledgeBase.vector_status 复用 AsyncTaskStatus。#11（RAG 聊天+流式问答）覆盖 5.2 RAG 检索领域服务 rag_query（纯函数）、5.5 动态 topK/minScore + 探测窗口归一化(120) + 多候选检索(asyncio.gather，各分支独立 session) + 无结果检测、5.6 RagChatSession + RagChatMessage（迁移 006）+ SSE 流式(prepare->流->complete)、5.7 rag_chat.py(8 端点)、5.8 限流(query 10/s、query/stream 5/s)；VectorRepository 新增 pgvector 余弦检索、llm_registry 新增 get_streaming_chat_client。R4 阶段 review 已完成（commit c2748e6，修复 SP1-SP4 + ST1/ST5）。
 
 | # | 任务 | 接口数 | 说明 |
 |---|------|--------|------|
