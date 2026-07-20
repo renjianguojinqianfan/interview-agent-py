@@ -1,4 +1,4 @@
-"""RAG 聊天应用服务：会话 CRUD + 非流式/流式问答编排。
+"""RAG 问答应用服务：会话 CRUD + 非流式/流式问答编排。
 
 并发安全约束：AsyncSession 非线程/协程安全，因此 asyncio.gather 多候选检索的每个分支
 各自从 session_factory 开短事务；流式问答全程用 session_factory（请求 session 在流式期间可能已关闭）。
@@ -28,9 +28,10 @@ from app.domain.errors import BusinessException, ErrorCode
 from app.domain.services.rag_query import (
     RetrievedChunk,
     build_context,
-    compute_top_k,
+    compute_retrieval_params,
     detect_no_result,
     filter_by_min_score,
+    is_no_info_answer,
     merge_and_dedup,
     normalize_probe_window,
 )
@@ -48,11 +49,11 @@ _USER_ROLE = "user"
 _ASSISTANT_ROLE = "assistant"
 _DONE = "data: [DONE]\n\n"
 _NO_RESULT_MESSAGE = "抱歉，知识库中未找到与您问题相关的信息。请尝试换一种问法，或确认已选择正确的知识库。"
+_ERROR_PLACEHOLDER = "[回答生成失败，请稍后重试]"
 
 
 @dataclass(frozen=True)
 class RagConfig:
-    default_top_k: int
     min_score: float
     probe_window: int
     query_rewrite_enabled: bool
@@ -177,12 +178,21 @@ class RagChatService:
         )
         await self._session.commit()
 
-        chunks, sources = await self._retrieve(question, kb_ids, history_text)
-        no_result = detect_no_result(chunks)
-        if no_result:
-            answer = _NO_RESULT_MESSAGE
-        else:
-            answer = await self._answer(question, build_context(chunks, self._config.max_context_chars))
+        try:
+            chunks, sources = await self._retrieve(question, kb_ids, history_text)
+            no_result = detect_no_result(chunks)
+            if no_result:
+                answer = _NO_RESULT_MESSAGE
+            else:
+                answer = await self._answer(question, build_context(chunks, self._config.max_context_chars))
+                # spec 挑战 4：探测窗口归一化--LLM 仍答无信息时替换为标准提示
+                if is_no_info_answer(answer):
+                    answer = _NO_RESULT_MESSAGE
+                    no_result = True
+        except Exception:
+            logger.exception("RAG 非流式问答失败: sessionId=%s", session_id)
+            await self._safe_persist_error(sess.id, _ERROR_PLACEHOLDER)
+            raise
 
         await self._repository.add_message(self._session, self._assistant_message(sess.id, answer, sources))
         await self._session.commit()
@@ -191,19 +201,21 @@ class RagChatService:
     # ---------------- 流式问答（SSE） ----------------
 
     async def stream_query(self, session_id: str, question: str) -> AsyncIterator[str]:
+        session_pk: int | None = None
         try:
             async with self._session_factory() as s:
                 sess = await self._get_or_raise(s, session_id)
                 session_pk = sess.id
                 kb_ids = self._kb_ids(sess)
                 history_text = self._format_history(
-                    await self._repository.recent_history(s, session_pk, self._config.history_limit)
+                    await self._repository.recent_history(s, sess.id, self._config.history_limit)
                 )
                 await self._repository.add_message(
-                    s, RagChatMessage(session_id=session_pk, role=_USER_ROLE, content=question)
+                    s, RagChatMessage(session_id=sess.id, role=_USER_ROLE, content=question)
                 )
                 await s.commit()
 
+            assert session_pk is not None  # 块内已赋值，窄化供 happy path 使用
             chunks, sources = await self._retrieve(question, kb_ids, history_text)
             if detect_no_result(chunks):
                 yield _sse({"delta": _NO_RESULT_MESSAGE})
@@ -214,22 +226,55 @@ class RagChatService:
 
             messages = await self._answer_messages(question, build_context(chunks, self._config.max_context_chars))
             llm = await self._llm_registry.get_streaming_chat_client()
-            parts: list[str] = []
+            # spec 挑战 4：探测窗口归一化--前 probe_window 字符增量检测无信息模板
+            probe_buffer: list[str] = []
+            passthrough = False
+            answer_parts: list[str] = []
             async for chunk in llm.astream(messages):
                 token = _content_to_str(chunk.content)
-                if token:
-                    parts.append(token)
+                if not token:
+                    continue
+                if passthrough:
+                    answer_parts.append(token)
                     yield _sse({"delta": token})
+                    continue
+                probe_buffer.append(token)
+                probe_text = "".join(probe_buffer)
+                if is_no_info_answer(probe_text):
+                    await self._persist_assistant_factory(session_pk, _NO_RESULT_MESSAGE, [])
+                    yield _sse({"delta": _NO_RESULT_MESSAGE})
+                    yield _sse({"sources": [], "noResult": True})
+                    yield _DONE
+                    return
+                if len(probe_text) >= self._config.probe_window:
+                    passthrough = True
+                    answer_parts.append(probe_text)
+                    yield _sse({"delta": probe_text})
+                    probe_buffer.clear()
 
-            answer = "".join(parts)
+            # 流结束：未达 probe_window 的残余缓冲做最终归一化
+            if not passthrough:
+                remaining = "".join(probe_buffer)
+                if is_no_info_answer(remaining):
+                    await self._persist_assistant_factory(session_pk, _NO_RESULT_MESSAGE, [])
+                    yield _sse({"delta": _NO_RESULT_MESSAGE})
+                    yield _sse({"sources": [], "noResult": True})
+                    yield _DONE
+                    return
+                answer_parts.append(remaining)
+                yield _sse({"delta": remaining})
+
+            answer = "".join(answer_parts)
             await self._persist_assistant_factory(session_pk, answer, sources)
-            yield _sse({"sources": [s.model_dump() for s in sources], "noResult": False})
+            yield _sse({"sources": [src.model_dump() for src in sources], "noResult": False})
             yield _DONE
         except BusinessException as e:
+            await self._safe_persist_error(session_pk, _ERROR_PLACEHOLDER)
             yield _sse({"error": e.message, "code": e.error_code.code})
             yield _DONE
         except Exception as e:
             logger.error("RAG 流式问答失败: sessionId=%s, error=%s", session_id, e)
+            await self._safe_persist_error(session_pk, _ERROR_PLACEHOLDER)
             yield _sse({"error": "RAG 流式问答失败"})
             yield _DONE
 
@@ -239,21 +284,22 @@ class RagChatService:
         self, question: str, kb_ids: list[int], history_text: str
     ) -> tuple[list[RetrievedChunk], list[RagSourceDTO]]:
         probes = await self._build_probes(question, history_text)
+        # spec 挑战 4：检索参数按原始问题长度分档（topK 硬数值 + 短查询放宽 minScore）
+        top_k, tier_min_score = compute_retrieval_params(question)
+        min_score = tier_min_score if tier_min_score is not None else self._config.min_score
         embeddings = await self._llm_registry.get_default_embeddings()
         vectors = await embeddings.aembed_documents(probes)
 
         async def _search_one(probe: str, vector: list[float]) -> list[RetrievedChunk]:
             async with self._session_factory() as s:
-                results = await self._vector_repository.search(
-                    s, vector, kb_ids, compute_top_k(probe, self._config.default_top_k)
-                )
+                results = await self._vector_repository.search(s, vector, kb_ids, top_k)
             return [RetrievedChunk(content=r.content, score=r.score, kb_id=r.kb_id) for r in results]
 
         candidate_lists = await asyncio.gather(
             *[_search_one(probe, vector) for probe, vector in zip(probes, vectors, strict=True)]
         )
         merged = merge_and_dedup(list(candidate_lists))
-        filtered = filter_by_min_score(merged, self._config.min_score)
+        filtered = filter_by_min_score(merged, min_score)
         sources = [RagSourceDTO(content=c.content, score=c.score, kb_id=c.kb_id) for c in filtered]
         return filtered, sources
 
@@ -304,6 +350,15 @@ class RagChatService:
         async with self._session_factory() as s:
             await self._repository.add_message(s, self._assistant_message(session_pk, answer, sources))
             await s.commit()
+
+    async def _safe_persist_error(self, session_pk: int | None, placeholder: str) -> None:
+        """异常分支持久化错误占位消息；自身失败仅记日志，不掩盖原异常。"""
+        if session_pk is None:
+            return
+        try:
+            await self._persist_assistant_factory(session_pk, placeholder, [])
+        except Exception:
+            logger.exception("持久化 RAG 错误占位消息失败: sessionPk=%s", session_pk)
 
     def _assistant_message(self, session_pk: int, answer: str, sources: list[RagSourceDTO]) -> RagChatMessage:
         return RagChatMessage(

@@ -1,9 +1,11 @@
 from app.domain.services.rag_query import (
+    SHORT_QUERY_MIN_SCORE,
     RetrievedChunk,
     build_context,
-    compute_top_k,
+    compute_retrieval_params,
     detect_no_result,
     filter_by_min_score,
+    is_no_info_answer,
     merge_and_dedup,
     normalize_probe_window,
 )
@@ -21,18 +23,57 @@ class TestNormalizeProbeWindow:
         assert normalize_probe_window("hello", limit=120) == "hello"
 
 
-class TestComputeTopK:
-    def test_short_query_doubles(self) -> None:
-        assert compute_top_k("短", base_k=5) == 10
+class TestComputeRetrievalParams:
+    def test_short_query_tier(self) -> None:
+        # spec: 短(<=4字符) topK=20/minScore=0.18
+        top_k, min_score = compute_retrieval_params("索引")
+        assert top_k == 20
+        assert min_score == SHORT_QUERY_MIN_SCORE == 0.18
 
-    def test_long_query_halves(self) -> None:
-        assert compute_top_k("x" * 80, base_k=6) == 3
+    def test_short_query_boundary_is_4_chars(self) -> None:
+        assert compute_retrieval_params("abcd")[0] == 20
 
-    def test_medium_query_base(self) -> None:
-        assert compute_top_k("这是一个中等长度的问题", base_k=5) == 5
+    def test_medium_query_tier(self) -> None:
+        # spec: 中(<=12) topK=12；min_score=None 表示用 config 默认值
+        top_k, min_score = compute_retrieval_params("什么是数据库索引")
+        assert top_k == 12
+        assert min_score is None
 
-    def test_never_below_one(self) -> None:
-        assert compute_top_k("x" * 80, base_k=1) == 1
+    def test_medium_query_boundary_is_12_chars(self) -> None:
+        assert compute_retrieval_params("x" * 12)[0] == 12
+
+    def test_long_query_tier(self) -> None:
+        # spec: 长 topK=8；min_score=None
+        top_k, min_score = compute_retrieval_params("x" * 60)
+        assert top_k == 8
+        assert min_score is None
+
+    def test_strips_whitespace_before_tiering(self) -> None:
+        # 对齐 Java：去除全部空白（含内部），4 个非空白字符仍属短查询
+        assert compute_retrieval_params("  a b\tc d  ")[0] == 20
+
+
+class TestIsNoInfoAnswer:
+    def test_detects_no_info_found_phrase(self) -> None:
+        assert is_no_info_answer("抱歉，没有找到相关信息。") is True
+
+    def test_detects_not_retrieved_phrase(self) -> None:
+        assert is_no_info_answer("未检索到相关信息。") is True
+
+    def test_detects_info_insufficient(self) -> None:
+        assert is_no_info_answer("根据知识库，信息不足以回答该问题。") is True
+
+    def test_detects_out_of_scope(self) -> None:
+        assert is_no_info_answer("该问题超出知识库范围。") is True
+
+    def test_detects_cannot_answer_from_content(self) -> None:
+        assert is_no_info_answer("无法根据提供内容回答该问题。") is True
+
+    def test_normal_answer_not_flagged(self) -> None:
+        assert is_no_info_answer("索引是一种数据结构，用于加速数据库查询。") is False
+
+    def test_empty_answer_not_flagged(self) -> None:
+        assert is_no_info_answer("") is False
 
 
 class TestMergeAndDedup:

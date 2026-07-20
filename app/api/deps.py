@@ -190,7 +190,6 @@ def get_rag_chat_service(
         vector_repository=VectorRepository(),
         llm_registry=get_llm_registry(),
         config=RagConfig(
-            default_top_k=settings.rag_default_top_k,
             min_score=settings.rag_min_score,
             probe_window=settings.rag_probe_window,
             query_rewrite_enabled=settings.rag_query_rewrite_enabled,

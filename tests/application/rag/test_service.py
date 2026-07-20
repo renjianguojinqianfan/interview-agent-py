@@ -12,7 +12,6 @@ from app.infrastructure.db.models.rag_chat import RagChatSession
 from app.infrastructure.vector.repository import SearchResult
 
 _CONFIG = RagConfig(
-    default_top_k=5,
     min_score=0.3,
     probe_window=120,
     query_rewrite_enabled=False,
@@ -171,11 +170,21 @@ class TestStreamQuery:
         service, m = _make_service()
         events = [chunk async for chunk in service.stream_query("sess-abc", "什么是索引？")]
 
-        assert any('"delta": "这是"' in e for e in events)
-        assert any('"delta": "答案"' in e for e in events)
+        # 短答案经 probe window 归一化后整体输出
+        assert any("这是" in e and "答案" in e for e in events)
         assert events[-1] == "data: [DONE]\n\n"
         # 助手消息经 factory 持久化
         m["repository"].add_message.assert_awaited()
+
+    async def test_long_answer_passthrough_streams_incrementally(self) -> None:
+        # 超过 probe_window(120) 后切换 passthrough，逐 token 输出
+        long_token = "答" * 130
+        service, m = _make_service()
+        m["chat"].astream = MagicMock(return_value=_astream([long_token, "尾部"]))
+        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
+        # 首 130 字符作为一次 delta 输出，随后 "尾部" 单独输出
+        assert events[-1] == "data: [DONE]\n\n"
+        assert m["repository"].add_message.await_count >= 2
 
     async def test_no_result_stream(self) -> None:
         service, _ = _make_service(search=AsyncMock(return_value=[]))
@@ -188,3 +197,46 @@ class TestStreamQuery:
         events = [chunk async for chunk in service.stream_query("missing", "问题")]
         assert any('"error"' in e for e in events)
         assert events[-1] == "data: [DONE]\n\n"
+
+
+class TestNoInfoAnswerNormalization:
+    async def test_query_replaces_no_info_answer(self) -> None:
+        # LLM 返回无信息模板 -> 替换为标准提示，no_result=True
+        service, m = _make_service()
+        m["chat"].ainvoke = AsyncMock(return_value=SimpleNamespace(content="没有找到相关信息。"))
+        result = await service.query("sess-abc", "问题")
+        assert result.no_result is True
+        assert "未找到" in result.answer
+        assert m["repository"].add_message.await_count == 2
+
+    async def test_stream_replaces_no_info_in_probe_window(self) -> None:
+        # 流式前 120 字符命中无信息模板 -> 输出固定提示并结束
+        service, m = _make_service()
+        m["chat"].astream = MagicMock(return_value=_astream(["没有找到相关信息。"]))
+        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
+        assert any("未找到" in e for e in events)
+        assert any('"noResult": true' in e or '"noResult":True' in e for e in events)
+        assert events[-1] == "data: [DONE]\n\n"
+        m["repository"].add_message.assert_awaited()
+
+
+class TestErrorPersistence:
+    async def test_query_persists_placeholder_on_failure(self) -> None:
+        # _retrieve 抛异常 -> 持久化错误占位助手消息 + 重抛
+        service, m = _make_service(search=AsyncMock(side_effect=RuntimeError("boom")))
+        with pytest.raises(RuntimeError):
+            await service.query("sess-abc", "问题")
+        # 用户消息 + 错误占位助手消息
+        assert m["repository"].add_message.await_count == 2
+        last_call = m["repository"].add_message.await_args
+        assistant_msg = last_call.args[1]
+        assert assistant_msg.role == "assistant"
+        assert "失败" in (assistant_msg.content or "")
+
+    async def test_stream_persists_placeholder_on_failure(self) -> None:
+        service, m = _make_service(search=AsyncMock(side_effect=RuntimeError("boom")))
+        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
+        assert any('"error"' in e for e in events)
+        assert events[-1] == "data: [DONE]\n\n"
+        # 用户消息 + 错误占位助手消息
+        assert m["repository"].add_message.await_count >= 2

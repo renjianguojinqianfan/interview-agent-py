@@ -16,7 +16,9 @@ class RagChatSession(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     messages: Mapped[list["RagChatMessage"]] = relationship(
         back_populates="session",

@@ -5,7 +5,7 @@ from app.infrastructure.db.models.rag_chat import RagChatMessage, RagChatSession
 
 
 class RagChatRepository:
-    """RAG 聊天会话与消息的异步仓储。每个方法接收一个 AsyncSession，不在内部管理事务。"""
+    """RAG 问答会话与消息的异步仓储。每个方法接收一个 AsyncSession，不在内部管理事务。"""
 
     async def get_by_session_id(self, session: AsyncSession, session_id: str) -> RagChatSession | None:
         result = await session.execute(select(RagChatSession).where(RagChatSession.session_id == session_id))

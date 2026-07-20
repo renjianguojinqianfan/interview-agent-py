@@ -15,7 +15,7 @@ from app.application.rag.schemas import (
 )
 from app.application.rag.service import RagChatService
 
-router = APIRouter(prefix="/api/rag/sessions", tags=["RAG 聊天"])
+router = APIRouter(prefix="/api/rag/sessions", tags=["RAG 问答"])
 
 
 @router.post("", response_model=Result[RagSessionInfoDTO])

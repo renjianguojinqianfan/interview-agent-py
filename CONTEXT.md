@@ -75,7 +75,7 @@ _Avoid_: 文档库、Document Store
 _Avoid_: 聊天（过于宽泛）、Chat
 
 **RagSessionStatus**:
-RAG 聊天会话状态：ACTIVE（活跃）-> ARCHIVED（归档）。
+RAG 问答会话状态：ACTIVE（活跃）-> ARCHIVED（归档）。
 _Avoid_: 会话状态（用 RagSessionStatus 精确指代）
 
 ### 语音面试
