@@ -5,6 +5,7 @@ FIELD_CONTENT = "content"
 
 MAX_RETRY_COUNT = 3
 BATCH_SIZE = 10
+EMBEDDING_BATCH_SIZE = 10
 PENDING_IDLE_TIMEOUT_MS = 5 * 60 * 1000
 PENDING_CLAIM_BATCH_SIZE = 10
 POLL_INTERVAL_MS = 1000
@@ -33,4 +34,12 @@ INTERVIEW_EVALUATE = StreamConfig(
     group_name="evaluate-group",
     consumer_prefix="evaluate-consumer-",
     id_field="sessionId",
+)
+
+KB_VECTORIZE = StreamConfig(
+    # Used by issue #10 (knowledge base async vectorization)
+    stream_key="knowledgebase:vectorize:stream",
+    group_name="vectorize-group",
+    consumer_prefix="vectorize-consumer-",
+    id_field="knowledgeBaseId",
 )

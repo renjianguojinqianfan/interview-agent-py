@@ -10,14 +10,17 @@ from slowapi.middleware import SlowAPIASGIMiddleware
 
 from app.api.deps import (
     start_interview_evaluate_consumer,
+    start_kb_vectorize_consumer,
     start_resume_analyze_consumer,
     stop_interview_evaluate_consumer,
+    stop_kb_vectorize_consumer,
     stop_resume_analyze_consumer,
 )
 from app.api.exception_handlers import register_exception_handlers
 from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
 from app.api.routers.interview import router as interview_router
+from app.api.routers.knowledgebase import router as knowledgebase_router
 from app.api.routers.resume import router as resume_router
 from app.api.routers.skill import router as skill_router
 from app.application.llm_provider.service import seed_default_provider
@@ -39,12 +42,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     if _CONSUMER_AUTO_START:
         await start_resume_analyze_consumer()
         await start_interview_evaluate_consumer()
+        await start_kb_vectorize_consumer()
 
     yield
 
     if _CONSUMER_AUTO_START:
         await stop_resume_analyze_consumer()
         await stop_interview_evaluate_consumer()
+        await stop_kb_vectorize_consumer()
 
 
 app = FastAPI(
@@ -69,6 +74,7 @@ register_exception_handlers(app)
 app.include_router(resume_router)
 app.include_router(skill_router)
 app.include_router(interview_router)
+app.include_router(knowledgebase_router)
 
 
 @app.get("/health")

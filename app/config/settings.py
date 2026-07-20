@@ -57,5 +57,14 @@ class Settings(BaseSettings):
         "text/markdown",
     ]
 
+    knowledge_base_max_file_size: int = 10 * 1024 * 1024
+    knowledge_base_allowed_content_types: list[str] = [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "text/markdown",
+    ]
+
 
 settings = Settings()

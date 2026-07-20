@@ -8,6 +8,7 @@ from app.application.interview.evaluation_service import InterviewEvaluationServ
 from app.application.interview.persistence_service import InterviewPersistenceService
 from app.application.interview.question_service import QuestionService
 from app.application.interview.session_service import InterviewSessionService
+from app.application.knowledgebase.service import KnowledgeBaseService
 from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.application.skill.service import SkillService
@@ -17,9 +18,11 @@ from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
+from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
 from app.infrastructure.db.session import async_session_factory
 from app.infrastructure.export.pdf import PdfExportService, WeasyPrintRenderer
+from app.infrastructure.parsing.chunker import TokenChunker
 from app.infrastructure.parsing.content_type import ContentTypeDetector
 from app.infrastructure.parsing.parser import DocumentParser
 from app.infrastructure.parsing.text_cleaner import TextCleaner
@@ -29,11 +32,14 @@ from app.infrastructure.skills.loader import SkillLoader
 from app.infrastructure.skills.reference_loader import ReferenceLoader
 from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService, create_s3_storage_service
-from app.infrastructure.tasks.constants import INTERVIEW_EVALUATE, RESUME_ANALYZE
+from app.infrastructure.tasks.constants import INTERVIEW_EVALUATE, KB_VECTORIZE, RESUME_ANALYZE
 from app.infrastructure.tasks.interview_evaluate_consumer import EvaluateStreamConsumer
 from app.infrastructure.tasks.interview_evaluate_producer import EvaluateStreamProducer
+from app.infrastructure.tasks.kb_vectorize_consumer import VectorizeStreamConsumer
+from app.infrastructure.tasks.kb_vectorize_producer import VectorizeStreamProducer
 from app.infrastructure.tasks.resume_analyze_consumer import AnalyzeStreamConsumer
 from app.infrastructure.tasks.resume_analyze_producer import AnalyzeStreamProducer
+from app.infrastructure.vector.repository import VectorRepository
 
 _redis_client: RedisClient | None = None
 _s3_storage: S3StorageService | None = None
@@ -49,6 +55,9 @@ _evaluate_producer: EvaluateStreamProducer | None = None
 _question_service: QuestionService | None = None
 _evaluation_graph: EvaluationGraph | None = None
 _interview_evaluate_consumer: EvaluateStreamConsumer | None = None
+_kb_vectorize_producer: VectorizeStreamProducer | None = None
+_kb_vectorize_consumer: VectorizeStreamConsumer | None = None
+_token_chunker: TokenChunker | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +142,65 @@ def get_skill_service() -> SkillService:
             invoker=StructuredOutputInvoker(),
         )
     return _skill_service
+
+
+def get_token_chunker() -> TokenChunker:
+    global _token_chunker
+    if _token_chunker is None:
+        _token_chunker = TokenChunker()
+    return _token_chunker
+
+
+def get_kb_vectorize_producer() -> VectorizeStreamProducer:
+    global _kb_vectorize_producer
+    if _kb_vectorize_producer is None:
+        _kb_vectorize_producer = VectorizeStreamProducer(
+            get_redis_client(), KB_VECTORIZE, async_session_factory, KnowledgeBaseRepository()
+        )
+    return _kb_vectorize_producer
+
+
+def get_knowledge_base_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> KnowledgeBaseService:
+    return KnowledgeBaseService(
+        session=session,
+        repository=KnowledgeBaseRepository(),
+        parser=DocumentParser(TextCleaner()),
+        hash_service=FileHashService(),
+        content_detector=ContentTypeDetector(),
+        storage=get_s3_storage_service(),
+        producer=get_kb_vectorize_producer(),
+        vector_repository=VectorRepository(),
+        allowed_types=settings.knowledge_base_allowed_content_types,
+        max_file_size=settings.knowledge_base_max_file_size,
+    )
+
+
+async def start_kb_vectorize_consumer() -> VectorizeStreamConsumer | None:
+    global _kb_vectorize_consumer
+    try:
+        _kb_vectorize_consumer = VectorizeStreamConsumer(
+            redis_client=get_redis_client(),
+            config=KB_VECTORIZE,
+            session_factory=async_session_factory,
+            repository=KnowledgeBaseRepository(),
+            vector_repository=VectorRepository(),
+            chunker=get_token_chunker(),
+            llm_registry=get_llm_registry(),
+        )
+        await _kb_vectorize_consumer.start()
+        return _kb_vectorize_consumer
+    except Exception:
+        logger.warning("启动知识库向量化消费者失败，跳过")
+        return None
+
+
+async def stop_kb_vectorize_consumer() -> None:
+    global _kb_vectorize_consumer
+    if _kb_vectorize_consumer is not None:
+        await _kb_vectorize_consumer.stop()
+        _kb_vectorize_consumer = None
 
 
 async def start_resume_analyze_consumer() -> AnalyzeStreamConsumer | None:
