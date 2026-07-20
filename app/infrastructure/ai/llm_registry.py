@@ -9,6 +9,7 @@ from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.embeddings import create_embeddings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.provider_snapshot import ProviderSnapshot
+from app.infrastructure.db.models.llm_global_setting import LlmGlobalSetting
 from app.infrastructure.db.models.llm_provider import LlmProvider
 
 logger = logging.getLogger(__name__)
@@ -39,35 +40,35 @@ class LlmProviderRegistry:
         self._embedding_cache: dict[int, OpenAIEmbeddings] = {}
 
     async def get_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
-        resolved_id = await self._resolve_provider_id(provider_id)
+        resolved_id = await self._resolve_chat_provider_id(provider_id)
         cache_key = f"{resolved_id}:default"
         if cache_key not in self._client_cache:
             self._client_cache[cache_key] = await self._create_chat_client(resolved_id)
         return self._client_cache[cache_key]
 
     async def get_plain_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
-        resolved_id = await self._resolve_provider_id(provider_id)
+        resolved_id = await self._resolve_chat_provider_id(provider_id)
         cache_key = f"{resolved_id}:plain"
         if cache_key not in self._client_cache:
             self._client_cache[cache_key] = await self._create_chat_client(resolved_id)
         return self._client_cache[cache_key]
 
     async def get_voice_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
-        resolved_id = await self._resolve_provider_id(provider_id)
+        resolved_id = await self._resolve_chat_provider_id(provider_id)
         cache_key = f"{resolved_id}:voice"
         if cache_key not in self._client_cache:
             self._client_cache[cache_key] = await self._create_chat_client(resolved_id, streaming=True)
         return self._client_cache[cache_key]
 
     async def get_streaming_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
-        resolved_id = await self._resolve_provider_id(provider_id)
+        resolved_id = await self._resolve_chat_provider_id(provider_id)
         cache_key = f"{resolved_id}:stream"
         if cache_key not in self._client_cache:
             self._client_cache[cache_key] = await self._create_chat_client(resolved_id, streaming=True)
         return self._client_cache[cache_key]
 
     async def get_embeddings(self, provider_id: int | None = None) -> OpenAIEmbeddings:
-        resolved_id = await self._resolve_provider_id(provider_id)
+        resolved_id = await self._resolve_embedding_provider_id(provider_id)
         if resolved_id not in self._embedding_cache:
             config = await self._load_provider(resolved_id)
             self._embedding_cache[resolved_id] = create_embeddings(config)
@@ -82,23 +83,41 @@ class LlmProviderRegistry:
         self._embedding_cache.clear()
         logger.info("LlmProviderRegistry cache cleared (%d entries)", size)
 
-    async def _resolve_provider_id(self, provider_id: int | None) -> int:
+    async def _resolve_chat_provider_id(self, provider_id: int | None) -> int:
         if provider_id is not None:
             return provider_id
-        return await self._find_default_provider_id()
+        return await self._find_default_chat_provider_id()
 
-    async def _find_default_provider_id(self) -> int:
+    async def _resolve_embedding_provider_id(self, provider_id: int | None) -> int:
+        if provider_id is not None:
+            return provider_id
+        return await self._find_default_embedding_provider_id()
+
+    async def _find_default_chat_provider_id(self) -> int:
         async with self._session_factory() as session:
             result = await session.execute(
-                select(LlmProvider).where(LlmProvider.is_default == True).limit(1)  # noqa: E712
+                select(LlmGlobalSetting).where(LlmGlobalSetting.id == LlmGlobalSetting.SINGLETON_ID)
             )
-            entity = result.scalars().first()
-            if entity is None:
+            setting = result.scalar_one_or_none()
+            if setting is None or setting.default_chat_provider_id is None:
                 raise BusinessException(
                     ErrorCode.PROVIDER_NOT_FOUND,
                     "未找到默认 LLM Provider，请先配置",
                 )
-            return entity.id
+            return setting.default_chat_provider_id
+
+    async def _find_default_embedding_provider_id(self) -> int:
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(LlmGlobalSetting).where(LlmGlobalSetting.id == LlmGlobalSetting.SINGLETON_ID)
+            )
+            setting = result.scalar_one_or_none()
+            if setting is None or setting.default_embedding_provider_id is None:
+                raise BusinessException(
+                    ErrorCode.PROVIDER_NOT_FOUND,
+                    "未找到默认 Embedding Provider，请先配置",
+                )
+            return setting.default_embedding_provider_id
 
     async def _load_provider(self, provider_id: int) -> ProviderSnapshot:
         async with self._session_factory() as session:

@@ -9,6 +9,7 @@ from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.provider_snapshot import ProviderSnapshot, looks_like_chat_model
+from app.infrastructure.db.models.llm_global_setting import LlmGlobalSetting
 from app.infrastructure.db.models.llm_provider import LlmProvider
 
 _ENCRYPTION_KEY = base64.b64encode(b"a" * 32).decode()
@@ -40,12 +41,26 @@ def _make_provider(
     )
 
 
+def _make_global_setting(
+    default_chat_provider_id: int = 1,
+    default_embedding_provider_id: int | None = 1,
+) -> LlmGlobalSetting:
+    return LlmGlobalSetting(
+        id=LlmGlobalSetting.SINGLETON_ID,
+        default_chat_provider_id=default_chat_provider_id,
+        default_embedding_provider_id=default_embedding_provider_id,
+    )
+
+
 def _make_mock_session_factory(
     by_id: dict[int, LlmProvider] | None = None,
     default_provider: LlmProvider | None = None,
+    global_setting: LlmGlobalSetting | None = None,
 ):
     by_id = by_id or {}
     default_provider = default_provider or _make_provider()
+    if global_setting is None:
+        global_setting = _make_global_setting()
 
     @asynccontextmanager
     async def factory():
@@ -53,13 +68,13 @@ def _make_mock_session_factory(
 
         async def fake_execute(stmt):
             result = MagicMock()
-            scalar_result = MagicMock()
             stmt_str = str(stmt)
-            if "is_default" in stmt_str:
-                scalar_result.first.return_value = default_provider
+            if "llm_global_setting" in stmt_str:
+                result.scalar_one_or_none.return_value = global_setting
             else:
+                scalar_result = MagicMock()
                 scalar_result.first.return_value = by_id.get(1, default_provider)
-            result.scalars.return_value = scalar_result
+                result.scalars.return_value = scalar_result
             return result
 
         session.execute = fake_execute
@@ -141,11 +156,19 @@ class TestLlmProviderRegistryProviderNotFound:
         @asynccontextmanager
         async def empty_factory():
             session = AsyncMock()
-            result = MagicMock()
-            scalar_result = MagicMock()
-            scalar_result.first.return_value = None
-            result.scalars.return_value = scalar_result
-            session.execute = AsyncMock(return_value=result)
+
+            async def fake_execute(stmt):
+                result = MagicMock()
+                stmt_str = str(stmt)
+                if "llm_global_setting" in stmt_str:
+                    result.scalar_one_or_none.return_value = None
+                else:
+                    scalar_result = MagicMock()
+                    scalar_result.first.return_value = None
+                    result.scalars.return_value = scalar_result
+                return result
+
+            session.execute = fake_execute
             yield session
 
         registry = LlmProviderRegistry(encryption_service, empty_factory)

@@ -10,7 +10,7 @@ class LlmProvider(Base):
     __tablename__ = "llm_provider_config"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    provider_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    provider_name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     base_url: Mapped[str] = mapped_column(String(500), nullable=False)
     api_key: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(100), nullable=False)

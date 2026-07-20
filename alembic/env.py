@@ -9,9 +9,11 @@ from alembic import context
 from app.config.settings import settings
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase  # noqa: F401
+from app.infrastructure.db.models.llm_global_setting import LlmGlobalSetting  # noqa: F401
 from app.infrastructure.db.models.llm_provider import LlmProvider  # noqa: F401
 from app.infrastructure.db.models.rag_chat import RagChatMessage, RagChatSession  # noqa: F401
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis  # noqa: F401
+from app.infrastructure.db.models.voice_config import VoiceConfig  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

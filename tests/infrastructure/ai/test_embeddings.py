@@ -10,6 +10,7 @@ from app.infrastructure.ai.embeddings import create_embeddings
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.provider_snapshot import ProviderSnapshot
+from app.infrastructure.db.models.llm_global_setting import LlmGlobalSetting
 from app.infrastructure.db.models.llm_provider import LlmProvider
 
 _ENCRYPTION_KEY = base64.b64encode(b"a" * 32).decode()
@@ -49,15 +50,25 @@ def _make_provider(encryption_service: ApiKeyEncryptionService) -> LlmProvider:
 
 
 def _make_mock_session_factory(provider: LlmProvider):
+    global_setting = LlmGlobalSetting(
+        id=LlmGlobalSetting.SINGLETON_ID,
+        default_chat_provider_id=provider.id,
+        default_embedding_provider_id=provider.id,
+    )
+
     @asynccontextmanager
     async def factory():
         session = AsyncMock()
 
         async def fake_execute(stmt):
             result = MagicMock()
-            scalar_result = MagicMock()
-            scalar_result.first.return_value = provider
-            result.scalars.return_value = scalar_result
+            stmt_str = str(stmt)
+            if "llm_global_setting" in stmt_str:
+                result.scalar_one_or_none.return_value = global_setting
+            else:
+                scalar_result = MagicMock()
+                scalar_result.first.return_value = provider
+                result.scalars.return_value = scalar_result
             return result
 
         session.execute = fake_execute
