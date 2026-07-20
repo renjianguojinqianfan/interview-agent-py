@@ -252,6 +252,74 @@ class TestExportInterviewReport:
         await svc.export_interview_report(_make_interview_session_orm(), _make_evaluation_report())
         assert "ZhuqueFangsong" in renderer.captured_html or "@font-face" in renderer.captured_html
 
+    async def test_reference_answer_matched_by_question_index_not_position(self) -> None:
+        """PDF 参考答案按 question_index 匹配，非位置下标。
+
+        验证 R3 review finding (c).2 修复：question_details 缺中间题时，
+        reference_answers 不应错位（旧代码用 enumerate 位置下标取 reference_answers[index]）。
+        """
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        report = EvaluationReport(
+            session_id="sess123",
+            total_questions=3,
+            overall_score=70,
+            category_scores=[],
+            question_details=[
+                QuestionEvaluation(0, "Q0-text", "Java", "A0", 90, "f0"),
+                QuestionEvaluation(2, "Q2-text", "Java", "A2", 50, "f2"),
+            ],
+            overall_feedback="",
+            strengths=[],
+            improvements=[],
+            reference_answers=[
+                ReferenceAnswer(0, "Q0-text", "Ref-Q0", ["kp0"]),
+                ReferenceAnswer(1, "Q1-text", "Ref-Q1", ["kp1"]),
+                ReferenceAnswer(2, "Q2-text", "Ref-Q2", ["kp2"]),
+            ],
+        )
+        await svc.export_interview_report(_make_interview_session_orm(), report)
+
+        html = renderer.captured_html
+        # Q2 (question_index=2) 应显示为 Q3，非 Q2（位置下标+1=2）
+        assert "Q3" in html
+        # Q0 的参考答案应是 Ref-Q0
+        assert "Ref-Q0" in html
+        # Q2 的参考答案应是 Ref-Q2，不应错位为 Ref-Q1
+        assert "Ref-Q2" in html
+        assert "Ref-Q1" not in html
+
+    async def test_unanswered_question_renders_not_answered_marker(self) -> None:
+        """未回答题 PDF 渲染：user_answer=None 显示(未回答)，参考答案按 question_index 匹配。"""
+        renderer = _CapturingRenderer()
+        svc = PdfExportService(renderer=renderer)
+        report = EvaluationReport(
+            session_id="sess123",
+            total_questions=2,
+            overall_score=90,
+            category_scores=[],
+            question_details=[
+                QuestionEvaluation(0, "Q0-text", "Java", "A0", 90, "f0"),
+                QuestionEvaluation(1, "Q1-text", "Java", None, 0, "该题未作答。"),
+            ],
+            overall_feedback="",
+            strengths=[],
+            improvements=[],
+            reference_answers=[
+                ReferenceAnswer(0, "Q0-text", "Ref-Q0", []),
+                ReferenceAnswer(1, "Q1-text", "Ref-Q1", []),
+            ],
+        )
+        await svc.export_interview_report(_make_interview_session_orm(), report)
+
+        html = renderer.captured_html
+        # 未回答题显示(未回答)
+        assert "(未回答)" in html
+        # 未回答题的参考答案仍正确匹配
+        assert "Ref-Q1" in html
+        # 未回答题的反馈文案
+        assert "该题未作答。" in html
+
     async def test_handles_empty_strengths_and_improvements(self, service: PdfExportService) -> None:
         renderer = _CapturingRenderer()
         svc = PdfExportService(renderer=renderer)

@@ -8,6 +8,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.interview.persistence_service import InterviewPersistenceService
 from app.application.interview.schemas import (
     CategoryScoreDTO,
     EvaluationResultDTO,
@@ -20,7 +21,7 @@ from app.domain.entities.evaluation import (
     QuestionEvaluation,
     ReferenceAnswer,
 )
-from app.domain.entities.interview import SessionStatus
+from app.domain.entities.interview import InterviewQuestion, SessionStatus
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
@@ -28,6 +29,8 @@ from app.infrastructure.db.repositories.interview_repository import InterviewRep
 from app.infrastructure.export.pdf import PdfExportService
 
 logger = logging.getLogger(__name__)
+
+_UNANSWERED_FEEDBACK = "该题未作答。"
 
 
 class InterviewEvaluationService:
@@ -63,18 +66,14 @@ class InterviewEvaluationService:
         return orm, answers
 
     def _reconstruct_report(self, orm: InterviewSessionORM, answers: list[InterviewAnswerORM]) -> EvaluationReport:
-        question_details = [
-            QuestionEvaluation(
-                question_index=a.question_index,
-                question=a.question or "",
-                category=a.category or "",
-                user_answer=a.user_answer,
-                score=a.score or 0,
-                feedback=a.feedback or "",
-            )
-            for a in answers
-        ]
-        category_scores = self._compute_category_scores(answers)
+        questions = self._parse_questions_safely(orm.questions_json, orm.session_id)
+        if questions:
+            answer_map = {a.question_index: a for a in answers}
+            question_details = [self._build_question_evaluation(q, answer_map.get(q.question_index)) for q in questions]
+        else:
+            # questions_json 解析失败或为空时回退到 answers-only 模式，不丢失已答题数据
+            question_details = [self._from_answer(a) for a in answers]
+        category_scores = self._compute_category_scores(question_details)
         reference_answers = self._parse_reference_answers(orm.reference_answers_json)
         return EvaluationReport(
             session_id=orm.session_id,
@@ -89,11 +88,54 @@ class InterviewEvaluationService:
         )
 
     @staticmethod
-    def _compute_category_scores(answers: list[InterviewAnswerORM]) -> list[CategoryScore]:
+    def _parse_questions_safely(questions_json: str | None, session_id: str) -> list[InterviewQuestion]:
+        """解析 questions_json，异常时回退为空列表（上层回退到 answers-only 模式）。"""
+        if not questions_json:
+            return []
+        try:
+            return InterviewPersistenceService.deserialize_questions(questions_json)
+        except (json.JSONDecodeError, KeyError, TypeError):
+            logger.warning("questions_json 解析失败，回退到 answers-only 模式: sessionId=%s", session_id)
+            return []
+
+    @staticmethod
+    def _from_answer(ans: InterviewAnswerORM) -> QuestionEvaluation:
+        """从 answer 行重建 QuestionEvaluation（fallback 与已答题路径共用）。"""
+        return QuestionEvaluation(
+            question_index=ans.question_index,
+            question=ans.question or "",
+            category=ans.category or "",
+            user_answer=ans.user_answer,
+            score=ans.score or 0,
+            feedback=ans.feedback or "",
+        )
+
+    @staticmethod
+    def _build_question_evaluation(
+        q: InterviewQuestion,
+        ans: InterviewAnswerORM | None,
+    ) -> QuestionEvaluation:
+        """已答题从 answer 行重建；未回答题补齐为 score=0/user_answer=None/未作答文案。"""
+        if ans is not None:
+            return InterviewEvaluationService._from_answer(ans)
+        return QuestionEvaluation(
+            question_index=q.question_index,
+            question=q.question,
+            category=q.category,
+            user_answer=None,
+            score=0,
+            feedback=_UNANSWERED_FEEDBACK,
+        )
+
+    @staticmethod
+    def _compute_category_scores(details: list[QuestionEvaluation]) -> list[CategoryScore]:
+        # 仅计已答题（与 write 侧 build_report 的 if has_answer 守卫一致）
         scores_by_category: dict[str, list[int]] = {}
-        for a in answers:
-            cat = a.category or "未知"
-            scores_by_category.setdefault(cat, []).append(a.score or 0)
+        for d in details:
+            if not d.user_answer:
+                continue
+            cat = d.category or "未知"
+            scores_by_category.setdefault(cat, []).append(d.score)
         return [
             CategoryScore(
                 category=cat,

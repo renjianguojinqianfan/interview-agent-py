@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Protocol
 
-from app.domain.entities.evaluation import EvaluationReport, QuestionEvaluation
+from app.domain.entities.evaluation import EvaluationReport, QuestionEvaluation, ReferenceAnswer
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
@@ -170,10 +170,9 @@ td {{ border: 1px solid #ccc; padding: 8px; }}
             or "<tr><td colspan='3'>暂无</td></tr>"
         )
 
+        ref_map = {r.question_index: r for r in report.reference_answers}
         question_blocks = (
-            "\n".join(
-                self._render_question_block(i, detail, report) for i, detail in enumerate(report.question_details)
-            )
+            "\n".join(self._render_question_block(detail, ref_map) for detail in report.question_details)
             or "<p>暂无</p>"
         )
 
@@ -231,12 +230,11 @@ td, th {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
 
     def _render_question_block(
         self,
-        index: int,
         detail: QuestionEvaluation,
-        report: EvaluationReport,
+        ref_map: dict[int, ReferenceAnswer],
     ) -> str:
         color = self._score_color(detail.score)
-        ref = report.reference_answers[index] if index < len(report.reference_answers) else None
+        ref = ref_map.get(detail.question_index)
         key_points_html = (
             "".join(f"<span class='key-points'>· {self._escape(k)}</span> " for k in ref.key_points)
             if ref and ref.key_points
@@ -250,7 +248,8 @@ td, th {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
         user_answer = detail.user_answer if detail.user_answer else "(未回答)"
         return (
             f"<div class='question'>"
-            f"<p><b>Q{index + 1} [{self._escape(detail.category)}]</b> {self._escape(detail.question)}</p>"
+            f"<p><b>Q{detail.question_index + 1} [{self._escape(detail.category)}]</b> "
+            f"{self._escape(detail.question)}</p>"
             f"<p><b>你的回答：</b>{self._escape(user_answer)}</p>"
             f"<p class='question-score' style='color:{color}'>得分：{detail.score}</p>"
             f"<p><b>反馈：</b>{self._escape(detail.feedback)}</p>"

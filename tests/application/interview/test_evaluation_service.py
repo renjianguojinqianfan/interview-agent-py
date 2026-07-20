@@ -29,6 +29,35 @@ def _make_session_orm(**overrides: object) -> InterviewSessionORM:
             [{"questionIndex": 0, "question": "Q1", "referenceAnswer": "参考1", "keyPoints": ["要点1"]}],
             ensure_ascii=False,
         ),
+        "questions_json": json.dumps(
+            [
+                {
+                    "questionIndex": 0,
+                    "question": "Q0",
+                    "type": "short",
+                    "category": "Java",
+                    "topicSummary": None,
+                    "userAnswer": None,
+                    "score": None,
+                    "feedback": None,
+                    "isFollowUp": False,
+                    "parentQuestionIndex": None,
+                },
+                {
+                    "questionIndex": 1,
+                    "question": "Q1",
+                    "type": "short",
+                    "category": "Java",
+                    "topicSummary": None,
+                    "userAnswer": None,
+                    "score": None,
+                    "feedback": None,
+                    "isFollowUp": False,
+                    "parentQuestionIndex": None,
+                },
+            ],
+            ensure_ascii=False,
+        ),
         "evaluate_status": "COMPLETED",
     }
     defaults.update(overrides)
@@ -85,6 +114,94 @@ class TestGetEvaluation:
         # 参考答案从 session.reference_answers_json 重建
         assert dto.reference_answers[0].reference_answer == "参考1"
         assert dto.reference_answers[0].key_points == ["要点1"]
+
+    async def test_unanswered_questions_backfilled_from_questions_json(self) -> None:
+        """未回答题从 questions_json 补齐：score=0/user_answer=None/feedback=未作答文案。
+
+        验证 R3 review finding (c).1 修复：read 侧 _reconstruct_report 从 questions_json
+        补齐未回答题，question_details 数 == total_questions，违反 #9 逐题反馈验收。
+        """
+        questions_json = json.dumps(
+            [
+                {
+                    "questionIndex": i,
+                    "question": f"Q{i}",
+                    "type": "short",
+                    "category": "Java",
+                    "topicSummary": None,
+                    "userAnswer": None,
+                    "score": None,
+                    "feedback": None,
+                    "isFollowUp": False,
+                    "parentQuestionIndex": None,
+                }
+                for i in range(3)
+            ],
+            ensure_ascii=False,
+        )
+        orm = _make_session_orm(total_questions=3, questions_json=questions_json)
+        answers = [_make_answer_orm(0, 90), _make_answer_orm(2, 70)]  # Q1 未回答
+        service, _ = _make_service(session_orm=orm, answers=answers)
+
+        dto = await service.get_evaluation("sess123")
+
+        # 未回答题补齐：question_details 数 == total_questions
+        assert len(dto.question_details) == 3
+        # Q1 未回答：score=0/user_answer=None/feedback=未作答文案
+        q1 = next(d for d in dto.question_details if d.question_index == 1)
+        assert q1.user_answer is None
+        assert q1.score == 0
+        assert q1.feedback == "该题未作答。"
+        # 分类得分仅计已答题（Q0=90 + Q2=70）/2 = 80，Q1 不在分母
+        assert len(dto.category_scores) == 1
+        assert dto.category_scores[0].score == 80
+        assert dto.category_scores[0].question_count == 2
+
+    async def test_all_unanswered_questions_backfilled(self) -> None:
+        """全未回答边界：answers 表为空，3 题全部补齐为 score=0/未作答。"""
+        questions_json = json.dumps(
+            [
+                {
+                    "questionIndex": i,
+                    "question": f"Q{i}",
+                    "type": "short",
+                    "category": "Java",
+                    "topicSummary": None,
+                    "userAnswer": None,
+                    "score": None,
+                    "feedback": None,
+                    "isFollowUp": False,
+                    "parentQuestionIndex": None,
+                }
+                for i in range(3)
+            ],
+            ensure_ascii=False,
+        )
+        orm = _make_session_orm(total_questions=3, questions_json=questions_json)
+        service, _ = _make_service(session_orm=orm, answers=[])
+
+        dto = await service.get_evaluation("sess123")
+
+        assert len(dto.question_details) == 3
+        for d in dto.question_details:
+            assert d.user_answer is None
+            assert d.score == 0
+            assert d.feedback == "该题未作答。"
+        # 全未回答时分类得分为空
+        assert dto.category_scores == []
+
+    async def test_falls_back_to_answers_only_when_questions_json_invalid(self) -> None:
+        """questions_json 解析失败时回退 answers-only 模式，不丢失已答题数据。"""
+        orm = _make_session_orm(questions_json="not-valid-json")
+        answers = [_make_answer_orm(0, 90), _make_answer_orm(1, 70)]
+        service, _ = _make_service(session_orm=orm, answers=answers)
+
+        dto = await service.get_evaluation("sess123")
+
+        # fallback：从 answers 构建，不补齐也不丢失
+        assert len(dto.question_details) == 2
+        assert dto.question_details[0].score == 90
+        assert dto.question_details[1].score == 70
 
     async def test_raises_not_found_when_session_missing(self) -> None:
         service, _ = _make_service(session_orm=None)

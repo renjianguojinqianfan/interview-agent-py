@@ -224,3 +224,14 @@
 **修复**：所有继承 `BaseSchema` 的 DTO 字段名必须用 snake_case（`question_count`），让 `to_camel` 正确生成 camelCase alias（`questionCount`）。JSON body 用 camelCase key，Pydantic 属性访问用 snake_case。
 
 **教训**：`to_camel` 的输入必须是 snake_case。已有项目惯例（`SkillDTO` 等单词字段不受影响），多词字段（`questionCount`/`isFollowUp`）必须写成 `question_count`/`is_follow_up`。
+
+
+### 22. 未回答题评估详情丢失 + PDF 参考答案错位（R3 阶段 review 发现）
+
+**现象**：R3 阶段 review 发现 read/write 语义不一致。write 侧 `build_report` 为所有 `qa_records`（含未回答，score=0）生成 `QuestionEvaluation`，但 `_persist_result` 仅 `update` 已有 answer 行（`for answer in answers`），未回答题无行可更新，评估详情丢失。read 侧 `_reconstruct_report` 从 answers 表构建 `question_details`，缺未回答题，`question_details` 数 < `total_questions`，违反 #9「逐题反馈」验收。PDF `_render_question_block` 用 `enumerate` 位置下标取 `reference_answers[index]`，未回答题缺失时题号（`Q{index+1}`）与参考答案错位。
+
+**根因**：answers 表只存 submitted answer（#8 `save_answer` 仅写已提交题），评估消费者沿此假设只 update 不 insert。read 侧假设 answers 表完整，未从 questions_json 补齐。PDF 假设 question_details 与 reference_answers 等长且顺序一致，用位置下标而非 question_index 匹配。
+
+**修复**：read 侧 `_reconstruct_report` 从 questions_json 补齐未回答题（score=0/user_answer=None/feedback="该题未作答。"），questions_json 解析异常时回退 answers-only 模式；`_compute_category_scores` 改收 `QuestionEvaluation` 列表，`if not d.user_answer: continue` 过滤未回答题（与 write 侧 `build_report` 的 `if has_answer` 守卫一致）；PDF `_render_question_block` 用 `ref_map.get(detail.question_index)` 匹配，题号用 `detail.question_index+1`。
+
+**教训**：当持久化层只存"已发生"实体（submitted answers）而非"全部"实体（all questions）时，read 侧必须从完整源（questions_json）补齐，不能假设表行完整。位置下标匹配是脆弱的——列表可能缺元素，必须用业务键（question_index）匹配。
