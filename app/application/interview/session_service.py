@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.interview.persistence_service import InterviewPersistenceService
+from app.application.interview.question_codec import deserialize_questions, serialize_questions
 from app.application.interview.question_service import QuestionService
 from app.application.interview.schemas import (
     CreateSessionRequest,
@@ -118,7 +119,7 @@ class InterviewSessionService:
 
     async def get_current_question(self, session_id: str) -> CurrentQuestionResponse:
         view = await self._get_or_restore_session(session_id)
-        questions = InterviewPersistenceService.deserialize_questions(view.questions_json or "[]")
+        questions = deserialize_questions(view.questions_json or "[]")
 
         if view.current_question_index >= len(questions):
             return CurrentQuestionResponse(completed=True, message="所有问题已回答完毕")
@@ -142,7 +143,7 @@ class InterviewSessionService:
         view = await self._get_or_restore_session(session_id)
         if not is_unfinished(SessionStatus(view.status)):
             raise BusinessException(ErrorCode.INTERVIEW_ALREADY_COMPLETED)
-        questions = InterviewPersistenceService.deserialize_questions(view.questions_json or "[]")
+        questions = deserialize_questions(view.questions_json or "[]")
 
         index = request.question_index
         if index < 0 or index >= len(questions):
@@ -159,12 +160,13 @@ class InterviewSessionService:
         if has_next:
             await self._persistence.update_current_question_index(session_id, new_index)
             await self._session.commit()
-            await self._cache.update_questions(session_id, InterviewPersistenceService.serialize_questions(questions))
+            await self._cache.update_questions(session_id, serialize_questions(questions))
             await self._cache.update_current_index(session_id, new_index)
         else:
             await self._persistence.update_session_status(session_id, SessionStatus.COMPLETED.value)
             await self._persistence.update_evaluate_status(session_id, "PENDING", None)
             await self._session.commit()
+            await self._cache.update_questions(session_id, serialize_questions(questions))
             await self._cache.update_status(session_id, SessionStatus.COMPLETED.value)
             await self._enqueue_evaluation(session_id)
             if view.resume_id is not None:
@@ -182,7 +184,7 @@ class InterviewSessionService:
         view = await self._get_or_restore_session(session_id)
         if not is_unfinished(SessionStatus(view.status)):
             raise BusinessException(ErrorCode.INTERVIEW_ALREADY_COMPLETED)
-        questions = InterviewPersistenceService.deserialize_questions(view.questions_json or "[]")
+        questions = deserialize_questions(view.questions_json or "[]")
 
         index = request.question_index
         if index < 0 or index >= len(questions):
@@ -195,7 +197,7 @@ class InterviewSessionService:
         await self._session.commit()
 
         questions[index] = question.with_answer(request.answer)
-        await self._cache.update_questions(session_id, InterviewPersistenceService.serialize_questions(questions))
+        await self._cache.update_questions(session_id, serialize_questions(questions))
         logger.info("暂存答案: sessionId=%s, index=%d", session_id, index)
 
     async def complete_interview(self, session_id: str) -> None:
@@ -245,7 +247,7 @@ class InterviewSessionService:
                 if not is_unfinished(SessionStatus(cached.status)):
                     await self._cache.delete_unfinished_mapping(resume_id)
                 else:
-                    questions = InterviewPersistenceService.deserialize_questions(cached.questions_json)
+                    questions = deserialize_questions(cached.questions_json)
                     return self._build_session_dto(
                         cached.session_id,
                         cached.resume_text,
@@ -278,11 +280,11 @@ class InterviewSessionService:
             raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND)
 
         answers = await self._persistence.find_answers_by_session_id(session_id)
-        questions = InterviewPersistenceService.deserialize_questions(orm.questions_json or "[]")
+        questions = deserialize_questions(orm.questions_json or "[]")
         for ans in answers:
             if 0 <= ans.question_index < len(questions):
                 questions[ans.question_index] = questions[ans.question_index].with_answer(ans.user_answer or "")
-        questions_json = InterviewPersistenceService.serialize_questions(questions)
+        questions_json = serialize_questions(questions)
         resume_text = await self._load_resume_text(orm.resume_id) or ""
         await self._write_cache_str(
             session_id, resume_text, orm.resume_id, questions_json, orm.current_question_index, orm.status
@@ -298,7 +300,7 @@ class InterviewSessionService:
 
     async def _restore_from_orm(self, orm: InterviewSessionORM) -> InterviewSessionDTO:
         answers = await self._persistence.find_answers_by_session_id(orm.session_id)
-        questions = InterviewPersistenceService.deserialize_questions(orm.questions_json or "[]")
+        questions = deserialize_questions(orm.questions_json or "[]")
         for ans in answers:
             if 0 <= ans.question_index < len(questions):
                 questions[ans.question_index] = questions[ans.question_index].with_answer(ans.user_answer or "")
@@ -333,7 +335,7 @@ class InterviewSessionService:
         current_index: int,
         status: SessionStatus,
     ) -> None:
-        questions_json = InterviewPersistenceService.serialize_questions(questions)
+        questions_json = serialize_questions(questions)
         await self._write_cache_str(session_id, resume_text, resume_id, questions_json, current_index, status.value)
 
     async def _write_cache_str(
@@ -358,7 +360,7 @@ class InterviewSessionService:
             logger.warning("Redis 缓存写入失败，不影响主流程: sessionId=%s, error=%s", session_id, e)
 
     def _view_to_dto(self, view: _SessionView) -> InterviewSessionDTO:
-        questions = InterviewPersistenceService.deserialize_questions(view.questions_json or "[]")
+        questions = deserialize_questions(view.questions_json or "[]")
         return self._build_session_dto(
             view.session_id,
             view.resume_text,

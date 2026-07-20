@@ -8,7 +8,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.interview.persistence_service import InterviewPersistenceService
+from app.application.interview.question_codec import deserialize_questions
 from app.application.interview.schemas import (
     CategoryScoreDTO,
     EvaluationResultDTO,
@@ -16,17 +16,18 @@ from app.application.interview.schemas import (
     ReferenceAnswerDTO,
 )
 from app.domain.entities.evaluation import (
-    CategoryScore,
     EvaluationReport,
     QuestionEvaluation,
     ReferenceAnswer,
 )
 from app.domain.entities.interview import InterviewQuestion, SessionStatus
 from app.domain.errors import BusinessException, ErrorCode
+from app.domain.services.evaluation import compute_category_scores
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.export.pdf import PdfExportService
+from app.infrastructure.json_utils import json_loads_dict_list, json_loads_list
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ class InterviewEvaluationService:
         else:
             # questions_json 解析失败或为空时回退到 answers-only 模式，不丢失已答题数据
             question_details = [self._from_answer(a) for a in answers]
-        category_scores = self._compute_category_scores(question_details)
+        category_scores = compute_category_scores(question_details)
         reference_answers = self._parse_reference_answers(orm.reference_answers_json)
         return EvaluationReport(
             session_id=orm.session_id,
@@ -93,7 +94,7 @@ class InterviewEvaluationService:
         if not questions_json:
             return []
         try:
-            return InterviewPersistenceService.deserialize_questions(questions_json)
+            return deserialize_questions(questions_json)
         except (json.JSONDecodeError, KeyError, TypeError):
             logger.warning("questions_json 解析失败，回退到 answers-only 模式: sessionId=%s", session_id)
             return []
@@ -128,36 +129,10 @@ class InterviewEvaluationService:
         )
 
     @staticmethod
-    def _compute_category_scores(details: list[QuestionEvaluation]) -> list[CategoryScore]:
-        # 仅计已答题（与 write 侧 build_report 的 if has_answer 守卫一致）
-        scores_by_category: dict[str, list[int]] = {}
-        for d in details:
-            if not d.user_answer:
-                continue
-            cat = d.category or "未知"
-            scores_by_category.setdefault(cat, []).append(d.score)
-        return [
-            CategoryScore(
-                category=cat,
-                score=int(sum(scores) / len(scores)),
-                question_count=len(scores),
-            )
-            for cat, scores in scores_by_category.items()
-        ]
-
-    @staticmethod
     def _parse_reference_answers(raw: str | None) -> list[ReferenceAnswer]:
-        if not raw:
-            return []
-        try:
-            items = json.loads(raw)
-        except json.JSONDecodeError:
-            logger.warning("reference_answers_json 解析失败")
-            return []
+        items = json_loads_dict_list(raw)
         result: list[ReferenceAnswer] = []
         for item in items:
-            if not isinstance(item, dict):
-                continue
             result.append(
                 ReferenceAnswer(
                     question_index=int(item.get("questionIndex", 0)),
@@ -170,13 +145,7 @@ class InterviewEvaluationService:
 
     @staticmethod
     def _parse_list(raw: str | None) -> list[str]:
-        if not raw:
-            return []
-        try:
-            parsed = json.loads(raw)
-            return [str(s) for s in parsed] if isinstance(parsed, list) else []
-        except json.JSONDecodeError:
-            return []
+        return [str(s) for s in json_loads_list(raw)]
 
     @staticmethod
     def _to_dto(report: EvaluationReport, evaluate_status: str) -> EvaluationResultDTO:

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.interview.persistence_service import InterviewPersistenceService
+from app.application.interview.question_codec import deserialize_questions, serialize_questions
 from app.domain.entities.interview import InterviewQuestion, SessionStatus
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
@@ -136,8 +137,8 @@ class TestSerializeDeserialize:
                 parent_question_index=0,
             ),
         ]
-        json_str = InterviewPersistenceService.serialize_questions(questions)
-        restored = InterviewPersistenceService.deserialize_questions(json_str)
+        json_str = serialize_questions(questions)
+        restored = deserialize_questions(json_str)
 
         assert len(restored) == 2
         assert restored[0].question == "Q0"
@@ -155,7 +156,7 @@ class TestSerializeDeserialize:
             score=80,
             feedback="good",
         )
-        json_str = InterviewPersistenceService.serialize_questions([q])
+        json_str = serialize_questions([q])
         assert "topicSummary" in json_str
         assert "userAnswer" in json_str
         assert "score" in json_str

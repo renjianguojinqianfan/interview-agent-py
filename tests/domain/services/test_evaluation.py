@@ -7,6 +7,7 @@ from app.domain.entities.evaluation import (
     BatchReport,
     BatchResult,
     QaRecord,
+    QuestionEvaluation,
     QuestionEvaluationItem,
     Summary,
 )
@@ -17,6 +18,7 @@ from app.domain.services.evaluation import (
     build_qa_records_text,
     build_question_highlights,
     build_report,
+    compute_category_scores,
     merge_list_items,
     merge_overall_feedback,
     merge_question_evaluations,
@@ -328,3 +330,45 @@ class TestBuildReport:
         assert cat_map["JAVA"].question_count == 1
         # overall 同样仅计已答题：仅 JAVA(80) 与 MYSQL(90) 已答 -> (80+90)/2=85
         assert report.overall_score == 85
+
+
+class TestComputeCategoryScores:
+    """compute_category_scores 纯函数测试（S2 提取 + S6 空category统一）。"""
+
+    def test_groups_by_category_and_averages(self) -> None:
+        details = [
+            QuestionEvaluation(question_index=0, question="q", category="JAVA", user_answer="a", score=80, feedback=""),
+            QuestionEvaluation(question_index=1, question="q", category="JAVA", user_answer="b", score=60, feedback=""),
+            QuestionEvaluation(
+                question_index=2, question="q", category="MYSQL", user_answer="c", score=90, feedback=""
+            ),
+        ]
+        result = compute_category_scores(details)
+        cat_map = {c.category: c for c in result}
+        assert cat_map["JAVA"].score == 70
+        assert cat_map["JAVA"].question_count == 2
+        assert cat_map["MYSQL"].score == 90
+
+    def test_excludes_unanswered(self) -> None:
+        details = [
+            QuestionEvaluation(question_index=0, question="q", category="JAVA", user_answer="a", score=80, feedback=""),
+            QuestionEvaluation(question_index=1, question="q", category="JAVA", user_answer=None, score=0, feedback=""),
+        ]
+        result = compute_category_scores(details)
+        cat_map = {c.category: c for c in result}
+        assert cat_map["JAVA"].score == 80
+        assert cat_map["JAVA"].question_count == 1
+
+    def test_empty_category_falls_back_to_unknown(self) -> None:
+        details = [
+            QuestionEvaluation(question_index=0, question="q", category="", user_answer="a", score=70, feedback=""),
+        ]
+        result = compute_category_scores(details)
+        assert len(result) == 1
+        assert result[0].category == "未知"
+
+    def test_all_unanswered_returns_empty(self) -> None:
+        details = [
+            QuestionEvaluation(question_index=0, question="q", category="JAVA", user_answer=None, score=0, feedback=""),
+        ]
+        assert compute_category_scores(details) == []

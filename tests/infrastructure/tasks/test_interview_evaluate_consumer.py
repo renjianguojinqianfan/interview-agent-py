@@ -220,9 +220,9 @@ class TestProcessBusiness:
 
         deps["repository"].save_evaluation_result.assert_awaited_once()
         save_kwargs = deps["repository"].save_evaluation_result.call_args.kwargs
-        assert save_kwargs["overall_score"] == 80
-        assert save_kwargs["overall_feedback"] == "总评"
-        assert "扎实" in save_kwargs["strengths_json"]
+        assert save_kwargs["report"].overall_score == 80
+        assert save_kwargs["report"].overall_feedback == "总评"
+        assert "扎实" in save_kwargs["report"].strengths
         # 每题 answer 都被回写
         assert deps["repository"].update_answer_evaluation.await_count == 2
 
@@ -287,9 +287,9 @@ class TestOverlayAnswersIntegration:
     """验证双源合并纯函数与消费者实际数据形态一致。"""
 
     def test_questions_json_useranswer_none_overlaid_by_answers(self) -> None:
-        from app.application.interview.persistence_service import InterviewPersistenceService
+        from app.application.interview.question_codec import deserialize_questions
 
-        questions = InterviewPersistenceService.deserialize_questions(_questions_json(2))
+        questions = deserialize_questions(_questions_json(2))
         # 模拟消费者从 answers 表提取的 answer_map
         answer_map = {0: "答0", 1: "答1"}
         merged = overlay_answers(questions, answer_map)

@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 from typing import Protocol
@@ -8,6 +7,7 @@ from app.domain.entities.evaluation import EvaluationReport, QuestionEvaluation,
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
+from app.infrastructure.json_utils import json_loads_dict_list, json_loads_list
 
 logger = logging.getLogger(__name__)
 
@@ -118,22 +118,10 @@ td {{ border: 1px solid #ccc; padding: 8px; }}
         return ""
 
     def _parse_strengths(self, raw: str | None) -> list[str]:
-        if not raw:
-            return []
-        try:
-            parsed = json.loads(raw)
-            return [str(s) for s in parsed] if isinstance(parsed, list) else []
-        except json.JSONDecodeError:
-            return []
+        return [str(s) for s in json_loads_list(raw)]
 
     def _parse_suggestions(self, raw: str | None) -> list[dict[str, object]]:
-        if not raw:
-            return []
-        try:
-            parsed = json.loads(raw)
-            return [s for s in parsed if isinstance(s, dict)] if isinstance(parsed, list) else []
-        except json.JSONDecodeError:
-            return []
+        return json_loads_dict_list(raw)
 
     def _escape(self, text: object) -> str:
         if text is None:

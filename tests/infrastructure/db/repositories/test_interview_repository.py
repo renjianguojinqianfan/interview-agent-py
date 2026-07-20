@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.domain.entities.evaluation import EvaluationReport, ReferenceAnswer
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
@@ -214,28 +215,50 @@ class TestDelete:
         session.delete.assert_awaited_once_with(orm)
 
 
+def _make_report(
+    overall_score: int = 85,
+    overall_feedback: str = "优秀",
+    strengths: list[str] | None = None,
+    improvements: list[str] | None = None,
+    reference_answers: list[ReferenceAnswer] | None = None,
+) -> EvaluationReport:
+    return EvaluationReport(
+        session_id="sess123",
+        total_questions=2,
+        overall_score=overall_score,
+        category_scores=[],
+        question_details=[],
+        overall_feedback=overall_feedback,
+        strengths=strengths or ["扎实"],
+        improvements=improvements or ["需补深度"],
+        reference_answers=reference_answers
+        or [ReferenceAnswer(question_index=0, question="Q", reference_answer="A", key_points=[])],
+    )
+
+
 class TestSaveEvaluationResult:
     async def test_writes_evaluation_fields_and_evaluated_status(
         self, repo: InterviewRepository, session: AsyncMock
     ) -> None:
         orm = _make_session_orm(status="COMPLETED")
-        await repo.save_evaluation_result(
-            session,
-            orm,
-            overall_score=85,
-            overall_feedback="优秀",
-            strengths_json='["扎实"]',
-            improvements_json='["需补深度"]',
-            reference_answers_json='[{"questionIndex":0}]',
-        )
+        await repo.save_evaluation_result(session, orm, _make_report())
         assert orm.overall_score == 85
         assert orm.overall_feedback == "优秀"
-        assert orm.strengths_json == '["扎实"]'
-        assert orm.improvements_json == '["需补深度"]'
-        assert orm.reference_answers_json == '[{"questionIndex":0}]'
+        assert "扎实" in orm.strengths_json
+        assert "需补深度" in orm.improvements_json
+        assert "questionIndex" in orm.reference_answers_json
         assert orm.status == "EVALUATED"
-        assert orm.completed_at is not None
         session.flush.assert_awaited_once()
+
+    async def test_preserves_completed_at_from_completed_phase(
+        self, repo: InterviewRepository, session: AsyncMock
+    ) -> None:
+        """P1: EVALUATED 不覆写 completed_at，保留 COMPLETED 阶段设置的面试结束时间。"""
+        original_completed_at = datetime(2026, 7, 18, 10, 0, 0)
+        orm = _make_session_orm(status="COMPLETED")
+        orm.completed_at = original_completed_at
+        await repo.save_evaluation_result(session, orm, _make_report())
+        assert orm.completed_at == original_completed_at
 
 
 class TestUpdateAnswerEvaluation:

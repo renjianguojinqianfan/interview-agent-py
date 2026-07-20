@@ -240,6 +240,18 @@ class TestGenerateWithCustomSkill:
 
         assert len(result) == 3
 
+    async def test_custom_skill_sanitizes_unsanitized_keys(
+        self,
+        service: QuestionService,
+    ) -> None:
+        """P2: custom_categories 未经 JD 解析 API，需通过 build_custom_skill 清洗 key。"""
+        custom_categories = [
+            {"key": "spring boot", "label": "Spring Boot", "priority": "CORE", "ref": None, "shared": False}
+        ]
+        skill = await service._build_custom_skill_from_dict(custom_categories, "JD text")
+        assert skill.categories[0].key == "SPRING_BOOT"
+        assert skill.categories[0].label == "Spring Boot"
+
 
 class TestFollowUpAttachment:
     async def test_follow_ups_attached(

@@ -201,6 +201,28 @@ def build_question_highlights(
     return "\n".join(highlights)
 
 
+def compute_category_scores(details: list[QuestionEvaluation]) -> list[CategoryScore]:
+    """计算分类平均分（仅已答题计入分母）。空 category 统一为 '未知'。
+
+    write 侧 build_report 与 read 侧 _reconstruct_report 共用此函数，
+    确保 read/write 两侧分类得分计算逻辑一致。
+    """
+    scores_by_category: dict[str, list[int]] = {}
+    for d in details:
+        if not d.user_answer:
+            continue
+        cat = d.category or "未知"
+        scores_by_category.setdefault(cat, []).append(d.score)
+    return [
+        CategoryScore(
+            category=cat,
+            score=int(sum(scores) / len(scores)),
+            question_count=len(scores),
+        )
+        for cat, scores in scores_by_category.items()
+    ]
+
+
 def build_report(
     session_id: str,
     qa_records: list[QaRecord],
@@ -213,7 +235,6 @@ def build_report(
     """
     question_details: list[QuestionEvaluation] = []
     reference_answers: list[ReferenceAnswer] = []
-    category_scores_map: dict[str, list[int]] = {}
 
     for i, q in enumerate(qa_records):
         eval_item = evaluations[i] if i < len(evaluations) else None
@@ -241,18 +262,8 @@ def build_report(
                 key_points=list(key_points),
             )
         )
-        # 分类平均分仅计已答题（未回答不计入分母，与 overall_score / build_category_summary 一致）
-        if has_answer:
-            category_scores_map.setdefault(q.category, []).append(score)
 
-    category_scores = [
-        CategoryScore(
-            category=cat,
-            score=int(sum(scores) / len(scores)),
-            question_count=len(scores),
-        )
-        for cat, scores in category_scores_map.items()
-    ]
+    category_scores = compute_category_scores(question_details)
 
     answered_count = sum(1 for q in qa_records if q.user_answer)
     overall_score = int(sum(d.score for d in question_details) / answered_count) if answered_count else 0

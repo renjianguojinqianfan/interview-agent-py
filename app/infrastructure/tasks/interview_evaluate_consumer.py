@@ -12,7 +12,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.interview.persistence_service import InterviewPersistenceService
+from app.application.interview.question_codec import deserialize_questions
 from app.domain.entities.evaluation import EvaluationReport, QaRecord
 from app.domain.entities.task_status import AsyncTaskStatus
 from app.domain.services.evaluation import build_qa_records, overlay_answers
@@ -114,7 +114,7 @@ class EvaluateStreamConsumer(BaseStreamConsumer[EvaluatePayload]):
 
     async def _build_qa_records(self, session: AsyncSession, orm: InterviewSessionORM) -> list[QaRecord]:
         """双源合并：questions_json（题列表）+ answers 表（user_answer 权威）。"""
-        questions = InterviewPersistenceService.deserialize_questions(orm.questions_json or "[]")
+        questions = deserialize_questions(orm.questions_json or "[]")
         answers = await self._repository.find_answers_by_session_id(session, orm.id)
         answer_map = {a.question_index: (a.user_answer or "") for a in answers}
         merged = overlay_answers(questions, answer_map)
@@ -159,30 +159,7 @@ class EvaluateStreamConsumer(BaseStreamConsumer[EvaluatePayload]):
                 key_points_json=json.dumps(ref.key_points if ref else [], ensure_ascii=False),
             )
 
-        await self._repository.save_evaluation_result(
-            session,
-            orm,
-            overall_score=report.overall_score,
-            overall_feedback=report.overall_feedback,
-            strengths_json=json.dumps(report.strengths, ensure_ascii=False),
-            improvements_json=json.dumps(report.improvements, ensure_ascii=False),
-            reference_answers_json=self._serialize_reference_answers(report),
-        )
-
-    @staticmethod
-    def _serialize_reference_answers(report: EvaluationReport) -> str:
-        return json.dumps(
-            [
-                {
-                    "questionIndex": r.question_index,
-                    "question": r.question,
-                    "referenceAnswer": r.reference_answer,
-                    "keyPoints": list(r.key_points),
-                }
-                for r in report.reference_answers
-            ],
-            ensure_ascii=False,
-        )
+        await self._repository.save_evaluation_result(session, orm, report=report)
 
     async def mark_completed(self, payload: EvaluatePayload) -> None:
         async with self._session_factory() as session:

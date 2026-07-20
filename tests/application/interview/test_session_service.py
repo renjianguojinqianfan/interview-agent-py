@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.interview.persistence_service import InterviewPersistenceService
+from app.application.interview.question_codec import serialize_questions
 from app.application.interview.question_service import QuestionService
 from app.application.interview.schemas import (
     CreateSessionRequest,
@@ -27,9 +28,7 @@ def _question(index: int) -> InterviewQuestion:
 
 
 def _questions_json(n: int) -> str:
-    from app.application.interview.persistence_service import InterviewPersistenceService
-
-    return InterviewPersistenceService.serialize_questions([_question(i) for i in range(n)])
+    return serialize_questions([_question(i) for i in range(n)])
 
 
 def _make_orm(**overrides: object) -> InterviewSessionORM:
@@ -345,6 +344,11 @@ class TestSubmitAnswer:
         mock_producer.send_task.assert_awaited_once()
         payload = mock_producer.send_task.call_args.args[0]
         assert payload.session_id == "sess123"
+
+        # P3: 最后一题也应更新 cache questions_json（含 user_answer），保持 cache/DB 一致
+        mock_cache.update_questions.assert_awaited_once()
+        updated_json = mock_cache.update_questions.call_args.args[1]
+        assert "answer1" in updated_json
 
 
 class TestCompleteInterview:

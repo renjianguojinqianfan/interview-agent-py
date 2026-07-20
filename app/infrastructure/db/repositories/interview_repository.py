@@ -1,8 +1,10 @@
+import json
 from datetime import datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.entities.evaluation import EvaluationReport
 from app.domain.entities.interview import SessionStatus
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
@@ -67,20 +69,29 @@ class InterviewRepository:
         self,
         session: AsyncSession,
         interview_session: InterviewSessionORM,
-        overall_score: int,
-        overall_feedback: str,
-        strengths_json: str,
-        improvements_json: str,
-        reference_answers_json: str,
+        report: EvaluationReport,
     ) -> None:
-        """写入评估结果并将会话置 EVALUATED（评估消费侧专用，#9）。"""
-        interview_session.overall_score = overall_score
-        interview_session.overall_feedback = overall_feedback
-        interview_session.strengths_json = strengths_json
-        interview_session.improvements_json = improvements_json
-        interview_session.reference_answers_json = reference_answers_json
+        """写入评估结果并将会话置 EVALUATED（评估消费侧专用，#9）。
+
+        JSON 序列化在 repo 内部完成，调用方只需传 domain 实体。
+        """
+        interview_session.overall_score = report.overall_score
+        interview_session.overall_feedback = report.overall_feedback
+        interview_session.strengths_json = json.dumps(report.strengths, ensure_ascii=False)
+        interview_session.improvements_json = json.dumps(report.improvements, ensure_ascii=False)
+        interview_session.reference_answers_json = json.dumps(
+            [
+                {
+                    "questionIndex": r.question_index,
+                    "question": r.question,
+                    "referenceAnswer": r.reference_answer,
+                    "keyPoints": list(r.key_points),
+                }
+                for r in report.reference_answers
+            ],
+            ensure_ascii=False,
+        )
         interview_session.status = SessionStatus.EVALUATED.value
-        interview_session.completed_at = datetime.now()
         await session.flush()
 
     async def update_answer_evaluation(

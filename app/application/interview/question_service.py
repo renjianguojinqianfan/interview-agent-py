@@ -9,7 +9,7 @@ from app.domain.entities.interview import (
     HistoricalQuestion,
     InterviewQuestion,
 )
-from app.domain.entities.skill import Skill, SkillCategory
+from app.domain.entities.skill import JdCategory, Skill
 from app.domain.errors import BusinessException, ErrorCode
 from app.domain.services.question_gen import (
     attach_follow_ups,
@@ -19,7 +19,7 @@ from app.domain.services.question_gen import (
     generate_fallback_questions,
     split_resume_direction_counts,
 )
-from app.domain.services.skill_service import calculate_allocation
+from app.domain.services.skill_service import build_category_ref_index, build_custom_skill, calculate_allocation
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.prompt_loader import load_prompt
 from app.infrastructure.ai.prompt_sanitizer import PromptSanitizer
@@ -203,42 +203,35 @@ class QuestionService:
         jd_text: str | None,
     ) -> Skill:
         if custom_categories and jd_text:
-            return self._build_custom_skill_from_dict(custom_categories, jd_text)
+            return await self._build_custom_skill_from_dict(custom_categories, jd_text)
         skills = await self._skill_loader.load_skills()
         for s in skills:
             if s.id == skill_id:
                 return s
         raise BusinessException(ErrorCode.SKILL_NOT_FOUND, f"未找到面试主题: {skill_id}")
 
-    def _build_custom_skill_from_dict(
+    async def _build_custom_skill_from_dict(
         self,
         custom_categories: list[dict[str, object]],
         jd_text: str,
     ) -> Skill:
-        categories: list[SkillCategory] = []
+        """通过 domain build_custom_skill 构建，复用 sanitize_category_key/label + ref 纠正。"""
+        skills = await self._skill_loader.load_skills()
+        ref_index = build_category_ref_index(skills)
+        jd_categories: list[JdCategory] = []
         for item in custom_categories:
-            key = str(item.get("key", ""))
-            label = str(item.get("label", ""))
-            priority = str(item.get("priority", "NORMAL"))
-            ref = item.get("ref")
-            shared = bool(item.get("shared", False))
-            categories.append(
-                SkillCategory(
-                    key=key,
-                    label=label,
-                    priority=priority,
-                    ref=str(ref) if ref is not None else None,
-                    shared=shared,
+            ref_val = item.get("ref")
+            shared_val = item.get("shared")
+            jd_categories.append(
+                JdCategory(
+                    key=str(item.get("key", "")),
+                    label=str(item.get("label", "")),
+                    priority=str(item.get("priority", "NORMAL")),
+                    ref=ref_val if isinstance(ref_val, str) else None,
+                    shared=bool(shared_val) if shared_val is not None else None,
                 )
             )
-        return Skill(
-            id="custom",
-            name="自定义面试（JD 解析）",
-            description="基于职位描述提取的面试方向",
-            categories=categories,
-            is_preset=False,
-            source_jd=jd_text,
-        )
+        return build_custom_skill(jd_categories, ref_index, jd_text)
 
     def _build_jd_section(self, jd_text: str | None) -> str:
         if not jd_text:
