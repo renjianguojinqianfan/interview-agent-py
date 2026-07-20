@@ -235,3 +235,26 @@
 **修复**：read 侧 `_reconstruct_report` 从 questions_json 补齐未回答题（score=0/user_answer=None/feedback="该题未作答。"），questions_json 解析异常时回退 answers-only 模式；`_compute_category_scores` 改收 `QuestionEvaluation` 列表，`if not d.user_answer: continue` 过滤未回答题（与 write 侧 `build_report` 的 `if has_answer` 守卫一致）；PDF `_render_question_block` 用 `ref_map.get(detail.question_index)` 匹配，题号用 `detail.question_index+1`。
 
 **教训**：当持久化层只存"已发生"实体（submitted answers）而非"全部"实体（all questions）时，read 侧必须从完整源（questions_json）补齐，不能假设表行完整。位置下标匹配是脆弱的——列表可能缺元素，必须用业务键（question_index）匹配。
+
+
+### 23. R3 阶段 review 发现的 3 个跨 issue 集成 bug
+
+**现象**：R3 阶段 review（#7/#8/#9 闭环）发现 3 个跨 issue 集成 bug：
+1. `completed_at` 被 EVALUATED 覆盖：`save_evaluation_result` 在置 EVALUATED 时覆写 `completed_at`，面试结束时间（COMPLETED 阶段设置）丢失，PDF 报告"结束时间"显示评估完成时间。
+2. custom-skill key sanitization 绕过：`question_service._build_custom_skill_from_dict` 直接从 dict 构建 `SkillCategory`，绕过 `skill_service.build_custom_skill` 的 `sanitize_category_key`/`sanitize_category_label`，未清洗的 key 导致 allocation 不匹配。
+3. 最后一题 cache 缺失：`submit_answer` 在 `has_next=False`（最后一题）时不调 `cache.update_questions`，cache questions_json 缺最后一题 user_answer。
+
+**根因**：
+1. `save_evaluation_result` 沿用 `update_session_status` 的 `completed_at = datetime.now()` 模式，但 EVALUATED 不是面试结束而是评估完成，不应覆写。
+2. `question_service` 自行实现 custom-skill 构建（从 dict），未复用 `skill_service.build_custom_skill` domain 函数，sanitization 逻辑分叉。
+3. `submit_answer` 的 `has_next=False` 分支只更新 status，遗漏 questions_json 更新--"不需要更新 index"的假设连带导致"也不更新 questions"。
+
+**修复**：
+1. `save_evaluation_result` 移除 `completed_at = datetime.now()`，EVALUATED 时保留 COMPLETED 阶段的 `completed_at`。
+2. `_build_custom_skill_from_dict` 改为 async，路由到 `build_custom_skill(jd_categories, ref_index, jd_text)`，复用 domain sanitization + ref 纠正。
+3. `submit_answer` 的 `else` 分支补充 `cache.update_questions` 调用。
+
+**教训**：
+1. 状态机转换函数不要无脑复用时间戳设置--COMPLETED 是"面试结束"，EVALUATED 是"评估完成"，语义不同不应覆写。
+2. domain 层已有纯函数实现某逻辑时，application 层不得绕过自行实现，否则逻辑分叉。
+3. 条件分支中"不需要更新 X"容易连带遗漏"也不需要更新 Y"--每个分支应独立审查所有副作用（DB、cache、status）是否一致。
