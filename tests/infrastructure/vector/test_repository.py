@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.errors import BusinessException, ErrorCode
-from app.infrastructure.vector.repository import VectorItem, VectorRepository
+from app.infrastructure.vector.repository import SearchResult, VectorItem, VectorRepository
 
 
 @pytest.fixture()
@@ -107,3 +107,39 @@ class TestDeleteByVectorJobId:
         with pytest.raises(BusinessException) as exc_info:
             await repo.delete_by_vector_job_id(session, "job-123")
         assert exc_info.value.error_code == ErrorCode.KNOWLEDGE_BASE_VECTORIZATION_FAILED
+
+
+class TestSearch:
+    async def test_empty_kb_ids_returns_empty_without_query(self, repo: VectorRepository, session: AsyncMock) -> None:
+        results = await repo.search(session, [0.1, 0.2], [], top_k=5)
+        assert results == []
+        session.execute.assert_not_called()
+
+    async def test_non_positive_top_k_returns_empty(self, repo: VectorRepository, session: AsyncMock) -> None:
+        results = await repo.search(session, [0.1], [1], top_k=0)
+        assert results == []
+        session.execute.assert_not_called()
+
+    async def test_maps_rows_to_search_results(self, repo: VectorRepository, session: AsyncMock) -> None:
+        mock_result = MagicMock()
+        mock_result.mappings.return_value.all.return_value = [
+            {"content": "chunk1", "kb_id": "1", "score": 0.9},
+            {"content": "chunk2", "kb_id": "2", "score": 0.7},
+        ]
+        session.execute.return_value = mock_result
+
+        results = await repo.search(session, [0.1, 0.2, 0.3], [1, 2], top_k=5)
+
+        assert results == [
+            SearchResult(content="chunk1", score=0.9, kb_id=1),
+            SearchResult(content="chunk2", score=0.7, kb_id=2),
+        ]
+        params = session.execute.call_args.args[1]
+        assert params["kb_ids"] == ["1", "2"]
+        assert params["top_k"] == 5
+
+    async def test_failure_raises_query_failed(self, repo: VectorRepository, session: AsyncMock) -> None:
+        session.execute.side_effect = RuntimeError("DB error")
+        with pytest.raises(BusinessException) as exc_info:
+            await repo.search(session, [0.1], [1], top_k=5)
+        assert exc_info.value.error_code == ErrorCode.KNOWLEDGE_BASE_QUERY_FAILED

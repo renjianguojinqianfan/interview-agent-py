@@ -9,6 +9,7 @@ from app.application.interview.persistence_service import InterviewPersistenceSe
 from app.application.interview.question_service import QuestionService
 from app.application.interview.session_service import InterviewSessionService
 from app.application.knowledgebase.service import KnowledgeBaseService
+from app.application.rag.service import RagChatService, RagConfig
 from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.application.skill.service import SkillService
@@ -19,6 +20,7 @@ from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
+from app.infrastructure.db.repositories.rag_chat_repository import RagChatRepository
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
 from app.infrastructure.db.session import async_session_factory
 from app.infrastructure.export.pdf import PdfExportService, WeasyPrintRenderer
@@ -174,6 +176,27 @@ def get_knowledge_base_service(
         vector_repository=VectorRepository(),
         allowed_types=settings.knowledge_base_allowed_content_types,
         max_file_size=settings.knowledge_base_max_file_size,
+    )
+
+
+def get_rag_chat_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> RagChatService:
+    return RagChatService(
+        session=session,
+        session_factory=async_session_factory,
+        repository=RagChatRepository(),
+        kb_repository=KnowledgeBaseRepository(),
+        vector_repository=VectorRepository(),
+        llm_registry=get_llm_registry(),
+        config=RagConfig(
+            default_top_k=settings.rag_default_top_k,
+            min_score=settings.rag_min_score,
+            probe_window=settings.rag_probe_window,
+            query_rewrite_enabled=settings.rag_query_rewrite_enabled,
+            max_context_chars=settings.rag_max_context_chars,
+            history_limit=settings.rag_history_limit,
+        ),
     )
 
 

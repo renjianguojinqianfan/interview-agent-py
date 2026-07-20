@@ -59,6 +59,13 @@ class LlmProviderRegistry:
             self._client_cache[cache_key] = await self._create_chat_client(resolved_id, streaming=True)
         return self._client_cache[cache_key]
 
+    async def get_streaming_chat_client(self, provider_id: int | None = None) -> ChatOpenAI:
+        resolved_id = await self._resolve_provider_id(provider_id)
+        cache_key = f"{resolved_id}:stream"
+        if cache_key not in self._client_cache:
+            self._client_cache[cache_key] = await self._create_chat_client(resolved_id, streaming=True)
+        return self._client_cache[cache_key]
+
     async def get_embeddings(self, provider_id: int | None = None) -> OpenAIEmbeddings:
         resolved_id = await self._resolve_provider_id(provider_id)
         if resolved_id not in self._embedding_cache:

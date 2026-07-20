@@ -66,5 +66,12 @@ class Settings(BaseSettings):
         "text/markdown",
     ]
 
+    rag_default_top_k: int = 5
+    rag_min_score: float = 0.3
+    rag_probe_window: int = 120
+    rag_query_rewrite_enabled: bool = True
+    rag_max_context_chars: int = 6000
+    rag_history_limit: int = 10
+
 
 settings = Settings()

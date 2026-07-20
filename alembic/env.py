@@ -10,6 +10,7 @@ from app.config.settings import settings
 from app.infrastructure.db.base import Base
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase  # noqa: F401
 from app.infrastructure.db.models.llm_provider import LlmProvider  # noqa: F401
+from app.infrastructure.db.models.rag_chat import RagChatMessage, RagChatSession  # noqa: F401
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis  # noqa: F401
 
 config = context.config

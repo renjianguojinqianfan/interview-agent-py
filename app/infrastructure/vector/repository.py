@@ -18,7 +18,56 @@ class VectorItem:
     metadata: dict[str, Any] | None = field(default=None)
 
 
+@dataclass
+class SearchResult:
+    content: str
+    score: float
+    kb_id: int
+
+
 class VectorRepository:
+    async def search(
+        self,
+        session: AsyncSession,
+        query_embedding: list[float],
+        kb_ids: list[int],
+        top_k: int,
+    ) -> list[SearchResult]:
+        """在指定知识库范围内做 pgvector 余弦相似度检索，返回按相似度降序的片段。"""
+        if not kb_ids or top_k <= 0:
+            return []
+
+        vec = "[" + ",".join(str(v) for v in query_embedding) + "]"
+        sql = text(
+            "SELECT content, (metadata->>'kb_id') AS kb_id, "
+            "1 - (embedding <=> CAST(:vec AS vector)) AS score "
+            "FROM vector_store "
+            "WHERE metadata->>'kb_id' = ANY(:kb_ids) "
+            "ORDER BY embedding <=> CAST(:vec AS vector) ASC "
+            "LIMIT :top_k"
+        )
+
+        try:
+            result = await session.execute(
+                sql,
+                {"vec": vec, "kb_ids": [str(k) for k in kb_ids], "top_k": top_k},
+            )
+            rows = result.mappings().all()
+            return [
+                SearchResult(
+                    content=row["content"] or "",
+                    score=float(row["score"]),
+                    kb_id=int(row["kb_id"]),
+                )
+                for row in rows
+            ]
+        except Exception as e:
+            logger.error("向量检索失败: kbIds=%s, error=%s", kb_ids, e)
+            raise BusinessException(
+                ErrorCode.KNOWLEDGE_BASE_QUERY_FAILED,
+                f"向量检索失败: {e}",
+            ) from e
+
     async def insert_pending(
         self,
         session: AsyncSession,
