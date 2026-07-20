@@ -339,6 +339,8 @@ app/
 
 **目标**：完成知识库文件管理和 RAG 问答（含 SSE 流式）。
 
+> **进度注记**：#10（知识库上传+向量化）已完成——覆盖 5.1 的 KnowledgeBase 表（迁移 005）、5.3 上传服务、5.4 向量化任务，以及 5.7 的 knowledgebase.py 路由与 5.8 的 KB 限流（upload 3/s、revectorize 2/s）。分块采用 tiktoken 手写 TokenChunker（800 token，重叠 100），KnowledgeBase.vector_status 复用 AsyncTaskStatus。#11（RAG 检索领域服务 rag_query、RAG 聊天会话、SSE 流式、rag_chat.py，及 RagChatSession/RagChatMessage 表）待实现。
+
 | # | 任务 | 接口数 | 说明 |
 |---|------|--------|------|
 | 5.1 | 数据模型 | - | `KnowledgeBase` + `RagChatSession` + `RagChatMessage` + `VectorStore`(pgvector) ORM |

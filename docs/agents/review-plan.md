@@ -54,7 +54,7 @@
   R3: #7 #8 #9 阶段 review（创建->出题->答题->评估->报告闭环） ✅
 
 阶段 5: 知识库+RAG
-  #10 完成 -> 单 issue review
+  #10 完成 -> 单 issue review ✅
   #11 完成 -> 单 issue review
   R4: #10 #11 阶段 review（上传->向量化->RAG 流式问答闭环）
 

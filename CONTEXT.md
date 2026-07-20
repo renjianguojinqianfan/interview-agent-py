@@ -91,7 +91,7 @@ _Avoid_: 轮次（Phase 是面试阶段，非单轮对话）、Round
 _Avoid_: 会话状态（用 SessionStatus 精确指代）
 
 **VectorStatus**:
-知识库向量的两阶段状态：pending（待定）-> promoted（正式，可检索）。
+vector_store 内向量数据的两阶段：pending（待定，元数据带 kb_vector_job_id）-> promoted（正式，元数据带 kb_id，可检索）。知识库行的向量化进度字段 KnowledgeBase.vector_status 复用 AsyncTaskStatus（COMPLETED 即 promoted）。
 _Avoid_: 向量状态
 
 **AsyncTaskStatus**:
