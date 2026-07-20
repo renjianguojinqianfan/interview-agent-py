@@ -360,6 +360,8 @@ app/
 
 **目标**：完成配置管理类模块。
 
+> **进度注记**：6.1 + 6.2 + 6.4 已完成（#12）。新增 LlmGlobalSetting ORM（单例表，default_chat_provider_id + default_embedding_provider_id）+ VoiceConfig ORM（单例表，ASR/TTS 20 字段，API Key 加密存储），迁移 007。LlmProviderRegistry 默认解析从 is_default 改读 LlmGlobalSetting（拆分 chat/embedding）。is_default 字段废弃（保留列，仅 seed 阶段用于建立初始 LlmGlobalSetting）。provider_name 加唯一约束。15 接口路由（/api/llm-provider），限流读 30/s、写 5/s、测试 10/s（全 GLOBAL）。test_provider 用 ChatOpenAI ainvoke（5s/10s 超时），test_asr_config 用 asyncio TCP 连通性检查。ASR/TTS apiKey 共享同步（更新一方同步另一方）。VoiceConfig 存 DB 替代 Java YAML 运行时配置（ADR-0011 扩展 ADR-0004）。6.3（#13 面试日程）未开始。
+
 | # | 任务 | 接口数 | 说明 |
 |---|------|--------|------|
 | 6.1 | LLM 供应商 | 15 | `LlmProvider` + `LlmGlobalSetting` ORM + CRUD + 测试连通性 + 默认供应商 + ASR/TTS 配置 + 热更新(reload) |

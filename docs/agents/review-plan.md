@@ -59,7 +59,7 @@
   R4: #10 #11 阶段 review（上传->向量化->RAG 流式问答闭环） ✅
 
 阶段 6: 供应商+日程
-  #12 完成 -> 单 issue review
+  #12 完成 -> 单 issue review ✅
   #13 完成 -> 单 issue review
   R5: #12 #13 阶段 review
 

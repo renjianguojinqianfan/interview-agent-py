@@ -105,5 +105,13 @@ _Avoid_: 任务状态（用 AsyncTaskStatus 精确指代）
 ### LLM 配置
 
 **LlmProvider**:
-LLM 供应商配置（base_url、api_key、model），是创建 LLM 客户端的依据。
+LLM 供应商配置（provider_name、base_url、api_key、model），是创建 LLM 客户端的依据。API Key 加密存储。
 _Avoid_: AI 配置（过于宽泛）、Model Config
+
+**LlmGlobalSetting**:
+LLM 全局设置（单例表 id=1），记录默认 chat 供应商 ID 和默认 embedding 供应商 ID，是默认供应商解析的唯一来源。LlmProvider.is_default 字段已废弃，仅 seed 阶段用于建立初始 LlmGlobalSetting。
+_Avoid_: 全局配置（用 LlmGlobalSetting 精确指代）
+
+**VoiceConfig**:
+语音服务配置（单例表 id=1），存储 ASR/TTS 全量参数（url、model、api_key、language 等），API Key 加密存储。替代 Java 中的 YAML 运行时配置（ADR-0004 去掉 YAML 中间层）。
+_Avoid_: 语音设置（用 VoiceConfig 精确指代）、Voice Setting
