@@ -74,7 +74,7 @@
 
 阶段 8: 收尾
   #18 完成 -> 单 issue review ✅（收尾加固：8.2 IP 多级 fallback client_ip + 8.6 AI 异常细分 classify_ai_error 接入 StructuredOutputInvoker + 8.8 Dockerfile 非root/HEALTHCHECK/单worker；8.1限流/8.3幂等/8.4定时/8.5错误码前序已就位，仅验证 + 新增错误码守卫测试；code-review 收敛：XFF 可信度注释、容器非 root+HEALTHCHECK；X-User-Id 按 ADR-0007 不接入；AI 细分流式路径 + 8.7 端到端 + G.3 时区迁移留 R8）
-  R8: #18 阶段 review（全系统最终 review）
+  R8: #18 阶段 review（全系统最终 review）✅ Standards PASS（0 HARD）；Spec 4 项已知延期缺口。R8 内 TDD 补齐 8.6 流式路径 AI 异常细分（RAG _stream_answer + 语音 _commit_turn 两 except 块接入 classify_ai_error，非 AI 异常保留通用兜底；同形复现 pitfall #27，已补行为测试守卫）。其余 3 项拆 issue：#20（8.7 端到端集成测试）、#21（G.3 全表时区迁移，先 grilling+ADR）、#22（Dockerfile 构建验证）
 ```
 
 ## 统计

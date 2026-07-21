@@ -304,3 +304,5 @@
 **修复**：新增 `pcm_base64_to_wav_base64`（base64 PCM -> base64 WAV，默认 24kHz）接入 `_run_tts`；单测断言 `audio_chunk.data` 解码后含 RIFF/WAVE 头且尾部为原始 PCM，防回归到裸 PCM。
 
 **教训**：纯函数「定义 ≠ 接入」。数据格式契约（音频/序列化/编码）须对照消费方（前端/下游）一手定义核对实际 wire format，不能只看 util 单测绿。与 #5（定义但不集成=虚假安全感）、#24（调用了但参数错）同类：本条是「util 写了但没在管线里调用」。阶段 review 是捕获此类跨 issue 集成断点的最后闸门。
+
+**R8 同形复现（#18/8.6）**：`classify_ai_error`（`app/infrastructure/ai/ai_error.py`）在 #18 接入了 `StructuredOutputInvoker`，却漏接两条流式应答管线——RAG `_stream_answer` 与语音 `_commit_turn` 的 `except` 仍只发通用错误码。R8 阶段 review 捕获并补齐（两处 except 接入 classify + 行为测试守卫 7005/通用回退）。印证「部分接入 ≠ 全接入」：细分错误码这类横切须核对全部调用管线，阶段 review 是一致性的最后闸门。
