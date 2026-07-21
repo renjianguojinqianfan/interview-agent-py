@@ -30,10 +30,10 @@ class TestLoadPromptAllTemplates:
         template = await load_prompt(name)
         assert isinstance(template, PromptTemplate)
 
-    def test_total_template_count_is_14(self) -> None:
+    def test_total_template_count_is_15(self) -> None:
         prompts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "app", "prompts")
         st_files = [f for f in os.listdir(prompts_dir) if f.endswith(".st")]
-        assert len(st_files) == 14
+        assert len(st_files) == 15
 
 
 class TestLoadPromptInputVariables:
