@@ -293,3 +293,14 @@
 **修复**：R5 决策(a)--仅修文档：G.3 改为反映现实（naive datetime，部署须 UTC），全表 `timezone=True` 迁移留 stage 8 统一处理（避免 R5 内只改单表引入新的不一致）。
 
 **教训**：策略文档若不机械执行就是 aspirational。时区/编码/命名等横切策略须有 fitness 测试（如扫描 ORM `DateTime` 列断言 `timezone=True`），否则必漂移。阶段 review 须对照策略文档（G.3、ADR）而非只看 issue body。发现漂移时，若全项目一致偏离文档，修文档比修代码更安全（避免单点修正引入不一致）；真正统一留专门收尾阶段。与 #1（GradingService 命名违反词汇表）、#2（shim 无移除点）同类：文档约定无机械执行的必然结局。
+
+
+### 27. 数据格式契约：纯函数写了但没接入管线（R7 阶段 review 发现）
+
+**现象**：R7 阶段 review（#15+#16+#17 WS 实时管线闭环）发现 `app/infrastructure/voice/audio_utils.py` 的 `pcm_to_wav`/`build_wav_header` 有单测但零生产调用方：`_run_tts` 把 Qwen TTS 的裸 base64 PCM 原样塞进 `audio_chunk.data`。但前端 handleAudioChunk 契约（voiceInterview.ts 声明 Base64 WAV + `pcmOffset = 44` 跳头取 PCM）要求每块自带 44 字节 WAV 头——发裸 PCM 会让前端每块丢弃 44 字节真实音频、播放错位。单 issue 测试甚至断言了 `data == "QUJD"`（裸 PCM base64），把 bug 当契约固化。
+
+**根因**：#16 把 PCM->WAV 拆成纯函数（可测、职责清晰），但异步编排 `_run_tts` 迁移时漏了「发送前包 WAV 头」这一步。util 与调用点分属两个关注点，单 issue review 看到「util 存在 + 测试绿」即放过，未回查前端/Java 一手契约核对 wire format。Java 权威实现 sendAudioChunk(convertPcmToWav(pcm), ...) 明确每块包 WAV。
+
+**修复**：新增 `pcm_base64_to_wav_base64`（base64 PCM -> base64 WAV，默认 24kHz）接入 `_run_tts`；单测断言 `audio_chunk.data` 解码后含 RIFF/WAVE 头且尾部为原始 PCM，防回归到裸 PCM。
+
+**教训**：纯函数「定义 ≠ 接入」。数据格式契约（音频/序列化/编码）须对照消费方（前端/下游）一手定义核对实际 wire format，不能只看 util 单测绿。与 #5（定义但不集成=虚假安全感）、#24（调用了但参数错）同类：本条是「util 写了但没在管线里调用」。阶段 review 是捕获此类跨 issue 集成断点的最后闸门。

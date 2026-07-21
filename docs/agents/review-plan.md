@@ -70,7 +70,7 @@
   #15 完成 -> 单 issue review ✅（WS 端点 /ws/voice-interview/{id} + 6 类消息协议 + QwenAsrClient partial/final；code-review 收敛：should_commit/merge_segments 越界移除、final 字幕回推移除、_pump 异常暴露）
   #16 完成 -> 单 issue review ✅（QwenTtsClient TTS + 句子级并发(Semaphore3/8s) + 回声抑制(800ms) + debounce(20字/2500ms) + LLM 流式面试官回复；realtime_ws 抽取复用；code-review 收敛：_ai_speaking 取消安全、音频按句序发送、TTS 异常暴露不吞没）
   #17 完成 -> 单 issue review ✅（阶段切换三规则 voice_phase + 开场问题 OpeningQuestionLoader（迁自 Java voice-interview-opening.yml）+ TTS 预合成 + 消息 DB 持久化/回填 fillLatestUnansweredQuestion + 暂停超时（270s warning/300s PAUSED 断开）+ ASR 重连（≤2/10s）；code-review PASSED 无 HARD/SOFT，仅修模块 docstring 陈旧）
-  R7: #15 #16 #17 阶段 review（WS 实时管线闭环）
+  R7: #15 #16 #17 阶段 review（WS 实时管线闭环）✅ SP: audio_chunk 发裸 PCM 但前端契约要 Base64 WAV（handleAudioChunk 跳 44 字节头）→ pcm_base64_to_wav_base64 接入 _run_tts 修复（对齐 Java convertPcmToWav + 回归测试；pitfall #27）；debounce_ms 硬编码与 domain COMMIT_DEBOUNCE_MS 统一；死纯函数 find_latest_unanswered 删（生产用 repo SQL 方法）。SOFT follow-up（留 #18/R8）：asr/tts 客户端样板重复、config loader 重复、ws_handler 582 行大类拆分、audio 完成信号空 is_last 块 vs Java control audio_complete
 
 阶段 8: 收尾
   #18 完成 -> 单 issue review
