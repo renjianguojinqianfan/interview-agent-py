@@ -1,0 +1,18 @@
+# 构建上下文排除（保留 app/、alembic/、pyproject.toml、uv.lock、README.md）。
+.venv/
+.git/
+.github/
+.githooks/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.env.*
+tests/
+docs/
+nul
+Dockerfile
+.dockerignore
