@@ -306,7 +306,7 @@ app/
 | 3.1 | 数据模型 | - | `Resume` + `ResumeAnalysis` ORM 模型 + Alembic 迁移 |
 | 3.2 | 领域层 | - | `domain/entities/resume.py`（analyzeStatus 状态机）+ 仓储接口 |
 | 3.3 | 应用服务 | - | `application/resume/`：UploadService（上传->解析->去重->入队）、ResumeAnalysisService（LLM 分析+降级）、PersistenceService |
-| 3.4 | 异步任务 | - | `infrastructure/tasks/resume_analyze.py`：消费 resume:analyze:stream |
+| 3.4 | 异步任务 | - | `infrastructure/tasks/resume_analyze_consumer.py`：消费 resume:analyze:stream（配套 `resume_analyze_producer.py` 投递） |
 | 3.5 | API 路由 | 7 | `api/routers/resume.py`：upload/list/detail/export/delete/reanalyze/health |
 | 3.6 | PDF 导出 | - | `infrastructure/export/pdf.py`：WeasyPrint 简历分析报告 |
 | 3.7 | 限流 | - | upload: GLOBAL=5/s+IP=5/s，reanalyze: GLOBAL=2/s+IP=2/s |
@@ -346,7 +346,7 @@ app/
 | 5.1 | 数据模型 | - | `KnowledgeBase` + `RagChatSession` + `RagChatMessage` + `VectorStore`(pgvector) ORM |
 | 5.2 | 领域层 | - | `domain/entities/knowledgebase.py`（VectorStatus 状态机）+ RAG 检索策略领域服务 |
 | 5.3 | 知识库上传 | - | `application/knowledgebase/`：UploadService（上传->解析->去重->入队向量化） |
-| 5.4 | 向量化任务 | - | `infrastructure/tasks/kb_vectorize.py`：文档分块 + Embedding + 写入 pgvector，两阶段提交(pending->promote) |
+| 5.4 | 向量化任务 | - | `infrastructure/tasks/kb_vectorize_consumer.py`：文档分块 + Embedding + 写入 pgvector，两阶段提交(pending->promote)（配套 `kb_vectorize_producer.py` 投递） |
 | 5.5 | RAG 查询 | - | `domain/services/rag_query.py`：Query Rewrite(可选) + 动态 topK/minScore + 多候选检索 + 探测窗口归一化(120字符) |
 | 5.6 | RAG 聊天会话 | - | `application/rag/`：SessionService + 流式 SSE 消息（prepareStreamMessage -> 流式 -> completeStreamMessage） |
 | 5.7 | API 路由 | 22 | `knowledgebase.py`(14) + `rag_chat.py`(8) |
