@@ -19,12 +19,18 @@ connector 可注入以便测试。#15 仅覆盖 partial->字幕、final->mergeBu
 
 import json
 import logging
-import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 from websockets.exceptions import ConnectionClosed
+
+from app.infrastructure.voice.realtime_ws import (
+    RealtimeConnection,
+    RealtimeConnector,
+    build_realtime_uri,
+    default_connect,
+    new_event_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,27 +80,9 @@ class AsrConnectionClosed(AsrError):
     """ASR WebSocket 连接已关闭（正常或异常）。"""
 
 
-class AsrConnection(Protocol):
-    """出站 ASR WebSocket 连接的最小契约（便于注入与测试）。"""
-
-    async def send(self, message: str) -> None: ...
-
-    async def recv(self) -> str | bytes: ...
-
-    async def close(self) -> None: ...
-
-
-AsrConnector = Callable[[str, dict[str, str]], Awaitable[AsrConnection]]
-
-
-def _new_event_id() -> str:
-    return f"event_{uuid.uuid4().hex}"
-
-
 def build_connect_uri(config: AsrConnectionConfig) -> str:
-    """构造带 model 查询参数的连接 URI。"""
-    separator = "&" if "?" in config.url else "?"
-    return f"{config.url}{separator}model={config.model}"
+    """构造带 model 查询参数的连接 URI（复用 realtime_ws.build_realtime_uri）。"""
+    return build_realtime_uri(config.url, config.model)
 
 
 def build_session_update(config: AsrConnectionConfig) -> dict[str, Any]:
@@ -108,7 +96,7 @@ def build_session_update(config: AsrConnectionConfig) -> dict[str, Any]:
         }
     return {
         "type": _EVENT_SESSION_UPDATE,
-        "event_id": _new_event_id(),
+        "event_id": new_event_id(),
         "session": {
             "input_audio_format": config.audio_format,
             "sample_rate": config.sample_rate,
@@ -122,14 +110,14 @@ def build_audio_append(base64_pcm: str) -> dict[str, Any]:
     """构造 input_audio_buffer.append 音频块消息。"""
     return {
         "type": _EVENT_AUDIO_APPEND,
-        "event_id": _new_event_id(),
+        "event_id": new_event_id(),
         "audio": base64_pcm,
     }
 
 
 def build_session_finish() -> dict[str, Any]:
     """构造 session.finish 结束消息。"""
-    return {"type": _EVENT_SESSION_FINISH, "event_id": _new_event_id()}
+    return {"type": _EVENT_SESSION_FINISH, "event_id": new_event_id()}
 
 
 def parse_server_event(raw: dict[str, Any]) -> AsrTranscript | None:
@@ -150,20 +138,13 @@ def parse_server_event(raw: dict[str, Any]) -> AsrTranscript | None:
     return None
 
 
-async def _default_connect(uri: str, headers: dict[str, str]) -> AsrConnection:
-    import websockets
-
-    conn = await websockets.connect(uri, additional_headers=headers)
-    return cast(AsrConnection, conn)
-
-
 class QwenAsrClient:
     """Qwen ASR Realtime WebSocket 客户端：连接、发送音频、迭代转写结果。"""
 
-    def __init__(self, config: AsrConnectionConfig, connector: AsrConnector | None = None) -> None:
+    def __init__(self, config: AsrConnectionConfig, connector: RealtimeConnector | None = None) -> None:
         self._config = config
-        self._connector = connector or _default_connect
-        self._conn: AsrConnection | None = None
+        self._connector = connector or default_connect
+        self._conn: RealtimeConnection | None = None
 
     async def connect(self) -> None:
         uri = build_connect_uri(self._config)
@@ -201,7 +182,7 @@ class QwenAsrClient:
             return None
         return parse_server_event(cast(dict[str, Any], event))
 
-    def _require_conn(self) -> AsrConnection:
+    def _require_conn(self) -> RealtimeConnection:
         if self._conn is None:
             raise AsrError("not_connected", "ASR 连接未建立")
         return self._conn

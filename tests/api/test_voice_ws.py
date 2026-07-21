@@ -61,11 +61,23 @@ def _cached(status: str) -> CachedVoiceSession:
     )
 
 
+def _orm() -> MagicMock:
+    return MagicMock(
+        status="IN_PROGRESS",
+        role_type="Java面试官",
+        skill_id="java-backend",
+        difficulty="mid",
+        current_phase="TECH",
+        custom_jd_text=None,
+        llm_provider=None,
+    )
+
+
 def _factory_override(status: str | None, events: list[AsrTranscript]):
     cache = MagicMock()
     cache.get_session = AsyncMock(return_value=_cached(status) if status else None)
     repository = MagicMock()
-    repository.get_by_id = AsyncMock(return_value=None)
+    repository.get_by_id = AsyncMock(return_value=_orm() if status else None)
     loader = MagicMock()
     loader.load = AsyncMock(return_value=MagicMock())
     session_factory = _make_session_factory()
@@ -78,6 +90,9 @@ def _factory_override(status: str | None, events: list[AsrTranscript]):
             session_factory=session_factory,
             asr_config_loader=loader,
             asr_client_factory=lambda _config: _FakeAsr(list(events)),
+            tts_config_loader=loader,
+            tts_client_factory=lambda _config: MagicMock(),
+            dialogue_llm=MagicMock(),
         )
 
     return lambda: _build

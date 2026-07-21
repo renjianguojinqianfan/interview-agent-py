@@ -24,16 +24,18 @@ class TestLoadPromptAllTemplates:
             "knowledgebase-query-user",
             "resume-analysis-system",
             "resume-analysis-user",
+            "voice-interview-dialogue-system",
+            "voice-interview-dialogue-user",
         ],
     )
-    async def test_loads_all_14_templates(self, name: str) -> None:
+    async def test_loads_all_listed_templates(self, name: str) -> None:
         template = await load_prompt(name)
         assert isinstance(template, PromptTemplate)
 
-    def test_total_template_count_is_15(self) -> None:
+    def test_total_template_count(self) -> None:
         prompts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "app", "prompts")
         st_files = [f for f in os.listdir(prompts_dir) if f.endswith(".st")]
-        assert len(st_files) == 15
+        assert len(st_files) == 17
 
 
 class TestLoadPromptInputVariables:

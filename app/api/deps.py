@@ -15,6 +15,7 @@ from app.application.rag.service import RagChatService, RagConfig
 from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.application.skill.service import SkillService
+from app.application.voice.dialogue_llm import VoiceDialogueLlm
 from app.application.voice.service import VoiceEvaluationService, VoiceSessionService
 from app.application.voice.ws_handler import VoiceWsOrchestrator
 from app.config.settings import settings
@@ -66,7 +67,8 @@ from app.infrastructure.tasks.voice_evaluate_consumer import VoiceEvaluateStream
 from app.infrastructure.tasks.voice_evaluate_producer import VoiceEvaluateStreamProducer
 from app.infrastructure.vector.repository import VectorRepository
 from app.infrastructure.voice.asr import QwenAsrClient
-from app.infrastructure.voice.config import AsrConfigLoader
+from app.infrastructure.voice.config import AsrConfigLoader, TtsConfigLoader
+from app.infrastructure.voice.tts import QwenTtsClient
 
 _redis_client: RedisClient | None = None
 _s3_storage: S3StorageService | None = None
@@ -92,6 +94,8 @@ _voice_session_cache: VoiceInterviewSessionCache | None = None
 _voice_evaluate_producer: VoiceEvaluateStreamProducer | None = None
 _voice_evaluate_consumer: VoiceEvaluateStreamConsumer | None = None
 _asr_config_loader: AsrConfigLoader | None = None
+_tts_config_loader: TtsConfigLoader | None = None
+_voice_dialogue_llm: VoiceDialogueLlm | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -446,9 +450,11 @@ def get_asr_config_loader() -> AsrConfigLoader:
 
 
 def get_voice_ws_orchestrator_factory() -> Callable[[int], VoiceWsOrchestrator]:
-    loader = get_asr_config_loader()
+    asr_loader = get_asr_config_loader()
+    tts_loader = get_tts_config_loader()
     cache = get_voice_session_cache()
     repository = get_voice_repository()
+    dialogue_llm = get_voice_dialogue_llm()
 
     def _build(session_id: int) -> VoiceWsOrchestrator:
         return VoiceWsOrchestrator(
@@ -456,11 +462,32 @@ def get_voice_ws_orchestrator_factory() -> Callable[[int], VoiceWsOrchestrator]:
             cache=cache,
             repository=repository,
             session_factory=async_session_factory,
-            asr_config_loader=loader,
+            asr_config_loader=asr_loader,
             asr_client_factory=lambda config: QwenAsrClient(config),
+            tts_config_loader=tts_loader,
+            tts_client_factory=lambda config: QwenTtsClient(config),
+            dialogue_llm=dialogue_llm,
         )
 
     return _build
+
+
+def get_tts_config_loader() -> TtsConfigLoader:
+    global _tts_config_loader
+    if _tts_config_loader is None:
+        _tts_config_loader = TtsConfigLoader(
+            session_factory=async_session_factory,
+            repository=VoiceConfigRepository(),
+            encryption_service=ApiKeyEncryptionService(settings.app_ai_config_encryption_key),
+        )
+    return _tts_config_loader
+
+
+def get_voice_dialogue_llm() -> VoiceDialogueLlm:
+    global _voice_dialogue_llm
+    if _voice_dialogue_llm is None:
+        _voice_dialogue_llm = VoiceDialogueLlm(get_llm_registry())
+    return _voice_dialogue_llm
 
 
 async def start_voice_evaluate_consumer() -> VoiceEvaluateStreamConsumer | None:

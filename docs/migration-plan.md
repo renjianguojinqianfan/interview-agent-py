@@ -391,7 +391,9 @@ app/
 
 #### 7B. WebSocket 实时管线（4-6 天）-- 全项目最复杂部分
 
-> **进度注记**：#15 完成 7B.1（WS 端点 `/ws/voice-interview/{session_id}` + 6 类消息协议 audio/control/subtitle/text/audio_chunk/error）、7B.2（QwenAsrClient 对接 Qwen3 Realtime ASR，OpenAI Realtime 风格：session.update / input_audio_buffer.append / text partial(text+stash) / completed final / error，用 websockets 库，协议来源见 asr.py docstring）、7B.6 部分（final 累积到 mergeBuffer 列表；should_commit 下游提交留 #16/#17）。ws_handler 双泵 asyncio 并发桥接客户端<->ASR；握手复用 #14 会话缓存(cache→DB 回退)仅 IN_PROGRESS 放行，ASR 配置复用 #12 VoiceConfig(解密 api_key)。text/audio_chunk schema 先行定义待 #16 接入。回声抑制/句子级并发/阶段切换/开场问题/重连属 #16/#17。
+> **进度注记**：#15 完成 7B.1（WS 端点 `/ws/voice-interview/{session_id}` + 6 类消息协议 audio/control/subtitle/text/audio_chunk/error）、7B.2（QwenAsrClient 对接 Qwen3 Realtime ASR，OpenAI Realtime 风格：session.update / input_audio_buffer.append / text partial(text+stash) / completed final / error，用 websockets 库，协议来源见 asr.py docstring）、7B.6 部分（final 累积到 mergeBuffer 列表；should_commit 下游提交留 #16/#17）。ws_handler 双泵 asyncio 并发桥接客户端<->ASR；握手复用 #14 会话缓存(cache→DB 回退)仅 IN_PROGRESS 放行，ASR 配置复用 #12 VoiceConfig(解密 api_key)。text/audio_chunk schema 先行定义待 #16 接入。
+>
+> #16 完成 7B.3（QwenTtsClient 对接 Qwen3 TTS Realtime：session.update / input_text_buffer.append+commit / response.audio.delta(base64 PCM) / done；`audio_utils` PCM->WAV 44 字节头纯函数）、7B.4（`dialogue_llm` 流式面试官回复：get_voice_chat_client + astream + voice-interview-dialogue prompt）、7B.5（回声抑制：AI 说话中 + 800ms 冷却丢弃麦克风输入）、7B.6（debounce 2500ms + 20 字提交）、7B.7（句子级并发 TTS：Semaphore(3) + wait_for(8s)，并发合成、按句序发送 audio_chunk）。ASR/TTS 连接原语抽取 `realtime_ws` 复用；对话历史仅内存。阶段切换/开场问题/暂停超时警告/ASR 重连/消息 DB 持久化属 #17。
 
 | # | 任务 | 说明 |
 |---|------|------|
