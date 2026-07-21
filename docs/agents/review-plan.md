@@ -65,7 +65,7 @@
 
 阶段 7: 语音面试（最复杂）
   #14 完成 -> 单 issue review ✅
-  R6: #14 阶段 review（REST 生命周期，WS 前置检查点）
+  R6: #14 阶段 review（REST 生命周期，WS 前置检查点）✅ HARD: 评估算法分层违规+未答题分母 bug，GC loop 已修（e49a197）；consumer 重复/codec 反向依赖列为 follow-up
   #15 完成 -> 单 issue review
   #16 完成 -> 单 issue review
   #17 完成 -> 单 issue review
