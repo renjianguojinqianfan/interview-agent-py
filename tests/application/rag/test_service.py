@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
+import openai
 import pytest
 
 from app.application.rag.service import RagChatService, RagConfig
@@ -45,6 +47,15 @@ def _make_factory() -> MagicMock:
 async def _astream(tokens: list[str]) -> Any:
     for token in tokens:
         yield SimpleNamespace(content=token)
+
+
+_ERR_REQUEST = httpx.Request("POST", "https://dashscope.example/api")
+
+
+async def _astream_then_raise(exc: BaseException, tokens: list[str] | None = None) -> Any:
+    for token in tokens or []:
+        yield SimpleNamespace(content=token)
+    raise exc
 
 
 def _make_service(**over: Any) -> tuple[RagChatService, dict[str, Any]]:
@@ -196,6 +207,26 @@ class TestStreamQuery:
         service, _ = _make_service(get_by_session_id=AsyncMock(return_value=None))
         events = [chunk async for chunk in service.stream_query("missing", "问题")]
         assert any('"error"' in e for e in events)
+        assert events[-1] == "data: [DONE]\n\n"
+
+
+class TestStreamAiErrorClassification:
+    """8.6：流式 astream 抛 AI SDK 异常 -> 细分错误码；非 AI 异常 -> 通用文案。"""
+
+    async def test_rate_limit_yields_ai_error_code(self) -> None:
+        service, m = _make_service()
+        exc = openai.RateLimitError("rate", response=httpx.Response(429, request=_ERR_REQUEST), body=None)
+        m["chat"].astream = MagicMock(return_value=_astream_then_raise(exc))
+        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
+        assert any(f'"code": {ErrorCode.AI_RATE_LIMIT_EXCEEDED.code}' in e for e in events)
+        assert events[-1] == "data: [DONE]\n\n"
+
+    async def test_non_ai_error_yields_generic_message(self) -> None:
+        service, m = _make_service()
+        m["chat"].astream = MagicMock(return_value=_astream_then_raise(RuntimeError("boom")))
+        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
+        assert any("RAG 流式问答失败" in e for e in events)
+        assert not any("7005" in e for e in events)
         assert events[-1] == "data: [DONE]\n\n"
 
 

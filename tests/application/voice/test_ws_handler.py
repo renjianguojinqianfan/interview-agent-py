@@ -9,6 +9,8 @@ import json
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
+import openai
 from fastapi import WebSocketDisconnect
 
 from app.application.voice.ws_handler import (
@@ -16,6 +18,7 @@ from app.application.voice.ws_handler import (
     WS_CLOSE_SESSION_NOT_FOUND,
     VoiceWsOrchestrator,
 )
+from app.domain.errors import ErrorCode
 from app.infrastructure.redis.voice_session_cache import CachedVoiceSession
 from app.infrastructure.voice.asr import AsrConnectionClosed, AsrTranscript
 from app.infrastructure.voice.tts import TtsConnectionClosed, TtsEvent
@@ -110,6 +113,28 @@ class _FakeDialogueLlm:
         async def _gen() -> AsyncIterator[str]:
             for token in self._tokens:
                 yield token
+
+        return _gen()
+
+
+_ERR_REQUEST = httpx.Request("POST", "https://dashscope.example/api")
+
+
+class _RaisingDialogueLlm:
+    """stream_reply 在流式迭代中抛出指定异常（模拟 LLM SDK 错误路径，8.6）。"""
+
+    def __init__(self, exc: BaseException, tokens: list[str] | None = None) -> None:
+        self._exc = exc
+        self._tokens = tokens or []
+
+    def stream_reply(self, _context: object, _history: str, _answer: str) -> AsyncIterator[str]:
+        exc = self._exc
+        tokens = self._tokens
+
+        async def _gen() -> AsyncIterator[str]:
+            for token in tokens:
+                yield token
+            raise exc
 
         return _gen()
 
@@ -279,6 +304,31 @@ class TestCommitTurn:
         await orch._commit_turn(ws)
         assert ws.sent == []
         assert orch.history == []
+
+
+class TestCommitTurnAiError:
+    """8.6：LLM 流式回复抛 AI SDK 异常 -> ErrorMessage 细分错误码；非 AI 异常 -> llm_error。"""
+
+    async def test_rate_limit_sends_ai_error_code(self) -> None:
+        orch = _make_orchestrator()
+        _ready(orch)
+        exc = openai.RateLimitError("rate", response=httpx.Response(429, request=_ERR_REQUEST), body=None)
+        orch._dialogue_llm = _RaisingDialogueLlm(exc)  # type: ignore[assignment]
+        orch._final_segments = ["我的回答"]
+        ws = _FakeClientWs()
+        await orch._commit_turn(ws)
+        errors = ws.sent_of("error")
+        assert errors and errors[-1]["code"] == str(ErrorCode.AI_RATE_LIMIT_EXCEEDED.code)
+
+    async def test_non_ai_error_sends_llm_error(self) -> None:
+        orch = _make_orchestrator()
+        _ready(orch)
+        orch._dialogue_llm = _RaisingDialogueLlm(RuntimeError("boom"))  # type: ignore[assignment]
+        orch._final_segments = ["我的回答"]
+        ws = _FakeClientWs()
+        await orch._commit_turn(ws)
+        errors = ws.sent_of("error")
+        assert errors and errors[-1]["code"] == "llm_error"
 
 
 class TestEchoSuppression:

@@ -57,6 +57,7 @@ from app.domain.services.voice_dialogue import (
     split_sentences,
 )
 from app.domain.services.voice_phase import next_phase, should_transition_to_next_phase
+from app.infrastructure.ai.ai_error import classify_ai_error
 from app.infrastructure.db.models.voice_interview import (
     VoiceInterviewMessage as VoiceInterviewMessageORM,
 )
@@ -371,7 +372,11 @@ class VoiceWsOrchestrator:
                         sentence_tasks.append(asyncio.create_task(self._synthesize_sentence(remainder, semaphore)))
                 except Exception as e:
                     logger.warning("语音 LLM 流式回复失败: sessionId=%s, error=%s", self._session_id, e)
-                    await self._safe_send(ws, ErrorMessage(code="llm_error", message="生成回复失败"))
+                    ai_code = classify_ai_error(e)
+                    if ai_code is not None:
+                        await self._safe_send(ws, ErrorMessage(code=str(ai_code.code), message=ai_code.message))
+                    else:
+                        await self._safe_send(ws, ErrorMessage(code="llm_error", message="生成回复失败"))
 
                 reply = "".join(reply_parts).strip()
                 await self._safe_send(ws, TextMessage(text=reply, is_final=True))

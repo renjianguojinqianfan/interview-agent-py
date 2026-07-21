@@ -35,6 +35,7 @@ from app.domain.services.rag_query import (
     merge_and_dedup,
     normalize_probe_window,
 )
+from app.infrastructure.ai.ai_error import classify_ai_error
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.prompt_loader import load_prompt
 from app.infrastructure.ai.prompt_sanitizer import PromptSanitizer
@@ -275,7 +276,11 @@ class RagChatService:
         except Exception as e:
             logger.error("RAG 流式问答失败: sessionId=%s, error=%s", session_id, e)
             await self._safe_persist_error(session_pk, _ERROR_PLACEHOLDER)
-            yield _sse({"error": "RAG 流式问答失败"})
+            ai_code = classify_ai_error(e)
+            if ai_code is not None:
+                yield _sse({"error": ai_code.message, "code": ai_code.code})
+            else:
+                yield _sse({"error": "RAG 流式问答失败"})
             yield _DONE
 
     # ---------------- 检索与回答 ----------------
