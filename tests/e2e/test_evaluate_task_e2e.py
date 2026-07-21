@@ -5,6 +5,7 @@ produce(xadd) -> Redis stream -> consume(xreadgroup) -> 评估(假 LLM 图) -> �
 用唯一 stream key 隔离，避免 Redis 残留；Redis 不可用则 skip。
 """
 
+import contextlib
 import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock
@@ -100,9 +101,6 @@ async def _seed_session(factory: async_sessionmaker, session_id: str) -> None:
 
 async def test_interview_evaluate_task_e2e(live_session_factory: async_sessionmaker) -> None:
     """产 -> Redis 流 -> 消费 -> 假图评估 -> 真库回写答案分数 + 状态机置 COMPLETED。"""
-    session_id = f"e2e-{uuid.uuid4().hex[:8]}"
-    await _seed_session(live_session_factory, session_id)
-
     redis = create_redis_client()
     config = StreamConfig(
         stream_key=f"interview:evaluate:e2e:{uuid.uuid4().hex[:8]}",
@@ -114,6 +112,9 @@ async def test_interview_evaluate_task_e2e(live_session_factory: async_sessionma
         await redis.create_stream_group(config.stream_key, config.group_name)
     except Exception:
         pytest.skip("Redis 不可用：docker compose up -d redis")
+
+    session_id = f"e2e-{uuid.uuid4().hex[:8]}"
+    await _seed_session(live_session_factory, session_id)
 
     registry = MagicMock()
     registry.get_chat_client = AsyncMock(return_value=MagicMock())
@@ -136,7 +137,10 @@ async def test_interview_evaluate_task_e2e(live_session_factory: async_sessionma
         msg_id, data = results[0][1][0]
         await consumer._process_message(msg_id, data)
     finally:
-        await redis.delete(config.stream_key)
+        with contextlib.suppress(Exception):
+            await redis.delete(config.stream_key)
+        with contextlib.suppress(Exception):
+            await redis._redis.aclose()
 
     async with live_session_factory() as db:
         sess = (
