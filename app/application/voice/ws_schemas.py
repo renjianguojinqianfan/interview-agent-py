@@ -1,7 +1,8 @@
 """语音面试 WebSocket 消息协议 schemas。
 
 客户端 -> 服务端：audio（base64 PCM）、control（连接控制）。
-服务端 -> 客户端：subtitle（ASR 字幕）、text（AI 文本，#16）、audio_chunk（TTS 音频，#16/#17）、error。
+服务端 -> 客户端：subtitle（ASR 字幕）、text（AI 文本）、audio_chunk（TTS 音频）、
+warning（#17 暂停超时警告）、error。
 
 #15 仅实际使用 audio -> ASR -> subtitle/error；text/audio_chunk 协议先行定义以稳定契约。
 出站消息经 model_dump(by_alias=True) 序列化为 camelCase JSON。
@@ -55,6 +56,14 @@ class ErrorMessage(BaseSchema):
     """错误消息。"""
 
     type: Literal["error"] = "error"
+    code: str
+    message: str
+
+
+class WarningMessage(BaseSchema):
+    """警告消息（#17）：如暂停超时前的 4:30 提醒；不中断会话。"""
+
+    type: Literal["warning"] = "warning"
     code: str
     message: str
 

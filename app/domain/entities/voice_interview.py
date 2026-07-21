@@ -122,6 +122,9 @@ VOICE_SESSION_TTL_SECONDS = 60 * 60
 PAUSE_IDLE_TIMEOUT_SECONDS = 5 * 60
 """IN_PROGRESS 会话空闲超时：超过则定时任务自动置 PAUSED（附录 F 5 分钟自动暂停）。"""
 
+PAUSE_WARNING_SECONDS = 270
+"""WS 连接内暂停前警告阈值：4 分 30 秒无活动发一次 warning（附录 F）。"""
+
 ZOMBIE_SESSION_TIMEOUT_SECONDS = 2 * 60 * 60
 """IN_PROGRESS 僵尸会话超时：超过则定时任务自动置 COMPLETED（对齐 Java cleanupStaleSessions 2h）。"""
 

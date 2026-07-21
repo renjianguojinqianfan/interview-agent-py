@@ -9,6 +9,7 @@ from app.application.voice.ws_schemas import (
     ErrorMessage,
     SubtitleMessage,
     TextMessage,
+    WarningMessage,
     parse_client_message,
 )
 
@@ -49,3 +50,7 @@ class TestOutboundSerialization:
     def test_error_message(self) -> None:
         dumped = ErrorMessage(code="asr_error", message="失败").model_dump(by_alias=True)
         assert dumped == {"type": "error", "code": "asr_error", "message": "失败"}
+
+    def test_warning_message(self) -> None:
+        dumped = WarningMessage(code="pause_timeout_warning", message="即将暂停").model_dump(by_alias=True)
+        assert dumped == {"type": "warning", "code": "pause_timeout_warning", "message": "即将暂停"}
