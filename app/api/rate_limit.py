@@ -7,7 +7,25 @@ from slowapi.util import get_remote_address
 from app.api.responses import Result
 from app.domain.errors import ErrorCode
 
-limiter = Limiter(key_func=get_remote_address)
+_FORWARD_HEADERS = ("X-Forwarded-For", "X-Real-IP", "Proxy-Client-IP")
+
+
+def client_ip(request: Request) -> str:
+    """限流 IP 维度键：按 X-Forwarded-For -> X-Real-IP -> Proxy-Client-IP -> remote_addr 回退。
+
+    X-Forwarded-For 可能是逗号分隔的代理链，取最左（最初客户端）IP。对应 migration-plan 8.2。
+    注意：转发头由客户端可控，仅在受信网关/代理之后可信（部署假设见 ADR-0007）。
+    """
+    for header in _FORWARD_HEADERS:
+        value = request.headers.get(header)
+        if value:
+            candidate = value.split(",")[0].strip()
+            if candidate:
+                return candidate
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=client_ip)
 
 
 def global_key(request: Request) -> str:  # noqa: ARG001  slowapi 按参数名注入
