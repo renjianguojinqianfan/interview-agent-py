@@ -425,6 +425,8 @@ app/
 
 ### 阶段 8：收尾与加固（预计 2-3 天）
 
+> **进度注记**：#18 完成。8.1 限流（10 组已在各模块就位，本阶段仅验证齐全）、8.3 幂等（hash 去重 / 状态机校验 / shouldSkip 下沉 mark_processing / Provider exists_by_name 去重 均前序已实现）、8.4 定时任务（3 任务已注册 `app/api/deps.py` start_scheduler：日程过期每小时 / 暂停超时 30s / 僵尸清理 5min）、8.5 错误码（枚举完整，新增守卫测试断言编号唯一 + 7001-7005 齐全）均前序已就位。本阶段新增：8.2 IP 多级 fallback（`app/api/rate_limit.py` client_ip 替换 get_remote_address，X-Forwarded-For→X-Real-IP→Proxy-Client-IP→remote_addr，取最左 hop）；8.6 AI 异常细分（`app/infrastructure/ai/ai_error.py` classify_ai_error 映射 openai/timeout→7001-7005，接入 StructuredOutputInvoker SDK 错误路径，仅识别到 AI 类型才覆盖调用方兜底码）；8.8 Dockerfile（多阶段 uv + WeasyPrint 系统库 + 非 root + HEALTHCHECK + 单 worker，ADR-0005）。**决策**：8.2 的 X-User-Id / USER 维度按 ADR-0007 定为可选且无端点使用，不接入（避免死代码，见 pitfall #27）。**留 R8/后续**：8.6 流式路径（RAG / voice astream）AI 细分未覆盖；8.7 端到端集成测试；G.3 全表 naive→aware 时区迁移；Dockerfile 沙箱无 Docker daemon 未做构建验证。
+
 | # | 任务 | 说明 |
 |---|------|------|
 | 8.1 | 全局限流完善 | slowapi 限流规则全量配置（对应 10 组限流接口），Lua 脚本迁移或 slowapi 内置算法 |

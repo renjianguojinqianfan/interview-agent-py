@@ -30,6 +30,18 @@ uv run uvicorn app.main:app --reload
 
 服务启动后访问 http://localhost:8000，API 文档见 http://localhost:8000/docs。
 
+## 容器化部署
+
+```bash
+# 构建镜像（多阶段 uv 构建，含 WeasyPrint 运行期系统库）
+docker build -t interview-agent-py .
+
+# 运行（需连通基础设施，通过 .env 注入配置）
+docker run --rm -p 8000:8000 --env-file .env interview-agent-py
+```
+
+镜像以非 root 用户、单 worker（asyncio，ADR-0005）运行，内置 `/health` HEALTHCHECK。
+
 ## 环境变量
 
 复制 `.env.example` 为 `.env` 并填写实际值：

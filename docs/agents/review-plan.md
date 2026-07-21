@@ -73,7 +73,7 @@
   R7: #15 #16 #17 阶段 review（WS 实时管线闭环）✅ SP: audio_chunk 发裸 PCM 但前端契约要 Base64 WAV（handleAudioChunk 跳 44 字节头）→ pcm_base64_to_wav_base64 接入 _run_tts 修复（对齐 Java convertPcmToWav + 回归测试；pitfall #27）；debounce_ms 硬编码与 domain COMMIT_DEBOUNCE_MS 统一；死纯函数 find_latest_unanswered 删（生产用 repo SQL 方法）。SOFT follow-up（留 #18/R8）：asr/tts 客户端样板重复、config loader 重复、ws_handler 582 行大类拆分、audio 完成信号空 is_last 块 vs Java control audio_complete
 
 阶段 8: 收尾
-  #18 完成 -> 单 issue review
+  #18 完成 -> 单 issue review ✅（收尾加固：8.2 IP 多级 fallback client_ip + 8.6 AI 异常细分 classify_ai_error 接入 StructuredOutputInvoker + 8.8 Dockerfile 非root/HEALTHCHECK/单worker；8.1限流/8.3幂等/8.4定时/8.5错误码前序已就位，仅验证 + 新增错误码守卫测试；code-review 收敛：XFF 可信度注释、容器非 root+HEALTHCHECK；X-User-Id 按 ADR-0007 不接入；AI 细分流式路径 + 8.7 端到端 + G.3 时区迁移留 R8）
   R8: #18 阶段 review（全系统最终 review）
 ```
 
