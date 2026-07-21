@@ -1,8 +1,10 @@
 """语音对话编排纯逻辑测试。"""
 
+from app.domain.entities.voice_interview import VoiceMessage
 from app.domain.services.voice_dialogue import (
     COMMIT_DEBOUNCE_MS,
     MIN_COMMIT_CHARS,
+    find_latest_unanswered,
     merge_segments,
     should_commit,
     should_drop_audio,
@@ -62,3 +64,29 @@ class TestShouldDropAudio:
 
     def test_keeps_after_mute_window(self) -> None:
         assert should_drop_audio(now_ms=600.0, mute_until_ms=500.0) is False
+
+
+def _msg(ai: str | None, user: str | None, seq: int = 1) -> VoiceMessage:
+    return VoiceMessage(sequence_num=seq, phase="TECH", ai_generated_text=ai, user_recognized_text=user)
+
+
+class TestFindLatestUnanswered:
+    def test_empty_returns_none(self) -> None:
+        assert find_latest_unanswered([]) is None
+
+    def test_single_unanswered(self) -> None:
+        assert find_latest_unanswered([_msg("Q1", None)]) == 0
+
+    def test_returns_latest_unanswered(self) -> None:
+        messages = [_msg("Q1", "A1", 1), _msg("Q2", None, 2)]
+        assert find_latest_unanswered(messages) == 1
+
+    def test_all_answered_returns_none(self) -> None:
+        assert find_latest_unanswered([_msg("Q1", "A1")]) is None
+
+    def test_message_without_question_ignored(self) -> None:
+        assert find_latest_unanswered([_msg(None, None)]) is None
+
+    def test_picks_last_when_multiple_unanswered(self) -> None:
+        messages = [_msg("Q1", None, 1), _msg("Q2", None, 2)]
+        assert find_latest_unanswered(messages) == 1
