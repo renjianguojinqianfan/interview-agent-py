@@ -1,11 +1,12 @@
-"""Domain 层纯度 fitness 测试。
+"""架构 fitness 测试。
 
-机械执行 AGENTS.md §4 的两条约束：
+机械执行三条架构约束：
 1. domain 层零框架依赖：禁止导入 fastapi/sqlalchemy/pydantic/langchain/redis/slowapi
    及反向依赖 app.infrastructure/app.application/app.api/app.config
 2. domain 层仅允许标准库或 app.domain 内部引用
+3. ADR-0008：禁止 SQLAlchemy after_commit 事件注册（async 无法 await 回调，改用显式顺序）
 
-用 stdlib ast 解析，无需新依赖。违反即测试失败，阻止 Stage 4 起的架构违规复利积累。
+用 stdlib ast 解析，无需新依赖。违反即测试失败，阻止架构违规复利积累。
 """
 
 import ast
@@ -13,6 +14,7 @@ import sys
 from pathlib import Path
 
 DOMAIN_DIR = Path(__file__).resolve().parent.parent / "app" / "domain"
+APP_DIR = Path(__file__).resolve().parent.parent / "app"
 REPO_ROOT = DOMAIN_DIR.parent.parent
 
 # 框架黑名单：domain 层禁止依赖任何框架（AGENTS.md §4: domain 层零框架依赖）
@@ -37,6 +39,9 @@ FORBIDDEN_INTERNAL_PREFIXES = (
 
 # 允许的内部引用前缀
 ALLOWED_INTERNAL_PREFIX = "app.domain"
+
+# ADR-0008：禁止注册的 SQLAlchemy 事件名（async 上下文无法 await 回调，改用显式顺序）
+FORBIDDEN_EVENT_NAMES = frozenset({"after_commit"})
 
 
 def _domain_files() -> list[Path]:
@@ -95,3 +100,62 @@ def test_domain_layer_is_pure() -> None:
             if msg is not None:
                 violations.append(msg)
     assert not violations, "domain 层存在违规 import：\n" + "\n".join(violations)
+
+
+def _app_files() -> list[Path]:
+    return sorted(APP_DIR.rglob("*.py"))
+
+
+def _is_sqlalchemy_event_registration(node: ast.Call) -> bool:
+    """判断 Call 是否为 SQLAlchemy 事件注册。
+
+    覆盖 event.listens_for / event.listen（属性访问）与直接导入的
+    listens_for / listen（裸名调用）两种写法。
+    """
+    func = node.func
+    if isinstance(func, ast.Attribute):
+        return func.attr in ("listens_for", "listen")
+    if isinstance(func, ast.Name):
+        return func.id in ("listens_for", "listen")
+    return False
+
+
+def _forbidden_event_name_in_call(node: ast.Call) -> str | None:
+    """若事件注册 Call 含 ADR-0008 禁止的事件名，返回该名；否则 None。
+
+    扫描位置参数与关键字参数中的字符串字面量，覆盖 listens_for(target, "after_commit")
+    与 listen(target, "after_commit", fn) 两种签名。
+    """
+    for arg in node.args:
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value in FORBIDDEN_EVENT_NAMES:
+            return arg.value
+    for kw in node.keywords:
+        kw_val = kw.value
+        if isinstance(kw_val, ast.Constant) and isinstance(kw_val.value, str) and kw_val.value in FORBIDDEN_EVENT_NAMES:
+            return kw_val.value
+    return None
+
+
+def test_no_sqlalchemy_after_commit_events() -> None:
+    """ADR-0008：扫描 app/**/*.py，断言无 SQLAlchemy after_commit 事件注册。
+
+    async 上下文中 after_commit 回调无法直接 await，ADR-0008 选定显式顺序
+    （commit 后 send）+ 降级。发现 listens_for/listen 注册 after_commit 即失败。
+    """
+    violations: list[str] = []
+    for file_path in _app_files():
+        rel_path = file_path.relative_to(REPO_ROOT).as_posix()
+        source = file_path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(file_path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not _is_sqlalchemy_event_registration(node):
+                continue
+            event_name = _forbidden_event_name_in_call(node)
+            if event_name is not None:
+                violations.append(
+                    f"ADR-0008 禁止 SQLAlchemy {event_name} 事件，"
+                    f"应用显式顺序（commit 后 send） - {rel_path}:{node.lineno}"
+                )
+    assert not violations, "发现 SQLAlchemy after_commit 事件注册：\n" + "\n".join(violations)
