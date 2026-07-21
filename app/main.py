@@ -12,14 +12,17 @@ from app.api.deps import (
     start_interview_evaluate_consumer,
     start_kb_vectorize_consumer,
     start_resume_analyze_consumer,
+    start_scheduler,
     stop_interview_evaluate_consumer,
     stop_kb_vectorize_consumer,
     stop_resume_analyze_consumer,
+    stop_scheduler,
 )
 from app.api.exception_handlers import register_exception_handlers
 from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
 from app.api.routers.interview import router as interview_router
+from app.api.routers.interview_schedule import router as interview_schedule_router
 from app.api.routers.knowledgebase import router as knowledgebase_router
 from app.api.routers.llm_provider import router as llm_provider_router
 from app.api.routers.rag_chat import router as rag_chat_router
@@ -47,10 +50,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await start_resume_analyze_consumer()
         await start_interview_evaluate_consumer()
         await start_kb_vectorize_consumer()
+        await start_scheduler()
 
     yield
 
     if _CONSUMER_AUTO_START:
+        await stop_scheduler()
         await stop_resume_analyze_consumer()
         await stop_interview_evaluate_consumer()
         await stop_kb_vectorize_consumer()
@@ -78,6 +83,7 @@ register_exception_handlers(app)
 app.include_router(resume_router)
 app.include_router(skill_router)
 app.include_router(interview_router)
+app.include_router(interview_schedule_router)
 app.include_router(knowledgebase_router)
 app.include_router(rag_chat_router)
 app.include_router(llm_provider_router)

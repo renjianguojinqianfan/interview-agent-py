@@ -8,6 +8,7 @@ from app.application.interview.evaluation_service import InterviewEvaluationServ
 from app.application.interview.persistence_service import InterviewPersistenceService
 from app.application.interview.question_service import QuestionService
 from app.application.interview.session_service import InterviewSessionService
+from app.application.interview_schedule.service import ScheduleParseService, ScheduleService
 from app.application.knowledgebase.service import KnowledgeBaseService
 from app.application.llm_provider.service import LlmProviderService
 from app.application.rag.service import RagChatService, RagConfig
@@ -20,6 +21,7 @@ from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
+from app.infrastructure.db.repositories.interview_schedule_repository import InterviewScheduleRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.db.repositories.llm_global_setting_repository import LlmGlobalSettingRepository
 from app.infrastructure.db.repositories.llm_provider_repository import LlmProviderRepository
@@ -34,6 +36,8 @@ from app.infrastructure.parsing.parser import DocumentParser
 from app.infrastructure.parsing.text_cleaner import TextCleaner
 from app.infrastructure.redis.client import RedisClient, create_redis_client
 from app.infrastructure.redis.session_cache import InterviewSessionCache
+from app.infrastructure.scheduler.jobs import cancel_expired_schedules
+from app.infrastructure.scheduler.manager import SchedulerManager
 from app.infrastructure.skills.loader import SkillLoader
 from app.infrastructure.skills.reference_loader import ReferenceLoader
 from app.infrastructure.storage.hash import FileHashService
@@ -64,6 +68,8 @@ _interview_evaluate_consumer: EvaluateStreamConsumer | None = None
 _kb_vectorize_producer: VectorizeStreamProducer | None = None
 _kb_vectorize_consumer: VectorizeStreamConsumer | None = None
 _token_chunker: TokenChunker | None = None
+_scheduler_manager: SchedulerManager | None = None
+_schedule_parse_service: ScheduleParseService | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -358,3 +364,54 @@ def get_interview_evaluation_service(
         repository=get_interview_repository(),
         pdf_service=get_pdf_service(),
     )
+
+
+def get_schedule_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> ScheduleService:
+    return ScheduleService(
+        session=session,
+        repository=InterviewScheduleRepository(),
+    )
+
+
+def get_schedule_parse_service() -> ScheduleParseService:
+    global _schedule_parse_service
+    if _schedule_parse_service is None:
+        _schedule_parse_service = ScheduleParseService(
+            llm_registry=get_llm_registry(),
+            invoker=StructuredOutputInvoker(),
+        )
+    return _schedule_parse_service
+
+
+def get_scheduler_manager() -> SchedulerManager:
+    global _scheduler_manager
+    if _scheduler_manager is None:
+        _scheduler_manager = SchedulerManager()
+    return _scheduler_manager
+
+
+async def start_scheduler() -> SchedulerManager | None:
+    try:
+        manager = get_scheduler_manager()
+        manager.register_job(
+            cancel_expired_schedules,
+            "cron",
+            id="cancel_expired_schedules",
+            hour="*",
+            minute=0,
+            args=[async_session_factory],
+        )
+        manager.start()
+        return manager
+    except Exception:
+        logger.warning("启动定时调度器失败，跳过")
+        return None
+
+
+async def stop_scheduler() -> None:
+    global _scheduler_manager
+    if _scheduler_manager is not None:
+        _scheduler_manager.shutdown()
+        _scheduler_manager = None
