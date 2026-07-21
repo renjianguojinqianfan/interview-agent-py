@@ -222,7 +222,7 @@ app/
 |-----------|------------|---------|
 | 14 个 `.st` Prompt 模板 | `app/prompts/*.st`（或 `.j2`） | 直接迁移，StringTemplate 语法与 Jinja2 兼容性需逐个核对 |
 | 10 个技能目录(`skills/`) | `app/skills/` | 直接迁移 SKILL.md + skill.meta.yml |
-| `voice-interview-opening.yml` | `app/skills/opening.yml` 或合并到 config | 开场问题配置 |
+| `voice-interview-opening.yml` | `app/skills/voice-opening.yml` + `OpeningQuestionLoader` | 开场问题配置 |
 | `rate_limit_single.lua` | `infrastructure/redis/rate_limit.lua` | Lua 脚本可直接复用（slowapi 用 Redis 时） |
 | `ZhuqueFangsong-Regular.ttf` | `app/static/fonts/` | 中文字体，PDF 导出用 |
 | `application.yml` | `app/config/settings.py` + `.env` | pydantic-settings，环境变量驱动 |
@@ -394,6 +394,8 @@ app/
 > **进度注记**：#15 完成 7B.1（WS 端点 `/ws/voice-interview/{session_id}` + 6 类消息协议 audio/control/subtitle/text/audio_chunk/error）、7B.2（QwenAsrClient 对接 Qwen3 Realtime ASR，OpenAI Realtime 风格：session.update / input_audio_buffer.append / text partial(text+stash) / completed final / error，用 websockets 库，协议来源见 asr.py docstring）、7B.6 部分（final 累积到 mergeBuffer 列表；should_commit 下游提交留 #16/#17）。ws_handler 双泵 asyncio 并发桥接客户端<->ASR；握手复用 #14 会话缓存(cache→DB 回退)仅 IN_PROGRESS 放行，ASR 配置复用 #12 VoiceConfig(解密 api_key)。text/audio_chunk schema 先行定义待 #16 接入。
 >
 > #16 完成 7B.3（QwenTtsClient 对接 Qwen3 TTS Realtime：session.update / input_text_buffer.append+commit / response.audio.delta(base64 PCM) / done；`audio_utils` PCM->WAV 44 字节头纯函数）、7B.4（`dialogue_llm` 流式面试官回复：get_voice_chat_client + astream + voice-interview-dialogue prompt）、7B.5（回声抑制：AI 说话中 + 800ms 冷却丢弃麦克风输入）、7B.6（debounce 2500ms + 20 字提交）、7B.7（句子级并发 TTS：Semaphore(3) + wait_for(8s)，并发合成、按句序发送 audio_chunk）。ASR/TTS 连接原语抽取 `realtime_ws` 复用；对话历史仅内存。阶段切换/开场问题/暂停超时警告/ASR 重连/消息 DB 持久化属 #17。
+>
+> #17 完成 7B.8（阶段切换 `voice_phase` 纯函数三规则 + `next_phase` 跳过 disabled）、7B.9（开场问题 `OpeningQuestionLoader` 按 skillId 三层选择 + TTS 预合成，迁自 Java `voice-interview-opening.yml`）、7B.10（暂停超时看门狗：270s 发 warning / 300s 置 PAUSED 并断开）、7B.11（ASR 侧异常断开重连 ≤2 次/10s）、7C.2（每回合消息 DB 持久化 + `fillLatestUnansweredQuestion` 回填）。ws_handler 接入开场推送/阶段自动流转/每回合持久化/暂停看门狗/ASR 重连循环；阶段切换服务为纯 Python（`domain/services/voice_phase.py`）。code-review PASSED（无 HARD/SOFT）。7C.3 端到端测试与 8.x 收尾属 #18。
 
 | # | 任务 | 说明 |
 |---|------|------|
