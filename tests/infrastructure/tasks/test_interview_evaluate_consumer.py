@@ -287,7 +287,7 @@ class TestOverlayAnswersIntegration:
     """验证双源合并纯函数与消费者实际数据形态一致。"""
 
     def test_questions_json_useranswer_none_overlaid_by_answers(self) -> None:
-        from app.application.interview.question_codec import deserialize_questions
+        from app.domain.services.question_codec import deserialize_questions
 
         questions = deserialize_questions(_questions_json(2))
         # 模拟消费者从 answers 表提取的 answer_map

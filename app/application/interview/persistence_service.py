@@ -5,13 +5,13 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.interview.question_codec import serialize_questions
 from app.domain.entities.interview import (
     HistoricalQuestion,
     InterviewQuestion,
     SessionStatus,
 )
 from app.domain.errors import BusinessException, ErrorCode
+from app.domain.services.question_codec import serialize_questions
 from app.domain.services.question_gen import dedupe_historical
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM

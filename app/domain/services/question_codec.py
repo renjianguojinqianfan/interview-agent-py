@@ -1,7 +1,11 @@
-"""面试问题 JSON 序列化/反序列化编解码器。
+"""面试问题 JSON 序列化/反序列化编解码器：纯函数，零框架依赖。
 
-从 InterviewPersistenceService 提取为独立模块，消除 read 侧（EvaluationService）
-对 write 侧（PersistenceService）的内部依赖。
+在 domain InterviewQuestion 列表与 JSON 文本（camelCase 键）之间转换，
+供 write 侧（PersistenceService）、read 侧（EvaluationService）与评估消费者共用。
+
+原置于 application 层；因基础设施评估消费者需反序列化 questions_json，
+infrastructure -> application 违反分层方向（AGENTS.md §4），故迁至 domain/services
+（仅依赖 stdlib json + domain 实体，满足 domain 纯度）。
 """
 
 import json

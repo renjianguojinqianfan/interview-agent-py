@@ -183,3 +183,47 @@ def test_evaluation_algorithm_not_in_application() -> None:
                     f" - {rel_path}:{node.lineno}"
                 )
     assert not violations, "application 层存在评估算法函数（GC loop 违规）：\n" + "\n".join(violations)
+
+
+# infrastructure -> application 反向依赖白名单（棘轮守卫）：
+# 宿主/驱动消费者可调用 application service（见 harness plan F3 / ADR-0012）；
+# pure codec/adapter 等非 service 不得反向依赖，应置于 domain/services。
+INFRA_DIR = APP_DIR / "infrastructure"
+INFRA_TO_APPLICATION_ALLOWLIST = frozenset(
+    {
+        "app.application.resume.analysis",  # ResumeAnalysisService/Result：宿主消费者调用应用服务
+    }
+)
+
+
+def _infra_files() -> list[Path]:
+    return sorted(INFRA_DIR.rglob("*.py"))
+
+
+def _is_allowlisted_application_import(full: str) -> bool:
+    return any(full == mod or full.startswith(mod + ".") for mod in INFRA_TO_APPLICATION_ALLOWLIST)
+
+
+def test_infrastructure_imports_application_only_via_allowlist() -> None:
+    """infrastructure 仅可导入白名单内 application service，禁止其他反向依赖。
+
+    GC loop（#19 Finding 2 防复发）：question_codec 曾置于 application 且被 infrastructure
+    评估消费者导入（infrastructure -> application，违反 §4），现已迁至 domain/services。
+    此守卫精确拦截同类 pure-codec/adapter 反向依赖复发，同时放行宿主消费者对 application
+    service 的合法调用（白名单，见 harness plan F3 / ADR-0012）。
+    """
+    violations: list[str] = []
+    for file_path in _infra_files():
+        rel_path = file_path.relative_to(REPO_ROOT).as_posix()
+        for lineno, full, _top in _collect_imports(file_path):
+            if not full.startswith("app.application"):
+                continue
+            if _is_allowlisted_application_import(full):
+                continue
+            violations.append(
+                f"infrastructure 禁止反向依赖 application {full}"
+                f"（AGENTS.md §4：pure codec/adapter 应置于 domain/services；"
+                f"宿主消费者调 application service 需加入 INFRA_TO_APPLICATION_ALLOWLIST）"
+                f" - {rel_path}:{lineno}"
+            )
+    assert not violations, "infrastructure 存在非法 application 反向依赖：\n" + "\n".join(violations)

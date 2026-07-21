@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.interview.persistence_service import InterviewPersistenceService
-from app.application.interview.question_codec import serialize_questions
 from app.application.interview.question_service import QuestionService
 from app.application.interview.schemas import (
     CreateSessionRequest,
@@ -14,6 +13,7 @@ from app.application.interview.schemas import (
 from app.application.interview.session_service import InterviewSessionService
 from app.domain.entities.interview import InterviewQuestion, SessionStatus
 from app.domain.errors import BusinessException, ErrorCode
+from app.domain.services.question_codec import serialize_questions
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.redis.session_cache import CachedSession
 

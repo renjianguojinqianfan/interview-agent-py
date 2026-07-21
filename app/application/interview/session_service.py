@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.interview.persistence_service import InterviewPersistenceService
-from app.application.interview.question_codec import deserialize_questions, serialize_questions
 from app.application.interview.question_service import QuestionService
 from app.application.interview.schemas import (
     CreateSessionRequest,
@@ -31,6 +30,7 @@ from app.domain.entities.interview import (
     SessionStatus,
 )
 from app.domain.errors import BusinessException, ErrorCode
+from app.domain.services.question_codec import deserialize_questions, serialize_questions
 from app.domain.services.session_state import is_unfinished, validate_transition
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository

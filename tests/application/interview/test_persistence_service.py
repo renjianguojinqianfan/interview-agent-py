@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.interview.persistence_service import InterviewPersistenceService
-from app.application.interview.question_codec import deserialize_questions, serialize_questions
 from app.domain.entities.interview import InterviewQuestion, SessionStatus
 from app.domain.errors import BusinessException, ErrorCode
+from app.domain.services.question_codec import deserialize_questions, serialize_questions
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 

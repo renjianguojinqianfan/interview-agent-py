@@ -8,7 +8,6 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.interview.question_codec import deserialize_questions
 from app.application.interview.schemas import (
     CategoryScoreDTO,
     EvaluationResultDTO,
@@ -23,6 +22,7 @@ from app.domain.entities.evaluation import (
 from app.domain.entities.interview import InterviewQuestion, SessionStatus
 from app.domain.errors import BusinessException, ErrorCode
 from app.domain.services.evaluation import compute_category_scores
+from app.domain.services.question_codec import deserialize_questions
 from app.infrastructure.db.models.interview import InterviewAnswer as InterviewAnswerORM
 from app.infrastructure.db.models.interview import InterviewSession as InterviewSessionORM
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
