@@ -1,6 +1,8 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
+import openai
 import pytest
 from pydantic import BaseModel
 
@@ -232,3 +234,60 @@ class TestStructuredOutputInvokerMaxAttemptsConfig:
                 error_prefix="err: ",
                 log_context="test",
             )
+
+
+def _make_sdk_failing_llm(exc: Exception) -> MagicMock:
+    mock_llm = MagicMock()
+    mock_runnable = MagicMock()
+    mock_runnable.ainvoke = AsyncMock(side_effect=exc)
+    mock_llm.with_structured_output = MagicMock(return_value=mock_runnable)
+    return mock_llm
+
+
+class TestStructuredOutputInvokerAiErrorSubdivision:
+    """识别到 AI SDK 异常类型时以 7001-7005 覆盖调用方兜底码（migration-plan 8.6）。"""
+
+    async def test_recognized_ai_timeout_overrides_caller_code(self, invoker: StructuredOutputInvoker) -> None:
+        req = httpx.Request("POST", "https://x")
+        llm = _make_sdk_failing_llm(openai.APITimeoutError(request=req))
+        with pytest.raises(BusinessException) as exc_info:
+            await invoker.invoke(
+                llm=llm,
+                system_prompt="s",
+                user_prompt="u",
+                output_model=SampleOutput,
+                error_code=ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED,
+                error_prefix="出题失败: ",
+                log_context="test",
+            )
+        assert exc_info.value.error_code == ErrorCode.AI_SERVICE_TIMEOUT
+
+    async def test_recognized_rate_limit_maps_to_7005(self, invoker: StructuredOutputInvoker) -> None:
+        resp = httpx.Response(429, request=httpx.Request("POST", "https://x"))
+        llm = _make_sdk_failing_llm(openai.RateLimitError("rate", response=resp, body=None))
+        with pytest.raises(BusinessException) as exc_info:
+            await invoker.invoke(
+                llm=llm,
+                system_prompt="s",
+                user_prompt="u",
+                output_model=SampleOutput,
+                error_code=ErrorCode.AI_SERVICE_ERROR,
+                error_prefix="err: ",
+                log_context="test",
+            )
+        assert exc_info.value.error_code == ErrorCode.AI_RATE_LIMIT_EXCEEDED
+
+    async def test_unrecognized_error_keeps_caller_code(self, invoker: StructuredOutputInvoker) -> None:
+        # 非 AI SDK 异常仍用调用方兜底码（保持既有契约）
+        llm = _make_sdk_failing_llm(RuntimeError("boom"))
+        with pytest.raises(BusinessException) as exc_info:
+            await invoker.invoke(
+                llm=llm,
+                system_prompt="s",
+                user_prompt="u",
+                output_model=SampleOutput,
+                error_code=ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED,
+                error_prefix="出题失败: ",
+                log_context="test",
+            )
+        assert exc_info.value.error_code == ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED

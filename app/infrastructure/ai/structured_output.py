@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt
 
 from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.ai.ai_error import classify_ai_error
 from app.infrastructure.ai.prompt_constants import ANTI_INJECTION_INSTRUCTION
 
 logger = logging.getLogger(__name__)
@@ -104,6 +105,9 @@ class StructuredOutputInvoker:
         except Exception as e:
             last_error = e
             logger.error("%s SDK 调用失败（不重试）: error=%s", log_context, e)
+            ai_code = classify_ai_error(e)
+            if ai_code is not None:
+                raise BusinessException(ai_code, f"{error_prefix}{e}") from e
 
         raise BusinessException(
             error_code,
