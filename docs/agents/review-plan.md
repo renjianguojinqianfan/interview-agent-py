@@ -61,7 +61,7 @@
 阶段 6: 供应商+日程
   #12 完成 -> 单 issue review ✅
   #13 完成 -> 单 issue review ✅
-  R5: #12 #13 阶段 review
+  R5: #12 #13 阶段 review ✅
 
 阶段 7: 语音面试（最复杂）
   #14 完成 -> 单 issue review

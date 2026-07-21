@@ -1,8 +1,8 @@
-# Review 踩坑总结（R1-R4）
+# Review 踩坑总结（R1-R5）
 
-> 记录 stages 0-5（issues #2-#11）R1-R4 全量 review 中发现的 finding 的根因、修复过程中的问题、以及对 harness 改进的启示。
+> 记录 stages 0-6（issues #2-#13）R1-R5 全量 review 中发现的 finding 的根因、修复过程中的问题、以及对 harness 改进的启示。
 >
-> 时间线：R1+R2 双轴 review -> 9 commit 修复 -> 增量 review -> 文档同步 -> harness 分析。
+> 时间线：R1+R2 双轴 review -> 9 commit 修复 -> 增量 review -> 文档同步 -> harness 分析；R3/R4/R5 沿用双轴并行流程。
 
 ## 一、架构类
 
@@ -271,3 +271,25 @@
 **修复**：`compute_top_k` -> `compute_retrieval_params`，三档硬数值（20/12/8、0.18）下沉 domain 常量；新增 `is_no_info_answer`（对齐 Java 5 模式）+ 流式 probe buffer（前 120 字符增量检测、passthrough、流末归一化）；退役 `rag_default_top_k` config。
 
 **教训**：迁移参考实现时，spec/源码的精确数值与完整逻辑分支是领域规则，不是部署旋钮。单 issue review 易因"函数存在+测试绿"放过参数偏差；阶段 review 须对照 spec 原文（含挑战章节的具体数值）逐值核对，而非只看功能存在。与 #5（定义但不集成=虚假安全感）同类但不同层：#5 是"没调用"，本条是"调用了但值错"。
+
+
+### 25. 隐式跨字段耦合：更新 A 同步写 B（R5 阶段 review 发现）
+
+**现象**：R5 阶段 review（#12+#13 闭环）发现 `LlmProviderService.update_asr_config` 在更新 ASR api_key 时隐式同写 `config.tts_api_key`，`update_tts_config` 反之亦然。ADR-0011 将 ASR/TTS 视为独立配置读写，未提及共享。两个本应独立的凭证被双向耦合，stage 7 若 ASR/TTS 需不同 key 会被静默覆盖。单 issue 测试甚至断言了该耦合（`test_update_asr_config_with_api_key_syncs_tts`），把 bug 当 feature 固化。
+
+**根因**：dashscope ASR/TTS 确实共用同一 api_key，实现时为"方便"做了双向同步，但未在 ADR 记录此假设。耦合是隐式副作用（Divergent Change），调用方无法从签名看出 update_asr_config 会改 tts_api_key。测试沿错误行为编写，绿灯反而掩盖了问题。
+
+**修复**：`update_asr_config` 只写 `asr_api_key`，`update_tts_config` 只写 `tts_api_key`；两个测试改写为断言独立性（更新 ASR key 不触碰 TTS key，反之亦然）。ADR-0011 补一句明确两 key 独立存储。
+
+**教训**：跨字段隐式同步是高发陷阱--"现在恰好相同"不等于"应当强制相同"。写测试时若发现自己在断言"改 A 也改了 B"，先问 ADR 是否记录了这层耦合；未记录则可能是实现假设越界。与 #23（状态机转换覆写 completed_at）同类：都是"顺手多写一个字段"导致的语义错位。
+
+
+### 26. 文档漂移：aspirational 策略 vs 实际实现（R5 阶段 review 发现）
+
+**现象**：R5 阶段 review 发现 `docs/migration-plan.md` G.3 写"数据库：存 aware datetime（UTC）"，但全部 7 张存量表（resume/interview/knowledge_base/rag_chat/llm_provider/voice_config/interview_schedule）的 ORM `DateTime` 与 Alembic 迁移均为 naive（无 `timezone=True`），`jobs.py` 用 `datetime.now()` naive。文档是 aspirational，代码是另一回事。`cancel_expired_schedules` 的 `interview_time < now` 比较在服务器非 UTC 时存在时区偏移风险。
+
+**根因**：G.3 在 grilling 阶段作为目标策略写下，但后续 ORM 模型逐个实现时未按 aware 落地，也无人回查 G.3。文档与代码分两套维护，无机械校验。单 issue review 只看本 issue 代码，未对照跨阶段策略文档。
+
+**修复**：R5 决策(a)--仅修文档：G.3 改为反映现实（naive datetime，部署须 UTC），全表 `timezone=True` 迁移留 stage 8 统一处理（避免 R5 内只改单表引入新的不一致）。
+
+**教训**：策略文档若不机械执行就是 aspirational。时区/编码/命名等横切策略须有 fitness 测试（如扫描 ORM `DateTime` 列断言 `timezone=True`），否则必漂移。阶段 review 须对照策略文档（G.3、ADR）而非只看 issue body。发现漂移时，若全项目一致偏离文档，修文档比修代码更安全（避免单点修正引入不一致）；真正统一留专门收尾阶段。与 #1（GradingService 命名违反词汇表）、#2（shim 无移除点）同类：文档约定无机械执行的必然结局。
