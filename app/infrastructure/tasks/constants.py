@@ -43,3 +43,11 @@ KB_VECTORIZE = StreamConfig(
     consumer_prefix="vectorize-consumer-",
     id_field="knowledgeBaseId",
 )
+
+VOICE_EVALUATE = StreamConfig(
+    # Used by issue #14 (voice interview async evaluation)
+    stream_key="voice:evaluate:stream",
+    group_name="voice-evaluate-group",
+    consumer_prefix="voice-evaluate-consumer-",
+    id_field="sessionId",
+)

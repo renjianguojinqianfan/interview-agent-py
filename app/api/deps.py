@@ -15,6 +15,7 @@ from app.application.rag.service import RagChatService, RagConfig
 from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.application.skill.service import SkillService
+from app.application.voice.service import VoiceEvaluationService, VoiceSessionService
 from app.config.settings import settings
 from app.graphs.evaluation import EvaluationGraph
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
@@ -28,6 +29,7 @@ from app.infrastructure.db.repositories.llm_provider_repository import LlmProvid
 from app.infrastructure.db.repositories.rag_chat_repository import RagChatRepository
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
 from app.infrastructure.db.repositories.voice_config_repository import VoiceConfigRepository
+from app.infrastructure.db.repositories.voice_interview_repository import VoiceInterviewRepository
 from app.infrastructure.db.session import async_session_factory
 from app.infrastructure.export.pdf import PdfExportService, WeasyPrintRenderer
 from app.infrastructure.parsing.chunker import TokenChunker
@@ -36,19 +38,31 @@ from app.infrastructure.parsing.parser import DocumentParser
 from app.infrastructure.parsing.text_cleaner import TextCleaner
 from app.infrastructure.redis.client import RedisClient, create_redis_client
 from app.infrastructure.redis.session_cache import InterviewSessionCache
-from app.infrastructure.scheduler.jobs import cancel_expired_schedules
+from app.infrastructure.redis.voice_session_cache import VoiceInterviewSessionCache
+from app.infrastructure.scheduler.jobs import (
+    cancel_expired_schedules,
+    cleanup_voice_zombie_sessions,
+    pause_idle_voice_sessions,
+)
 from app.infrastructure.scheduler.manager import SchedulerManager
 from app.infrastructure.skills.loader import SkillLoader
 from app.infrastructure.skills.reference_loader import ReferenceLoader
 from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService, create_s3_storage_service
-from app.infrastructure.tasks.constants import INTERVIEW_EVALUATE, KB_VECTORIZE, RESUME_ANALYZE
+from app.infrastructure.tasks.constants import (
+    INTERVIEW_EVALUATE,
+    KB_VECTORIZE,
+    RESUME_ANALYZE,
+    VOICE_EVALUATE,
+)
 from app.infrastructure.tasks.interview_evaluate_consumer import EvaluateStreamConsumer
 from app.infrastructure.tasks.interview_evaluate_producer import EvaluateStreamProducer
 from app.infrastructure.tasks.kb_vectorize_consumer import VectorizeStreamConsumer
 from app.infrastructure.tasks.kb_vectorize_producer import VectorizeStreamProducer
 from app.infrastructure.tasks.resume_analyze_consumer import AnalyzeStreamConsumer
 from app.infrastructure.tasks.resume_analyze_producer import AnalyzeStreamProducer
+from app.infrastructure.tasks.voice_evaluate_consumer import VoiceEvaluateStreamConsumer
+from app.infrastructure.tasks.voice_evaluate_producer import VoiceEvaluateStreamProducer
 from app.infrastructure.vector.repository import VectorRepository
 
 _redis_client: RedisClient | None = None
@@ -70,6 +84,10 @@ _kb_vectorize_consumer: VectorizeStreamConsumer | None = None
 _token_chunker: TokenChunker | None = None
 _scheduler_manager: SchedulerManager | None = None
 _schedule_parse_service: ScheduleParseService | None = None
+_voice_repository: VoiceInterviewRepository | None = None
+_voice_session_cache: VoiceInterviewSessionCache | None = None
+_voice_evaluate_producer: VoiceEvaluateStreamProducer | None = None
+_voice_evaluate_consumer: VoiceEvaluateStreamConsumer | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -366,6 +384,78 @@ def get_interview_evaluation_service(
     )
 
 
+def get_voice_repository() -> VoiceInterviewRepository:
+    global _voice_repository
+    if _voice_repository is None:
+        _voice_repository = VoiceInterviewRepository()
+    return _voice_repository
+
+
+def get_voice_session_cache() -> VoiceInterviewSessionCache:
+    global _voice_session_cache
+    if _voice_session_cache is None:
+        _voice_session_cache = VoiceInterviewSessionCache(get_redis_client())
+    return _voice_session_cache
+
+
+def get_voice_evaluate_producer() -> VoiceEvaluateStreamProducer:
+    global _voice_evaluate_producer
+    if _voice_evaluate_producer is None:
+        _voice_evaluate_producer = VoiceEvaluateStreamProducer(
+            redis_client=get_redis_client(),
+            config=VOICE_EVALUATE,
+            session_factory=async_session_factory,
+            repository=get_voice_repository(),
+        )
+    return _voice_evaluate_producer
+
+
+def get_voice_session_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> VoiceSessionService:
+    return VoiceSessionService(
+        session=session,
+        repository=get_voice_repository(),
+        session_cache=get_voice_session_cache(),
+        evaluate_producer=get_voice_evaluate_producer(),
+    )
+
+
+def get_voice_evaluation_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> VoiceEvaluationService:
+    return VoiceEvaluationService(
+        session=session,
+        repository=get_voice_repository(),
+    )
+
+
+async def start_voice_evaluate_consumer() -> VoiceEvaluateStreamConsumer | None:
+    global _voice_evaluate_consumer
+    try:
+        _voice_evaluate_consumer = VoiceEvaluateStreamConsumer(
+            redis_client=get_redis_client(),
+            config=VOICE_EVALUATE,
+            session_factory=async_session_factory,
+            repository=get_voice_repository(),
+            resume_repository=ResumeRepository(),
+            llm_registry=get_llm_registry(),
+            evaluation_graph=get_evaluation_graph(),
+        )
+        await _voice_evaluate_consumer.start()
+        return _voice_evaluate_consumer
+    except Exception:
+        logger.warning("启动语音评估消费者失败，跳过")
+        return None
+
+
+async def stop_voice_evaluate_consumer() -> None:
+    global _voice_evaluate_consumer
+    if _voice_evaluate_consumer is not None:
+        await _voice_evaluate_consumer.stop()
+        _voice_evaluate_consumer = None
+
+
 def get_schedule_service(
     session: AsyncSession = Depends(get_db_session),
 ) -> ScheduleService:
@@ -401,6 +491,20 @@ async def start_scheduler() -> SchedulerManager | None:
             id="cancel_expired_schedules",
             hour="*",
             minute=0,
+            args=[async_session_factory],
+        )
+        manager.register_job(
+            pause_idle_voice_sessions,
+            "interval",
+            id="pause_idle_voice_sessions",
+            seconds=30,
+            args=[async_session_factory],
+        )
+        manager.register_job(
+            cleanup_voice_zombie_sessions,
+            "interval",
+            id="cleanup_voice_zombie_sessions",
+            minutes=5,
             args=[async_session_factory],
         )
         manager.start()
