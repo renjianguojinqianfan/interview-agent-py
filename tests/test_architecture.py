@@ -159,3 +159,27 @@ def test_no_sqlalchemy_after_commit_events() -> None:
                     f"应用显式顺序（commit 后 send） - {rel_path}:{node.lineno}"
                 )
     assert not violations, "发现 SQLAlchemy after_commit 事件注册：\n" + "\n".join(violations)
+
+
+def test_evaluation_algorithm_not_in_application() -> None:
+    """AGENTS.md §4：评估算法必须驻 domain/services，application 层只可委托不可重写。
+
+    GC loop 防复发（F12）：R6 发现 _compute_category_scores 在 application 层重复
+    domain 算法且分叉（未跳过未答题、空 category 未归一）。此测试禁止 application
+    层定义名称含 'category_scores' 的函数，强制委托 domain.services.evaluation。
+    """
+    violations: list[str] = []
+    for file_path in _app_files():
+        rel_path = file_path.relative_to(REPO_ROOT).as_posix()
+        if not rel_path.startswith("app/application/"):
+            continue
+        source = file_path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(file_path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and "category_scores" in node.name:
+                violations.append(
+                    f"AGENTS.md §4：评估算法须驻 domain/services，application 不得定义 "
+                    f"{node.name}（应委托 domain.services.evaluation.compute_category_scores）"
+                    f" - {rel_path}:{node.lineno}"
+                )
+    assert not violations, "application 层存在评估算法函数（GC loop 违规）：\n" + "\n".join(violations)

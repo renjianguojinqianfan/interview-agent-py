@@ -22,6 +22,7 @@ from app.application.voice.schemas import (
     VoiceSessionDTO,
     VoiceSessionMetaDTO,
 )
+from app.domain.entities.evaluation import CategoryScore, QuestionEvaluation
 from app.domain.entities.task_status import AsyncTaskStatus
 from app.domain.entities.voice_interview import (
     DEFAULT_USER_ID,
@@ -29,6 +30,7 @@ from app.domain.entities.voice_interview import (
     VoiceSessionStatus,
 )
 from app.domain.errors import BusinessException, ErrorCode
+from app.domain.services.evaluation import compute_category_scores
 from app.domain.services.voice_session_state import validate_transition
 from app.infrastructure.db.models.voice_interview import (
     VoiceInterviewEvaluation as VoiceInterviewEvaluationORM,
@@ -289,7 +291,8 @@ def _to_cache_snapshot(orm: VoiceInterviewSessionORM) -> CachedVoiceSession:
 
 def _to_evaluation_detail(orm: VoiceInterviewEvaluationORM) -> VoiceEvaluationDetailDTO:
     question_details = _parse_question_details(orm.question_evaluations_json)
-    category_scores = _compute_category_scores(question_details)
+    domain_scores = compute_category_scores(_to_domain_evaluations(question_details))
+    category_scores = _to_category_dtos(domain_scores)
     return VoiceEvaluationDetailDTO(
         overall_score=orm.overall_score or 0,
         overall_feedback=orm.overall_feedback or "",
@@ -333,18 +336,23 @@ def _parse_reference_answers(raw: str | None) -> list[ReferenceAnswerDTO]:
     return result
 
 
-def _compute_category_scores(details: list[QuestionEvaluationDetailDTO]) -> list[CategoryScoreDTO]:
-    """按 category 聚合平均分与题数（与统一评估领域服务算法一致）。"""
-    buckets: dict[str, list[int]] = {}
-    for d in details:
-        buckets.setdefault(d.category, []).append(d.score)
-    result: list[CategoryScoreDTO] = []
-    for category, scores in buckets.items():
-        result.append(
-            CategoryScoreDTO(
-                category=category,
-                score=round(sum(scores) / len(scores)),
-                question_count=len(scores),
-            )
+def _to_domain_evaluations(
+    details: list[QuestionEvaluationDetailDTO],
+) -> list[QuestionEvaluation]:
+    """DTO -> domain 评估实体（字段一致），供统一评估领域服务消费。"""
+    return [
+        QuestionEvaluation(
+            question_index=d.question_index,
+            question=d.question,
+            category=d.category,
+            user_answer=d.user_answer,
+            score=d.score,
+            feedback=d.feedback,
         )
-    return result
+        for d in details
+    ]
+
+
+def _to_category_dtos(scores: list[CategoryScore]) -> list[CategoryScoreDTO]:
+    """domain CategoryScore -> DTO。"""
+    return [CategoryScoreDTO(category=s.category, score=s.score, question_count=s.question_count) for s in scores]
