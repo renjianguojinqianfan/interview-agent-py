@@ -28,10 +28,10 @@ class TestUploadFile:
         assert "resume.pdf" in key
 
     async def test_key_contains_date_path(self, service: S3StorageService) -> None:
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         key = await service.upload_file(b"data", "doc.pdf", "resumes")
-        now = datetime.now()
+        now = datetime.now(UTC)
         date_path = f"{now.year}/{now.month:02d}/{now.day:02d}"
         assert date_path in key
 

@@ -1,6 +1,4 @@
-from datetime import datetime
-
-from app.api.responses import BaseSchema
+from app.api.responses import BaseSchema, NaiveIsoDatetime
 
 
 class ResumeInfoDTO(BaseSchema):
@@ -25,10 +23,10 @@ class ResumeListItemDTO(BaseSchema):
     id: int
     filename: str
     file_size: int | None
-    uploaded_at: datetime
+    uploaded_at: NaiveIsoDatetime
     access_count: int
     latest_score: int | None
-    last_analyzed_at: datetime | None
+    last_analyzed_at: NaiveIsoDatetime | None
     analyze_status: str
     analyze_error: str | None
 
@@ -49,7 +47,7 @@ class AnalysisHistoryDTO(BaseSchema):
     expression_score: int | None
     project_score: int | None
     summary: str | None
-    analyzed_at: datetime
+    analyzed_at: NaiveIsoDatetime
     strengths: list[str]
     suggestions: list[dict[str, object]]
 
@@ -60,7 +58,7 @@ class ResumeDetailDTO(BaseSchema):
     file_size: int | None
     content_type: str | None
     storage_url: str | None
-    uploaded_at: datetime
+    uploaded_at: NaiveIsoDatetime
     access_count: int
     resume_text: str | None
     analyze_status: str

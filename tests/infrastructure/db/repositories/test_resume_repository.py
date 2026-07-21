@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -131,7 +131,7 @@ class TestDelete:
 class TestIncrementAccessCount:
     async def test_increments_count_and_updates_timestamp(self, repo: ResumeRepository, session: AsyncMock) -> None:
         resume = _make_resume(access_count=1)
-        before = datetime.now()
+        before = datetime.now(UTC)
 
         await repo.increment_access_count(session, resume)
 

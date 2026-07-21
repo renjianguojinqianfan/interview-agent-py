@@ -5,7 +5,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -106,7 +106,7 @@ class VoiceSessionService:
     async def end_session(self, session_id: int) -> None:
         orm = await self._load_session(session_id)
         validate_transition(VoiceSessionStatus(orm.status), VoiceSessionStatus.COMPLETED)
-        now = datetime.now()
+        now = datetime.now(UTC)
         orm.end_time = now
         orm.current_phase = InterviewPhase.COMPLETED.value
         orm.status = VoiceSessionStatus.COMPLETED.value
@@ -121,7 +121,7 @@ class VoiceSessionService:
         orm = await self._load_session(session_id)
         validate_transition(VoiceSessionStatus(orm.status), VoiceSessionStatus.PAUSED)
         orm.status = VoiceSessionStatus.PAUSED.value
-        orm.paused_at = datetime.now()
+        orm.paused_at = datetime.now(UTC)
         await self._session.commit()
         await self._invalidate_cache(session_id)
         logger.info("语音会话已暂停: sessionId=%s, reason=%s", session_id, reason)
@@ -130,7 +130,7 @@ class VoiceSessionService:
         orm = await self._load_session(session_id)
         validate_transition(VoiceSessionStatus(orm.status), VoiceSessionStatus.IN_PROGRESS)
         orm.status = VoiceSessionStatus.IN_PROGRESS.value
-        orm.resumed_at = datetime.now()
+        orm.resumed_at = datetime.now(UTC)
         await self._session.commit()
         await self._write_cache(orm)
         return _to_session_dto(orm)

@@ -17,8 +17,8 @@ class Resume(Base):
     storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     storage_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     resume_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    last_accessed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     access_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     analyze_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
     analyze_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -48,6 +48,6 @@ class ResumeAnalysis(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     strengths_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     suggestions_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    analyzed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     resume: Mapped[Resume] = relationship(back_populates="analyses")

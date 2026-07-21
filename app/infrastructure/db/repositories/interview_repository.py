@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +42,7 @@ class InterviewRepository:
     ) -> None:
         interview_session.status = status
         if status in _COMPLETED_STATUSES:
-            interview_session.completed_at = datetime.now()
+            interview_session.completed_at = datetime.now(UTC)
         await session.flush()
 
     async def update_current_question_index(

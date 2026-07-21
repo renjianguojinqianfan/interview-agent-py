@@ -4,7 +4,7 @@
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -28,7 +28,7 @@ async def cancel_expired_schedules(
     """
     async with session_factory() as session:
         repository = InterviewScheduleRepository()
-        now = datetime.now()
+        now = datetime.now(UTC)
         count = await repository.cancel_expired(session, now)
         await session.commit()
         if count > 0:
@@ -44,7 +44,7 @@ async def pause_idle_voice_sessions(
     """
     async with session_factory() as session:
         repository = VoiceInterviewRepository()
-        threshold = datetime.now() - timedelta(seconds=PAUSE_IDLE_TIMEOUT_SECONDS)
+        threshold = datetime.now(UTC) - timedelta(seconds=PAUSE_IDLE_TIMEOUT_SECONDS)
         count = await repository.bulk_pause_idle_in_progress(session, threshold)
         await session.commit()
         if count > 0:
@@ -60,7 +60,7 @@ async def cleanup_voice_zombie_sessions(
     """
     async with session_factory() as session:
         repository = VoiceInterviewRepository()
-        now = datetime.now()
+        now = datetime.now(UTC)
         zombie_count = await repository.bulk_complete_zombie_sessions(
             session, now - timedelta(seconds=ZOMBIE_SESSION_TIMEOUT_SECONDS)
         )

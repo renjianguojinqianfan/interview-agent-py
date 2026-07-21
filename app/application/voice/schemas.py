@@ -4,11 +4,9 @@
 因 EvaluationReport 为文字/语音共用领域实体。
 """
 
-from datetime import datetime
-
 from pydantic import Field
 
-from app.api.responses import BaseSchema
+from app.api.responses import BaseSchema, NaiveIsoDatetime
 from app.application.interview.schemas import (
     CategoryScoreDTO,
     QuestionEvaluationDetailDTO,
@@ -57,12 +55,12 @@ class VoiceSessionDTO(BaseSchema):
     status: str
     planned_duration: int
     actual_duration: int | None = None
-    start_time: datetime
-    end_time: datetime | None = None
-    created_at: datetime
-    updated_at: datetime
-    paused_at: datetime | None = None
-    resumed_at: datetime | None = None
+    start_time: NaiveIsoDatetime
+    end_time: NaiveIsoDatetime | None = None
+    created_at: NaiveIsoDatetime
+    updated_at: NaiveIsoDatetime
+    paused_at: NaiveIsoDatetime | None = None
+    resumed_at: NaiveIsoDatetime | None = None
     evaluate_status: str | None = None
 
 
@@ -72,10 +70,10 @@ class VoiceSessionMetaDTO(BaseSchema):
     skill_id: str
     status: str
     current_phase: str
-    start_time: datetime
-    end_time: datetime | None = None
+    start_time: NaiveIsoDatetime
+    end_time: NaiveIsoDatetime | None = None
     evaluate_status: str | None = None
-    updated_at: datetime
+    updated_at: NaiveIsoDatetime
 
 
 class VoiceMessageDTO(BaseSchema):
@@ -85,7 +83,7 @@ class VoiceMessageDTO(BaseSchema):
     phase: str
     user_recognized_text: str | None = None
     ai_generated_text: str | None = None
-    timestamp: datetime
+    timestamp: NaiveIsoDatetime
     sequence_num: int
 
 

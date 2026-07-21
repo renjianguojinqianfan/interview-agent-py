@@ -36,8 +36,8 @@ class InterviewSession(Base):
     evaluate_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     evaluate_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     answers: Mapped[list["InterviewAnswer"]] = relationship(
         back_populates="session",
@@ -72,6 +72,6 @@ class InterviewAnswer(Base):
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     reference_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     key_points_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    answered_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     session: Mapped[InterviewSession] = relationship(back_populates="answers")

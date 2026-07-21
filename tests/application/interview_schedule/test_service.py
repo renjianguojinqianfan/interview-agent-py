@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -75,11 +75,49 @@ def service(mock_repository: MagicMock, mock_session: MagicMock) -> ScheduleServ
     return ScheduleService(session=mock_session, repository=mock_repository)
 
 
+class TestInterviewTimeUtcBoundary:
+    """ADR-0013：naive 输入挂 UTC 存储，序列化剥偏移往返守恒。"""
+
+    async def test_create_attaches_utc_and_roundtrips_naive(
+        self, service: ScheduleService, mock_repository: MagicMock
+    ) -> None:
+        def _save_side_effect(session: object, schedule: InterviewSchedule) -> InterviewSchedule:
+            schedule.id = 1
+            return schedule
+
+        mock_repository.save.side_effect = _save_side_effect
+        dto = await service.create(_make_request())
+        saved = mock_repository.save.call_args.args[1]
+        assert saved.interview_time.utcoffset() == timedelta(0)  # 入口：aware UTC
+        # 出口：无偏移 wall-clock，与输入一致（填 14:00 回显 14:00）
+        assert dto.model_dump(mode="json")["interview_time"] == "2026-08-01T14:00:00"
+
+    async def test_update_attaches_utc_to_naive_interview_time(
+        self, service: ScheduleService, mock_repository: MagicMock
+    ) -> None:
+        mock_repository.get_by_id.return_value = _make_schedule()
+        await service.update(1, _make_request())
+        updated = mock_repository.get_by_id.return_value
+        assert updated.interview_time.utcoffset() == timedelta(0)
+
+    async def test_list_schedules_attaches_utc_to_naive_range(
+        self, service: ScheduleService, mock_repository: MagicMock
+    ) -> None:
+        # 读/过滤边界：naive 查询参数不能直接与 aware UTC 的 timestamptz 列比较
+        mock_repository.list_by_time_range.return_value = []
+        await service.list_schedules(
+            status=None, start=datetime(2026, 8, 1, 0, 0, 0), end=datetime(2026, 8, 31, 23, 59, 59)
+        )
+        args = mock_repository.list_by_time_range.call_args.args
+        assert args[1].utcoffset() == timedelta(0)
+        assert args[2].utcoffset() == timedelta(0)
+
+
 class TestCreateSchedule:
     async def test_create_returns_dto_with_pending_status(
         self, service: ScheduleService, mock_repository: MagicMock
     ) -> None:
-        def _save_side_effect(session, schedule):
+        def _save_side_effect(session: object, schedule: InterviewSchedule) -> InterviewSchedule:
             schedule.id = 1
             return schedule
 

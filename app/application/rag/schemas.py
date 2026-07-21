@@ -1,6 +1,4 @@
-from datetime import datetime
-
-from app.api.responses import BaseSchema
+from app.api.responses import BaseSchema, NaiveIsoDatetime
 
 
 class CreateRagSessionRequest(BaseSchema):
@@ -19,8 +17,8 @@ class RagSessionInfoDTO(BaseSchema):
     status: str
     pinned: bool
     knowledge_base_ids: list[int]
-    created_at: datetime
-    updated_at: datetime
+    created_at: NaiveIsoDatetime
+    updated_at: NaiveIsoDatetime
 
 
 class RagSessionPageDTO(BaseSchema):
@@ -41,7 +39,7 @@ class RagMessageDTO(BaseSchema):
     role: str
     content: str | None
     sources: list[RagSourceDTO]
-    created_at: datetime
+    created_at: NaiveIsoDatetime
 
 
 class RagSessionDetailDTO(BaseSchema):
@@ -51,8 +49,8 @@ class RagSessionDetailDTO(BaseSchema):
     status: str
     pinned: bool
     knowledge_base_ids: list[int]
-    created_at: datetime
-    updated_at: datetime
+    created_at: NaiveIsoDatetime
+    updated_at: NaiveIsoDatetime
     messages: list[RagMessageDTO]
 
 

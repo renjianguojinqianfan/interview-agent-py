@@ -1,12 +1,10 @@
-from datetime import datetime
-
-from app.api.responses import BaseSchema
+from app.api.responses import BaseSchema, NaiveIsoDatetime
 
 
 class CreateScheduleRequest(BaseSchema):
     company_name: str
     position: str
-    interview_time: datetime
+    interview_time: NaiveIsoDatetime
     interview_type: str | None = None
     meeting_link: str | None = None
     round_number: int = 1
@@ -18,15 +16,15 @@ class InterviewScheduleDTO(BaseSchema):
     id: int
     company_name: str
     position: str
-    interview_time: datetime
+    interview_time: NaiveIsoDatetime
     interview_type: str | None = None
     meeting_link: str | None = None
     round_number: int = 1
     interviewer: str | None = None
     notes: str | None = None
     status: str
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: NaiveIsoDatetime | None = None
+    updated_at: NaiveIsoDatetime | None = None
 
 
 class ParseRequest(BaseSchema):

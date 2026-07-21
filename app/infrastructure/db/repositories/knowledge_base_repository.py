@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,5 +47,5 @@ class KnowledgeBaseRepository:
     async def mark_vectorized(self, session: AsyncSession, kb: KnowledgeBase, job_id: str, chunk_count: int) -> None:
         kb.vector_job_id = job_id
         kb.chunk_count = chunk_count
-        kb.vectorized_at = datetime.now()
+        kb.vectorized_at = datetime.now(UTC)
         await session.flush()

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +51,7 @@ class ResumeRepository:
 
     async def increment_access_count(self, session: AsyncSession, resume: Resume) -> None:
         resume.access_count += 1
-        resume.last_accessed_at = datetime.now()
+        resume.last_accessed_at = datetime.now(UTC)
         await session.flush()
 
     async def find_latest_analysis(self, session: AsyncSession, resume_id: int) -> ResumeAnalysis | None:

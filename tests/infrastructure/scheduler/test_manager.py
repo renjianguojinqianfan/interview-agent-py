@@ -52,6 +52,8 @@ class TestCancelExpiredSchedules:
             await cancel_expired_schedules(mock_factory)
 
             mock_repo.cancel_expired.assert_called_once()
+            # ADR-0013：过期比较基准 now 必须为 aware（与 aware UTC 的 interview_time 列同侧，不抛 TypeError）
+            assert mock_repo.cancel_expired.call_args.args[1].tzinfo is not None
             mock_session.commit.assert_called_once()
 
     async def test_cancel_expired_zero_does_not_log_warning(self) -> None:
@@ -109,7 +111,7 @@ class TestPauseIdleVoiceSessions:
 
     async def test_threshold_is_five_minutes_before_now(self) -> None:
         """验证阈值 = now - 5min（PAUSE_IDLE_TIMEOUT_SECONDS=300）。"""
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         mock_factory, _ = _mock_session_factory()
         captured: dict[str, object] = {}
@@ -123,7 +125,7 @@ class TestPauseIdleVoiceSessions:
             mock_repo.bulk_pause_idle_in_progress = fake_bulk
             mock_repo_class.return_value = mock_repo
 
-            before = datetime.now()
+            before = datetime.now(UTC)
             await pause_idle_voice_sessions(mock_factory)
 
         threshold = captured["threshold"]

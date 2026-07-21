@@ -1,6 +1,4 @@
-from datetime import datetime
-
-from app.api.responses import BaseSchema
+from app.api.responses import BaseSchema, NaiveIsoDatetime
 
 
 class KnowledgeBaseInfoDTO(BaseSchema):
@@ -25,11 +23,11 @@ class KnowledgeBaseListItemDTO(BaseSchema):
     id: int
     filename: str
     file_size: int | None
-    uploaded_at: datetime
+    uploaded_at: NaiveIsoDatetime
     chunk_count: int
     vector_status: str
     vector_error: str | None
-    vectorized_at: datetime | None
+    vectorized_at: NaiveIsoDatetime | None
 
 
 class KnowledgeBasePageDTO(BaseSchema):
@@ -45,9 +43,9 @@ class KnowledgeBaseDetailDTO(BaseSchema):
     file_size: int | None
     content_type: str | None
     storage_url: str | None
-    uploaded_at: datetime
+    uploaded_at: NaiveIsoDatetime
     content_text: str | None
     chunk_count: int
     vector_status: str
     vector_error: str | None
-    vectorized_at: datetime | None
+    vectorized_at: NaiveIsoDatetime | None

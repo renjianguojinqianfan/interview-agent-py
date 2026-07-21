@@ -1,7 +1,7 @@
 import logging
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pypinyin import Style, lazy_pinyin
@@ -74,7 +74,7 @@ class S3StorageService:
         return f"{settings.s3_endpoint}/{self._bucket}/{key}"
 
     def _generate_file_key(self, filename: str, prefix: str) -> str:
-        date_path = datetime.now().strftime("%Y/%m/%d")
+        date_path = datetime.now(UTC).strftime("%Y/%m/%d")
         file_uuid = str(uuid.uuid4())
         safe_name = self._sanitize_filename(filename)
         return f"{prefix}/{date_path}/{file_uuid}_{safe_name}"

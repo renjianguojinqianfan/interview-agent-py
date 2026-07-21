@@ -294,6 +294,8 @@
 
 **教训**：策略文档若不机械执行就是 aspirational。时区/编码/命名等横切策略须有 fitness 测试（如扫描 ORM `DateTime` 列断言 `timezone=True`），否则必漂移。阶段 review 须对照策略文档（G.3、ADR）而非只看 issue body。发现漂移时，若全项目一致偏离文档，修文档比修代码更安全（避免单点修正引入不一致）；真正统一留专门收尾阶段。与 #1（GradingService 命名违反词汇表）、#2（shim 无移除点）同类：文档约定无机械执行的必然结局。
 
+**#21 收口（stage 8）**：全表已迁 `timezone=True`（alembic 010，真库验证升级链 + 010 可逆），`datetime.now(UTC)` 全量替换（含输入挂 UTC、输出剥偏移），并新增 `tests/test_timezone.py` 三条 fitness 守卫（ORM 列 / 禁裸时钟 / DTO 剥偏移序列化器）——本条预言的"须有 fitness 测试"已兑现，三条漂移面机械封死。权威决策见 ADR-0013。
+
 
 ### 27. 数据格式契约：纯函数写了但没接入管线（R7 阶段 review 发现）
 

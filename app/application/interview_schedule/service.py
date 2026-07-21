@@ -6,7 +6,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,11 @@ from app.infrastructure.db.repositories.interview_schedule_repository import Int
 logger = logging.getLogger(__name__)
 
 
+def _ensure_utc(value: datetime) -> datetime:
+    """ADR-0013：naive 输入按 UTC 解释（前端回传无偏移本地 wall-clock）；已 aware 则原样保留。"""
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
 class ScheduleService:
     """面试日程 CRUD 服务。"""
 
@@ -44,7 +49,7 @@ class ScheduleService:
         schedule = InterviewSchedule(
             company_name=request.company_name,
             position=request.position,
-            interview_time=request.interview_time,
+            interview_time=_ensure_utc(request.interview_time),
             interview_type=request.interview_type,
             meeting_link=request.meeting_link,
             round_number=request.round_number,
@@ -70,7 +75,7 @@ class ScheduleService:
         end: datetime | None,
     ) -> list[InterviewScheduleDTO]:
         if start is not None and end is not None:
-            schedules = await self._repository.list_by_time_range(self._session, start, end)
+            schedules = await self._repository.list_by_time_range(self._session, _ensure_utc(start), _ensure_utc(end))
         elif status is not None:
             schedules = await self._repository.list_by_status(self._session, status)
         else:
@@ -83,7 +88,7 @@ class ScheduleService:
             raise BusinessException(ErrorCode.INTERVIEW_SCHEDULE_NOT_FOUND, f"面试日程不存在: {schedule_id}")
         schedule.company_name = request.company_name
         schedule.position = request.position
-        schedule.interview_time = request.interview_time
+        schedule.interview_time = _ensure_utc(request.interview_time)
         schedule.interview_type = request.interview_type
         schedule.meeting_link = request.meeting_link
         schedule.round_number = request.round_number
@@ -177,7 +182,7 @@ class ScheduleParseService:
     async def _parse_with_ai(self, raw_text: str) -> CreateScheduleRequest | None:
         try:
             system_tpl = await load_prompt("interview-schedule-parse-system")
-            current_date = datetime.now().strftime("%Y-%m-%d")
+            current_date = datetime.now(UTC).strftime("%Y-%m-%d")
             system_prompt = system_tpl.format(current_date=current_date)
 
             sanitized_text = self._sanitizer.sanitize(raw_text) or ""
