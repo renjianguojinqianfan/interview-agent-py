@@ -360,7 +360,7 @@ app/
 
 **目标**：完成配置管理类模块。
 
-> **进度注记**：6.1 + 6.2 + 6.4 已完成（#12）。新增 LlmGlobalSetting ORM（单例表，default_chat_provider_id + default_embedding_provider_id）+ VoiceConfig ORM（单例表，ASR/TTS 20 字段，API Key 加密存储），迁移 007。LlmProviderRegistry 默认解析从 is_default 改读 LlmGlobalSetting（拆分 chat/embedding）。is_default 字段废弃（保留列，仅 seed 阶段用于建立初始 LlmGlobalSetting）。provider_name 加唯一约束。15 接口路由（/api/llm-provider），限流读 30/s、写 5/s、测试 10/s（全 GLOBAL）。test_provider 用 ChatOpenAI ainvoke（5s/10s 超时），test_asr_config 用 asyncio TCP 连通性检查。ASR/TTS apiKey 共享同步（更新一方同步另一方）。VoiceConfig 存 DB 替代 Java YAML 运行时配置（ADR-0011 扩展 ADR-0004）。6.3（#13 面试日程）未开始。
+> **进度注记**：6.1 + 6.2 + 6.3 + 6.4 全部完成（#12 + #13）。6.1-6.4 详见 #12 注记。6.3（#13 面试日程）已完成：InterviewSchedule ORM + 迁移 008 + 7 接口 CRUD（/api/interview-schedule）+ 邀约文本解析（规则解析 feishu/tencent/zoom 优先 -> LLM 兜底，规则算法隔离到 domain/services/schedule_parser.py 纯函数）+ APScheduler 调度框架（infrastructure/scheduler/manager.py，SchedulerManager 封装 AsyncIOScheduler，#18 可复用注册更多任务）+ 定时任务（每小时 cancel_expired_schedules，PENDING 且过期 -> CANCELLED）。/parse 端点限流 5/s（IP 维度），其余 6 端点无限流。APScheduler 3.11（4.x 仍 alpha）。
 
 | # | 任务 | 接口数 | 说明 |
 |---|------|--------|------|

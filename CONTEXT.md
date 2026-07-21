@@ -94,6 +94,10 @@ _Avoid_: 轮次（Phase 是面试阶段，非单轮对话）、Round
 文字面试会话生命周期：CREATED -> IN_PROGRESS -> COMPLETED -> EVALUATED。
 _Avoid_: 会话状态（用 SessionStatus 精确指代）
 
+**InterviewStatus**:
+真实面试日程状态机：PENDING -> COMPLETED / CANCELLED / RESCHEDULED。无转换方向校验（与 Java 一致）。PENDING 且过期由 APScheduler 定时任务自动取消为 CANCELLED。
+_Avoid_: 日程状态（用 InterviewStatus 精确指代）
+
 **VectorStatus**:
 vector_store 内向量数据的两阶段：pending（待定，元数据带 kb_vector_job_id）-> promoted（正式，元数据带 kb_id，可检索）。知识库行的向量化进度字段 KnowledgeBase.vector_status 复用 AsyncTaskStatus（COMPLETED 即 promoted）。
 _Avoid_: 向量状态
