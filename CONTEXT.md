@@ -88,6 +88,14 @@ _Avoid_: 语音通话、Voice Call
 语音面试的四个阶段：INTRO -> TECH -> PROJECT -> HR，每个阶段有独立的时长和题数约束。
 _Avoid_: 轮次（Phase 是面试阶段，非单轮对话）、Round
 
+**VoiceInterviewMessage**:
+语音面试消息，一行存一对 QA（ai_generated_text 为 AI 提问、user_recognized_text 为用户 ASR 转写）。评估时适配为 QaRecord，category 取 InterviewPhase。
+_Avoid_: 语音记录、Voice Record
+
+**VoiceInterviewEvaluation**:
+语音面试评估结果（与 VoiceInterviewSession 1:1），逐题明细/优势/改进/参考答案以 JSON 文本存储，category_scores 读侧从逐题明细重建。复用 #9 统一评估服务生成。
+_Avoid_: 语音评分
+
 ### 状态
 
 **SessionStatus**:
@@ -97,6 +105,10 @@ _Avoid_: 会话状态（用 SessionStatus 精确指代）
 **InterviewStatus**:
 真实面试日程状态机：PENDING -> COMPLETED / CANCELLED / RESCHEDULED。无转换方向校验（与 Java 一致）。PENDING 且过期由 APScheduler 定时任务自动取消为 CANCELLED。
 _Avoid_: 日程状态（用 InterviewStatus 精确指代）
+
+**VoiceSessionStatus**:
+语音面试会话状态机：IN_PROGRESS -> PAUSED（用户/超时暂停）/ COMPLETED（结束）/ FAILED（异常）。IN_PROGRESS 空闲超 5min 由定时任务自动 PAUSED，僵尸会话超 2h 自动 COMPLETED。evaluateStatus 复用 AsyncTaskStatus。
+_Avoid_: 语音会话状态（用 VoiceSessionStatus 精确指代）
 
 **VectorStatus**:
 vector_store 内向量数据的两阶段：pending（待定，元数据带 kb_vector_job_id）-> promoted（正式，元数据带 kb_id，可检索）。知识库行的向量化进度字段 KnowledgeBase.vector_status 复用 AsyncTaskStatus（COMPLETED 即 promoted）。

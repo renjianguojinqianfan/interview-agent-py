@@ -384,7 +384,7 @@ app/
 |---|------|------|
 | 7A.1 | 数据模型 | `VoiceInterviewSession` + `VoiceInterviewMessage` + `VoiceInterviewEvaluation` ORM |
 | 7A.2 | 领域层 | VoiceInterviewSessionStatus 状态机 + InterviewPhase 阶段流转 + 阶段配置(min/suggested/max duration + min/max questions) |
-| 7A.3 | 应用服务 | SessionService（创建/结束/暂停/恢复）+ 事务后发送(afterCommit -> SQLAlchemy event) |
+| 7A.3 | 应用服务 | SessionService（创建/结束/暂停/恢复）+ 事务后发送（ADR-0008 显式顺序：commit 后 send） |
 | 7A.4 | 异步评估任务 | `voice_evaluate.py`：消费 voice:evaluate:stream |
 | 7A.5 | API 路由 | 10 个 REST 接口 |
 | 7A.6 | 定时任务 | APScheduler：暂停超时检查(30s) + 僵尸会话清理(5min) |

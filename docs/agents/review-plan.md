@@ -64,7 +64,7 @@
   R5: #12 #13 阶段 review ✅
 
 阶段 7: 语音面试（最复杂）
-  #14 完成 -> 单 issue review
+  #14 完成 -> 单 issue review ✅
   R6: #14 阶段 review（REST 生命周期，WS 前置检查点）
   #15 完成 -> 单 issue review
   #16 完成 -> 单 issue review
