@@ -55,7 +55,6 @@ class ErrorCode(Enum):
 
     VOICE_SESSION_NOT_FOUND = (10001, "语音面试会话不存在")
     VOICE_EVALUATION_FAILED = (10004, "语音面试评估失败")
-    VOICE_EVALUATION_NOT_FOUND = (10006, "语音评估结果不存在")
 
     PROVIDER_NOT_FOUND = (11001, "LLM Provider 不存在")
     PROVIDER_ALREADY_EXISTS = (11002, "LLM Provider 已存在")
