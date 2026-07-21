@@ -1,13 +1,18 @@
 """语音音频工具：PCM -> WAV 转换（纯字节处理，零框架依赖）。
 
-Qwen TTS 输出为裸 PCM（默认 24kHz/16-bit/mono）；合并模式或前端重建需要标准 44 字节
-WAV 头。对应 migration-plan 7B.3（PCM->WAV 44 字节头 24kHz/16-bit/mono）。
+Qwen TTS 输出为裸 PCM（24kHz/16-bit/mono）；前端 audio_chunk 契约要求每块自带标准 44 字节
+WAV 头（handleAudioChunk 跳过前 44 字节取 PCM）。对应 migration-plan 7B.3 与 Java
+sendAudioChunk(convertPcmToWav(pcm), ...)。
 """
 
+import base64
 import struct
 
 _PCM_FORMAT = 1  # WAV 格式码：PCM
 _WAV_HEADER_SIZE = 44
+
+TTS_OUTPUT_SAMPLE_RATE = 24000
+"""Qwen TTS Realtime 输出裸 PCM 采样率（24kHz，附录 F；前端 AudioContext 亦为 24000）。"""
 
 
 def build_wav_header(
@@ -46,3 +51,9 @@ def pcm_to_wav(
 ) -> bytes:
     """在裸 PCM 前拼接 44 字节 WAV 头。"""
     return build_wav_header(len(pcm), sample_rate, channels, bits_per_sample) + pcm
+
+
+def pcm_base64_to_wav_base64(pcm_base64: str, sample_rate: int = TTS_OUTPUT_SAMPLE_RATE) -> str:
+    """裸 PCM 的 base64 -> 带 44 字节 WAV 头的 base64（前端 audio_chunk 每块自带 WAV 头）。"""
+    pcm = base64.b64decode(pcm_base64)
+    return base64.b64encode(pcm_to_wav(pcm, sample_rate)).decode("ascii")

@@ -1,8 +1,14 @@
 """PCM -> WAV 音频工具测试。"""
 
+import base64
 import struct
 
-from app.infrastructure.voice.audio_utils import build_wav_header, pcm_to_wav
+from app.infrastructure.voice.audio_utils import (
+    TTS_OUTPUT_SAMPLE_RATE,
+    build_wav_header,
+    pcm_base64_to_wav_base64,
+    pcm_to_wav,
+)
 
 
 class TestBuildWavHeader:
@@ -34,3 +40,17 @@ class TestPcmToWav:
         assert len(wav) == 44 + len(pcm)
         assert wav[:4] == b"RIFF"
         assert wav[44:] == pcm
+
+
+class TestPcmBase64ToWavBase64:
+    def test_wraps_pcm_base64_into_wav_base64(self) -> None:
+        pcm = b"ABC"
+        wav = base64.b64decode(pcm_base64_to_wav_base64(base64.b64encode(pcm).decode()))
+        assert wav[:4] == b"RIFF"
+        assert wav[8:12] == b"WAVE"
+        assert len(wav) == 44 + len(pcm)
+        assert wav[44:] == pcm  # 前端跳过前 44 字节即可取回原始 PCM
+
+    def test_default_sample_rate_is_24000(self) -> None:
+        wav = base64.b64decode(pcm_base64_to_wav_base64(base64.b64encode(b"\x00\x00").decode()))
+        assert struct.unpack("<I", wav[24:28])[0] == TTS_OUTPUT_SAMPLE_RATE

@@ -47,6 +47,7 @@ from app.domain.entities.voice_interview import (
     VoiceSessionStatus,
 )
 from app.domain.services.voice_dialogue import (
+    COMMIT_DEBOUNCE_MS,
     ECHO_COOLDOWN_MS,
     TTS_MAX_CONCURRENCY,
     TTS_TIMEOUT_SECONDS,
@@ -66,6 +67,7 @@ from app.infrastructure.db.repositories.voice_interview_repository import VoiceI
 from app.infrastructure.redis.voice_session_cache import VoiceInterviewSessionCache
 from app.infrastructure.skills.opening_loader import OpeningQuestionLoader
 from app.infrastructure.voice.asr import AsrConnectionClosed, AsrConnectionConfig, AsrError, AsrTranscript
+from app.infrastructure.voice.audio_utils import pcm_base64_to_wav_base64
 from app.infrastructure.voice.config import AsrConfigLoader, TtsConfigLoader
 from app.infrastructure.voice.tts import TtsConnectionClosed, TtsConnectionConfig, TtsError, TtsEvent
 
@@ -158,7 +160,7 @@ class VoiceWsOrchestrator:
         dialogue_llm: VoiceDialogueLlm,
         opening_loader: OpeningQuestionLoader,
         now_ms: Callable[[], float] | None = None,
-        debounce_ms: float = 2500,
+        debounce_ms: float = COMMIT_DEBOUNCE_MS,
         pause_check_ms: float = 30000,
         asr_max_reconnect: int = 2,
         asr_reconnect_delay_seconds: float = 10.0,
@@ -553,7 +555,7 @@ class VoiceWsOrchestrator:
             if event.done:
                 break
             if event.audio_base64:
-                chunks.append(event.audio_base64)
+                chunks.append(pcm_base64_to_wav_base64(event.audio_base64))
         return chunks
 
     def _next_audio_index(self) -> int:

@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import base64
 import json
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
@@ -263,7 +264,10 @@ class TestCommitTurn:
         assert finals and finals[-1]["text"] == "你好。请介绍"
 
         audio_msgs = ws.sent_of("audio_chunk")
-        assert any(m["data"] == "QUJD" for m in audio_msgs)
+        # audio_chunk.data 必须为带 44 字节 WAV 头的 base64（前端 handleAudioChunk 跳过前 44 字节取 PCM）
+        payloads = [base64.b64decode(m["data"]) for m in audio_msgs if m["data"]]
+        assert payloads and all(p[:4] == b"RIFF" and p[8:12] == b"WAVE" for p in payloads)
+        assert any(p[44:] == b"ABC" for p in payloads)  # QUJD -> b"ABC" 原始 PCM 保留在头之后
         assert audio_msgs[-1]["isLast"] is True
         assert orch.history == [("我叫张三", "你好。请介绍")]
 
