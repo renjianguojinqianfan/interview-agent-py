@@ -94,30 +94,35 @@ class LlmProviderRegistry:
         return await self._find_default_embedding_provider_id()
 
     async def _find_default_chat_provider_id(self) -> int:
-        async with self._session_factory() as session:
-            result = await session.execute(
-                select(LlmGlobalSetting).where(LlmGlobalSetting.id == LlmGlobalSetting.SINGLETON_ID)
+        setting = await self._get_global_setting()
+        if setting.default_chat_provider_id is None:
+            raise BusinessException(
+                ErrorCode.PROVIDER_NOT_FOUND,
+                "未找到默认 LLM Provider，请先配置",
             )
-            setting = result.scalar_one_or_none()
-            if setting is None or setting.default_chat_provider_id is None:
-                raise BusinessException(
-                    ErrorCode.PROVIDER_NOT_FOUND,
-                    "未找到默认 LLM Provider，请先配置",
-                )
-            return setting.default_chat_provider_id
+        return setting.default_chat_provider_id
 
     async def _find_default_embedding_provider_id(self) -> int:
+        setting = await self._get_global_setting()
+        if setting.default_embedding_provider_id is None:
+            raise BusinessException(
+                ErrorCode.PROVIDER_NOT_FOUND,
+                "未找到默认 Embedding Provider，请先配置",
+            )
+        return setting.default_embedding_provider_id
+
+    async def _get_global_setting(self) -> LlmGlobalSetting:
         async with self._session_factory() as session:
             result = await session.execute(
                 select(LlmGlobalSetting).where(LlmGlobalSetting.id == LlmGlobalSetting.SINGLETON_ID)
             )
             setting = result.scalar_one_or_none()
-            if setting is None or setting.default_embedding_provider_id is None:
+            if setting is None:
                 raise BusinessException(
                     ErrorCode.PROVIDER_NOT_FOUND,
-                    "未找到默认 Embedding Provider，请先配置",
+                    "全局 LLM 配置未初始化，请先配置默认 Provider",
                 )
-            return setting.default_embedding_provider_id
+            return setting
 
     async def _load_provider(self, provider_id: int) -> ProviderSnapshot:
         async with self._session_factory() as session:

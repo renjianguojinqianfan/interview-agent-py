@@ -272,15 +272,16 @@ class TestGetAsrConfig:
 
 
 class TestUpdateAsrConfig:
-    async def test_update_asr_config_with_api_key_syncs_tts(
+    async def test_update_asr_config_with_api_key_does_not_touch_tts(
         self, service, mock_voice_config_repo, encryption_service
     ) -> None:
-        config = _make_voice_config()
+        original_tts_cipher = encryption_service.encrypt("sk-tts-original")
+        config = _make_voice_config(tts_key_cipher=original_tts_cipher)
         mock_voice_config_repo.get_singleton = AsyncMock(return_value=config)
-        request = AsrConfigRequest(api_key="sk-new-shared-key")
+        request = AsrConfigRequest(api_key="sk-asr-new-key")
         await service.update_asr_config(request)
-        assert encryption_service.decrypt(config.asr_api_key) == "sk-new-shared-key"
-        assert encryption_service.decrypt(config.tts_api_key) == "sk-new-shared-key"
+        assert encryption_service.decrypt(config.asr_api_key) == "sk-asr-new-key"
+        assert config.tts_api_key == original_tts_cipher
 
     async def test_update_asr_config_without_api_key_does_not_touch_tts(
         self, service, mock_voice_config_repo, encryption_service
@@ -304,15 +305,16 @@ class TestGetTtsConfig:
 
 
 class TestUpdateTtsConfig:
-    async def test_update_tts_config_with_api_key_syncs_asr(
+    async def test_update_tts_config_with_api_key_does_not_touch_asr(
         self, service, mock_voice_config_repo, encryption_service
     ) -> None:
-        config = _make_voice_config()
+        original_asr_cipher = encryption_service.encrypt("sk-asr-original")
+        config = _make_voice_config(asr_key_cipher=original_asr_cipher)
         mock_voice_config_repo.get_singleton = AsyncMock(return_value=config)
-        request = TtsConfigRequest(api_key="sk-new-shared-key")
+        request = TtsConfigRequest(api_key="sk-tts-new-key")
         await service.update_tts_config(request)
-        assert encryption_service.decrypt(config.tts_api_key) == "sk-new-shared-key"
-        assert encryption_service.decrypt(config.asr_api_key) == "sk-new-shared-key"
+        assert encryption_service.decrypt(config.tts_api_key) == "sk-tts-new-key"
+        assert config.asr_api_key == original_asr_cipher
 
     async def test_update_tts_config_without_api_key_does_not_touch_asr(
         self, service, mock_voice_config_repo, encryption_service
@@ -374,3 +376,36 @@ class TestTestAsrConfig:
             result = await service.test_asr_config()
         assert result.success is False
         assert "connection refused" in result.message
+
+
+class TestTestTtsConfig:
+    async def test_test_tts_config_tcp_success(self, service, mock_voice_config_repo) -> None:
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config())
+        mock_writer = MagicMock()
+        mock_writer.wait_closed = AsyncMock()
+        with patch(
+            "app.application.llm_provider.service.asyncio.open_connection",
+            new_callable=AsyncMock,
+            return_value=(AsyncMock(), mock_writer),
+        ):
+            result = await service.test_tts_config()
+        assert result.success is True
+        assert result.model == "qwen3-tts-flash-realtime"
+
+    async def test_test_tts_config_tcp_failure(self, service, mock_voice_config_repo) -> None:
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config())
+        with patch(
+            "app.application.llm_provider.service.asyncio.open_connection",
+            new_callable=AsyncMock,
+            side_effect=ConnectionRefusedError("connection refused"),
+        ):
+            result = await service.test_tts_config()
+        assert result.success is False
+        assert "connection refused" in result.message
+        assert result.model == "qwen3-tts-flash-realtime"
+
+    async def test_test_tts_config_raises_when_uninitialized(self, service, mock_voice_config_repo) -> None:
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=None)
+        with pytest.raises(BusinessException) as exc:
+            await service.test_tts_config()
+        assert exc.value.error_code == ErrorCode.VOICE_CONFIG_READ_FAILED

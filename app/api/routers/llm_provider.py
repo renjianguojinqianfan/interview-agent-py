@@ -129,6 +129,15 @@ async def test_asr_config(
     return Result.success(data=await service.test_asr_config())
 
 
+@router.post("/voice/tts/test", response_model=Result[ProviderTestResult])
+@limiter.limit("10/second", key_func=global_key)
+async def test_tts_config(
+    request: Request,  # noqa: ARG001
+    service: LlmProviderService = Depends(get_llm_provider_service),
+) -> Result[ProviderTestResult]:
+    return Result.success(data=await service.test_tts_config())
+
+
 @router.get("/{provider_id}", response_model=Result[ProviderDTO])
 @limiter.limit("30/second", key_func=global_key)
 async def get_provider(

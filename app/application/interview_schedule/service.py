@@ -199,10 +199,11 @@ class ScheduleParseService:
             return None
 
     def _to_request(self, parsed: ParsedSchedule) -> CreateScheduleRequest:
+        assert parsed.interview_time is not None  # is_valid_parse 已保证非 None
         return CreateScheduleRequest(
             company_name=parsed.company_name or "",
             position=parsed.position or "",
-            interview_time=parsed.interview_time or datetime(2000, 1, 1),
+            interview_time=parsed.interview_time,
             interview_type=parsed.interview_type,
             meeting_link=parsed.meeting_link,
             round_number=parsed.round_number,
@@ -210,11 +211,15 @@ class ScheduleParseService:
             notes=parsed.notes,
         )
 
-    def _parsed_data_to_request(self, parsed: ParsedScheduleData) -> CreateScheduleRequest:
+    def _parsed_data_to_request(self, parsed: ParsedScheduleData) -> CreateScheduleRequest | None:
         time_str = parsed.interview_time.strip()
         if len(time_str) == 16:
             time_str += ":00"
-        interview_time = datetime.fromisoformat(time_str)
+        try:
+            interview_time = datetime.fromisoformat(time_str)
+        except ValueError:
+            logger.warning("AI 解析返回的时间格式无效: %s", time_str)
+            return None
 
         return CreateScheduleRequest(
             company_name=parsed.company_name,

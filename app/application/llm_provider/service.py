@@ -336,9 +336,7 @@ class LlmProviderService:
         if request.api_key is not None:
             if request.api_key.strip() == "":
                 raise BusinessException(ErrorCode.BAD_REQUEST, "apiKey 不能为空字符串")
-            encrypted = self._encryption_service.encrypt(request.api_key)
-            config.asr_api_key = encrypted
-            config.tts_api_key = encrypted
+            config.asr_api_key = self._encryption_service.encrypt(request.api_key)
         await self._session.commit()
         logger.info("Updated ASR config")
 
@@ -382,9 +380,7 @@ class LlmProviderService:
         if request.api_key is not None:
             if request.api_key.strip() == "":
                 raise BusinessException(ErrorCode.BAD_REQUEST, "apiKey 不能为空字符串")
-            encrypted = self._encryption_service.encrypt(request.api_key)
-            config.tts_api_key = encrypted
-            config.asr_api_key = encrypted
+            config.tts_api_key = self._encryption_service.encrypt(request.api_key)
         await self._session.commit()
         logger.info("Updated TTS config")
 
@@ -412,6 +408,32 @@ class LlmProviderService:
                 success=False,
                 message=f"ASR 连接失败: {e}",
                 model=config.asr_model,
+            )
+
+    async def test_tts_config(self) -> ProviderTestResult:
+        config = await self._voice_config_repository.get_singleton(self._session)
+        if config is None:
+            raise BusinessException(ErrorCode.VOICE_CONFIG_READ_FAILED, "语音服务配置未初始化")
+        parsed = urlparse(config.asr_url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+        try:
+            _reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=_TEST_CONNECT_TIMEOUT,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return ProviderTestResult(
+                success=True,
+                message=f"TTS WebSocket 连接成功: {host}",
+                model=config.tts_model,
+            )
+        except Exception as e:
+            return ProviderTestResult(
+                success=False,
+                message=f"TTS 连接失败: {e}",
+                model=config.tts_model,
             )
 
     def _to_dto(self, provider: LlmProvider, chat_id: int | None, emb_id: int | None) -> ProviderDTO:

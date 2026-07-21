@@ -147,3 +147,26 @@ class TestParseLLMFallback:
         assert response.success is False
         assert response.parse_method == "none"
         assert response.data is None
+
+    async def test_rule_fail_llm_returns_malformed_time_degrades_to_failure(
+        self, parse_service: ScheduleParseService, mock_llm_registry: MagicMock, mock_invoker: MagicMock
+    ) -> None:
+        from app.application.interview_schedule.schemas import ParsedScheduleData
+
+        mock_llm = MagicMock()
+        mock_llm_registry.get_chat_client = AsyncMock(return_value=mock_llm)
+
+        parsed_data = ParsedScheduleData(
+            company_name="美团",
+            position="Go工程师",
+            interview_time="not-a-valid-datetime",
+            interview_type="VIDEO",
+            round_number=1,
+        )
+        mock_invoker.invoke = AsyncMock(return_value=parsed_data)
+
+        response = await parse_service.parse("无法规则解析的邀约文本", None)
+
+        assert response.success is False
+        assert response.parse_method == "none"
+        assert response.data is None

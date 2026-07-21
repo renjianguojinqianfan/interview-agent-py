@@ -13,15 +13,13 @@ from app.domain.entities.interview_schedule import ParsedSchedule
 
 _TIME_PATTERN_FEISHU = re.compile(r"(?:时间|时段)[：:]\s*(\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2})")
 _LINK_PATTERN_FEISHU = re.compile(r"https://meeting\.feishu\.cn/[^\s\n]+")
-_COMPANY_PATTERN_FEISHU = re.compile(r"(?:公司|单位|组织)[：:]\s*([^\s\n]{1,50})")
-_POSITION_PATTERN_FEISHU = re.compile(r"(?:岗位|职位|职务)[：:]\s*([^\s\n]{1,50})")
+_COMPANY_PATTERN = re.compile(r"(?:公司|单位|组织)[：:]\s*([^\s\n]{1,50})")
+_POSITION_PATTERN = re.compile(r"(?:岗位|职位|职务)[：:]\s*([^\s\n]{1,50})")
 _ROUND_PATTERN_FEISHU = re.compile(r"第\s*([一二三四五六七八九十\d]+)\s*[轮场]")
 
 _TIME_PATTERN_TENCENT = re.compile(r"(\d{4}[-/]\d{2}[-/]\d{2})\s+(\d{2}:\d{2})")
 _MEETING_ID_PATTERN_TENCENT = re.compile(r"(?:会议号|ID)[：:]?\s*(\d{9,})")
 _PASSWORD_PATTERN_TENCENT = re.compile(r"密码[：:]?\s*(\d{4,})")
-_COMPANY_PATTERN_TENCENT = re.compile(r"(?:公司|单位)[：:]\s*([^\s\n]{1,50})")
-_POSITION_PATTERN_TENCENT = re.compile(r"(?:岗位|职位)[：:]\s*([^\s\n]{1,50})")
 
 _LINK_PATTERN_ZOOM = re.compile(r"https://zoom\.us/j/[^\s\n]+")
 _DATE_PATTERN_ZOOM = re.compile(r"(\d{4}[-/]\d{2}[-/]\d{2})")
@@ -92,10 +90,10 @@ def _parse_feishu(raw_text: str) -> ParsedSchedule:
     link_match = _LINK_PATTERN_FEISHU.search(raw_text)
     meeting_link = link_match.group() if link_match else None
 
-    company_match = _COMPANY_PATTERN_FEISHU.search(raw_text)
+    company_match = _COMPANY_PATTERN.search(raw_text)
     company_name = company_match.group(1).strip() if company_match else None
 
-    position_match = _POSITION_PATTERN_FEISHU.search(raw_text)
+    position_match = _POSITION_PATTERN.search(raw_text)
     position = position_match.group(1).strip() if position_match else None
 
     round_match = _ROUND_PATTERN_FEISHU.search(raw_text)
@@ -129,10 +127,10 @@ def _parse_tencent(raw_text: str) -> ParsedSchedule:
     if parts:
         meeting_link = " ".join(parts)
 
-    company_match = _COMPANY_PATTERN_TENCENT.search(raw_text)
+    company_match = _COMPANY_PATTERN.search(raw_text)
     company_name = company_match.group(1).strip() if company_match else None
 
-    position_match = _POSITION_PATTERN_TENCENT.search(raw_text)
+    position_match = _POSITION_PATTERN.search(raw_text)
     position = position_match.group(1).strip() if position_match else None
 
     return ParsedSchedule(
@@ -155,10 +153,10 @@ def _parse_zoom(raw_text: str) -> ParsedSchedule:
         time_str = f"{date_match.group(1)} {hour_match.group(1)}"
         interview_time = _parse_datetime(time_str)
 
-    company_match = _COMPANY_PATTERN_FEISHU.search(raw_text)
+    company_match = _COMPANY_PATTERN.search(raw_text)
     company_name = company_match.group(1).strip() if company_match else None
 
-    position_match = _POSITION_PATTERN_FEISHU.search(raw_text)
+    position_match = _POSITION_PATTERN.search(raw_text)
     position = position_match.group(1).strip() if position_match else None
 
     return ParsedSchedule(

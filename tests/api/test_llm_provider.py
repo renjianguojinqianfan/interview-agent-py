@@ -252,3 +252,15 @@ class TestVoiceConfig:
         resp = client.post("/api/llm-provider/voice/asr/test")
         assert resp.status_code == 200
         assert resp.json()["data"]["success"] is True
+
+    def test_test_tts_config(self) -> None:
+        svc = AsyncMock()
+        svc.test_tts_config = AsyncMock(
+            return_value=ProviderTestResult(
+                success=True, message="TTS WebSocket 连接成功", model="qwen3-tts-flash-realtime"
+            )
+        )
+        _override_service(svc)
+        resp = client.post("/api/llm-provider/voice/tts/test")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["success"] is True
