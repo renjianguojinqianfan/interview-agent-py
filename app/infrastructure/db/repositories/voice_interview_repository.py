@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 
 from sqlalchemy import func, select, update
@@ -72,6 +72,26 @@ class VoiceInterviewRepository:
         voice_session.evaluate_error = error
         await session.flush()
 
+    async def update_current_phase(
+        self,
+        session: AsyncSession,
+        voice_session: VoiceInterviewSessionORM,
+        phase: str,
+    ) -> None:
+        """更新会话当前阶段（阶段自动切换 #17）。"""
+        voice_session.current_phase = phase
+        await session.flush()
+
+    async def pause_session(
+        self,
+        session: AsyncSession,
+        voice_session: VoiceInterviewSessionORM,
+    ) -> None:
+        """将单个会话置 PAUSED（WS 暂停超时触发）。"""
+        voice_session.status = VoiceSessionStatus.PAUSED.value
+        voice_session.paused_at = datetime.now(UTC)
+        await session.flush()
+
     async def save_message(
         self,
         session: AsyncSession,
@@ -104,6 +124,25 @@ class VoiceInterviewRepository:
             .where(VoiceInterviewMessageORM.session_id == session_pk)
         )
         return int(result.scalar() or 0)
+
+    async def find_latest_unanswered_message(
+        self,
+        session: AsyncSession,
+        session_pk: int,
+    ) -> VoiceInterviewMessageORM | None:
+        """最近一条已提问(ai_generated_text 非空)但未作答(user_recognized_text 为空)的消息（回填目标）。
+
+        对齐 Java findFirstBySessionIdAndUserRecognizedTextIsNullAndAiGeneratedTextIsNotNullOrderBySequenceNumDesc。
+        """
+        result = await session.execute(
+            select(VoiceInterviewMessageORM)
+            .where(VoiceInterviewMessageORM.session_id == session_pk)
+            .where(VoiceInterviewMessageORM.user_recognized_text.is_(None))
+            .where(VoiceInterviewMessageORM.ai_generated_text.is_not(None))
+            .order_by(VoiceInterviewMessageORM.sequence_num.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def get_evaluation_by_session(
         self,
