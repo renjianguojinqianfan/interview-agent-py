@@ -24,8 +24,8 @@ from app.infrastructure.db.models import (  # noqa: F401  注册全部 ORM 到 B
     voice_interview,
 )
 
-# 端到端测试涉及的表，每个测试前 TRUNCATE 隔离（CASCADE 处理 FK 子表）。
-_E2E_TABLES = "interview_schedule, voice_interview_sessions"
+# 端到端测试涉及的表，每个测试前 TRUNCATE 隔离（CASCADE 处理 FK 子表，如 interview_answers）。
+_E2E_TABLES = "interview_schedule, voice_interview_sessions, interview_sessions"
 
 
 async def _truncate(engine: AsyncEngine) -> None:
