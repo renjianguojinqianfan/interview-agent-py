@@ -12,6 +12,17 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 from app.config.settings import settings
+from app.infrastructure.db.models import (  # noqa: F401  注册全部 ORM 到 Base.metadata（解析跨表外键）
+    interview,
+    interview_schedule,
+    knowledge_base,
+    llm_global_setting,
+    llm_provider,
+    rag_chat,
+    resume,
+    voice_config,
+    voice_interview,
+)
 
 # 端到端测试涉及的表，每个测试前 TRUNCATE 隔离（CASCADE 处理 FK 子表）。
 _E2E_TABLES = "interview_schedule, voice_interview_sessions"
