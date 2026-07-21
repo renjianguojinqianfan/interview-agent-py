@@ -48,6 +48,7 @@ from app.infrastructure.scheduler.jobs import (
 )
 from app.infrastructure.scheduler.manager import SchedulerManager
 from app.infrastructure.skills.loader import SkillLoader
+from app.infrastructure.skills.opening_loader import OpeningQuestionLoader
 from app.infrastructure.skills.reference_loader import ReferenceLoader
 from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService, create_s3_storage_service
@@ -96,6 +97,7 @@ _voice_evaluate_consumer: VoiceEvaluateStreamConsumer | None = None
 _asr_config_loader: AsrConfigLoader | None = None
 _tts_config_loader: TtsConfigLoader | None = None
 _voice_dialogue_llm: VoiceDialogueLlm | None = None
+_opening_question_loader: OpeningQuestionLoader | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -455,6 +457,7 @@ def get_voice_ws_orchestrator_factory() -> Callable[[int], VoiceWsOrchestrator]:
     cache = get_voice_session_cache()
     repository = get_voice_repository()
     dialogue_llm = get_voice_dialogue_llm()
+    opening_loader = get_opening_question_loader()
 
     def _build(session_id: int) -> VoiceWsOrchestrator:
         return VoiceWsOrchestrator(
@@ -467,6 +470,7 @@ def get_voice_ws_orchestrator_factory() -> Callable[[int], VoiceWsOrchestrator]:
             tts_config_loader=tts_loader,
             tts_client_factory=lambda config: QwenTtsClient(config),
             dialogue_llm=dialogue_llm,
+            opening_loader=opening_loader,
         )
 
     return _build
@@ -488,6 +492,13 @@ def get_voice_dialogue_llm() -> VoiceDialogueLlm:
     if _voice_dialogue_llm is None:
         _voice_dialogue_llm = VoiceDialogueLlm(get_llm_registry())
     return _voice_dialogue_llm
+
+
+def get_opening_question_loader() -> OpeningQuestionLoader:
+    global _opening_question_loader
+    if _opening_question_loader is None:
+        _opening_question_loader = OpeningQuestionLoader()
+    return _opening_question_loader
 
 
 async def start_voice_evaluate_consumer() -> VoiceEvaluateStreamConsumer | None:

@@ -80,6 +80,8 @@ def _factory_override(status: str | None, events: list[AsrTranscript]):
     repository.get_by_id = AsyncMock(return_value=_orm() if status else None)
     loader = MagicMock()
     loader.load = AsyncMock(return_value=MagicMock())
+    opening_loader = MagicMock()
+    opening_loader.get_opening_question = AsyncMock(return_value="")
     session_factory = _make_session_factory()
 
     def _build(session_id: int) -> VoiceWsOrchestrator:
@@ -93,6 +95,7 @@ def _factory_override(status: str | None, events: list[AsrTranscript]):
             tts_config_loader=loader,
             tts_client_factory=lambda _config: MagicMock(),
             dialogue_llm=MagicMock(),
+            opening_loader=opening_loader,
         )
 
     return lambda: _build

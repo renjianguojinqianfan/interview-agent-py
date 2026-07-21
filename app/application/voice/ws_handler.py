@@ -11,7 +11,9 @@
    -> 句子检测 -> 句子级并发 TTS（Semaphore(3) + wait_for(8s)）-> audio_chunk（base64 PCM 分块，
    末尾 isLast 标记）。AI 说话期间 + 结束后 800ms 冷却丢弃麦克风输入（回声抑制）。
 
-不含（#17）：阶段切换、开场问题、暂停超时警告、ASR 重连、对话消息 DB 持久化（仅内存历史）。
+本次（#17）新增：阶段切换（三规则自动流转）、开场问题（按 skillId 推送 + TTS 预合成）、
+暂停超时（270s 警告 / 300s 自动暂停断开）、ASR 重连（最多 2 次，每次延迟 10s）、
+每回合对话消息 DB 持久化（回填最近未答提问 + 插入新 AI 提问行）。
 """
 
 import asyncio
@@ -20,6 +22,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Protocol
 
 from fastapi import WebSocketDisconnect
@@ -33,9 +36,16 @@ from app.application.voice.ws_schemas import (
     ErrorMessage,
     SubtitleMessage,
     TextMessage,
+    WarningMessage,
     parse_client_message,
 )
-from app.domain.entities.voice_interview import VoiceSessionStatus
+from app.domain.entities.voice_interview import (
+    MESSAGE_TYPE_DIALOGUE,
+    PAUSE_IDLE_TIMEOUT_SECONDS,
+    PAUSE_WARNING_SECONDS,
+    InterviewPhase,
+    VoiceSessionStatus,
+)
 from app.domain.services.voice_dialogue import (
     ECHO_COOLDOWN_MS,
     TTS_MAX_CONCURRENCY,
@@ -45,9 +55,16 @@ from app.domain.services.voice_dialogue import (
     should_drop_audio,
     split_sentences,
 )
-from app.infrastructure.db.models.voice_interview import VoiceInterviewSession as VoiceInterviewSessionORM
+from app.domain.services.voice_phase import next_phase, should_transition_to_next_phase
+from app.infrastructure.db.models.voice_interview import (
+    VoiceInterviewMessage as VoiceInterviewMessageORM,
+)
+from app.infrastructure.db.models.voice_interview import (
+    VoiceInterviewSession as VoiceInterviewSessionORM,
+)
 from app.infrastructure.db.repositories.voice_interview_repository import VoiceInterviewRepository
 from app.infrastructure.redis.voice_session_cache import VoiceInterviewSessionCache
+from app.infrastructure.skills.opening_loader import OpeningQuestionLoader
 from app.infrastructure.voice.asr import AsrConnectionClosed, AsrConnectionConfig, AsrError, AsrTranscript
 from app.infrastructure.voice.config import AsrConfigLoader, TtsConfigLoader
 from app.infrastructure.voice.tts import TtsConnectionClosed, TtsConnectionConfig, TtsError, TtsEvent
@@ -56,6 +73,7 @@ logger = logging.getLogger(__name__)
 
 WS_CLOSE_SESSION_NOT_FOUND = 4004
 WS_CLOSE_INVALID_STATE = 4003
+WS_CLOSE_PAUSE_TIMEOUT = 4001
 
 _CONTROL_FINISH_ACTIONS = frozenset({"finish", "stop"})
 
@@ -138,8 +156,12 @@ class VoiceWsOrchestrator:
         tts_config_loader: TtsConfigLoader,
         tts_client_factory: Callable[[TtsConnectionConfig], TtsClient],
         dialogue_llm: VoiceDialogueLlm,
+        opening_loader: OpeningQuestionLoader,
         now_ms: Callable[[], float] | None = None,
         debounce_ms: float = 2500,
+        pause_check_ms: float = 30000,
+        asr_max_reconnect: int = 2,
+        asr_reconnect_delay_seconds: float = 10.0,
     ) -> None:
         self._session_id = session_id
         self._cache = cache
@@ -150,8 +172,12 @@ class VoiceWsOrchestrator:
         self._tts_config_loader = tts_config_loader
         self._tts_client_factory = tts_client_factory
         self._dialogue_llm = dialogue_llm
+        self._opening_loader = opening_loader
         self._now = now_ms or _now_ms
         self._debounce_ms = debounce_ms
+        self._pause_check_ms = pause_check_ms
+        self._asr_max_reconnect = asr_max_reconnect
+        self._asr_reconnect_delay_seconds = asr_reconnect_delay_seconds
 
         self._final_segments: list[str] = []
         self._history: list[tuple[str, str]] = []
@@ -162,6 +188,10 @@ class VoiceWsOrchestrator:
         self._audio_index: int = 0
         self._turn_lock = asyncio.Lock()
         self._commit_task: asyncio.Task[None] | None = None
+        self._phase_started_ms: float = 0.0
+        self._phase_question_count: int = 0
+        self._last_activity_ms: float = 0.0
+        self._pause_warned: bool = False
 
     @property
     def history(self) -> list[tuple[str, str]]:
@@ -183,15 +213,20 @@ class VoiceWsOrchestrator:
             await self._safe_send(ws, ErrorMessage(code="session_gone", message="会话已删除"))
             return
         self._context = _build_context(orm)
+        now = self._now()
+        self._phase_started_ms = now
+        self._last_activity_ms = now
         self._tts_config = await self._tts_config_loader.load()
+        await self._send_opening_question(ws)
 
-        asr = self._asr_client_factory(await self._asr_config_loader.load())
+        pause_task = asyncio.create_task(self._pause_watch(ws))
         try:
-            await asr.connect()
-            await self._pump(ws, asr)
+            await self._run_asr_loop(ws)
         finally:
+            pause_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pause_task
             await self._cancel_commit_task()
-            await asr.close()
 
     async def _load_session_status(self) -> str | None:
         try:
@@ -208,7 +243,7 @@ class VoiceWsOrchestrator:
         async with self._session_factory() as session:
             return await self._repository.get_by_id(session, self._session_id)
 
-    async def _pump(self, ws: ClientWebSocket, asr: AsrClient) -> None:
+    async def _pump(self, ws: ClientWebSocket, asr: AsrClient) -> str:
         client_task = asyncio.create_task(self._client_to_asr(ws, asr))
         asr_task = asyncio.create_task(self._asr_to_client(ws, asr))
         done, pending = await asyncio.wait({client_task, asr_task}, return_when=asyncio.FIRST_COMPLETED)
@@ -219,6 +254,26 @@ class VoiceWsOrchestrator:
             exc = task.exception()
             if exc is not None:
                 logger.warning("语音 WS 泵任务异常，连接终止: sessionId=%s, error=%s", self._session_id, exc)
+        return "client" if client_task in done else "asr"
+
+    async def _run_asr_loop(self, ws: ClientWebSocket) -> None:
+        """建立 ASR 连接并桥接；ASR 侧异常断开时最多重连 asr_max_reconnect 次（每次延迟）。"""
+        attempts = 0
+        while True:
+            asr = self._asr_client_factory(await self._asr_config_loader.load())
+            reason = "asr"
+            try:
+                await asr.connect()
+                reason = await self._pump(ws, asr)
+            except AsrError as e:
+                logger.warning("ASR 连接异常: sessionId=%s, error=%s", self._session_id, e)
+            finally:
+                await asr.close()
+            if reason == "client" or attempts >= self._asr_max_reconnect:
+                return
+            attempts += 1
+            logger.info("ASR 断开，第 %d/%d 次重连: sessionId=%s", attempts, self._asr_max_reconnect, self._session_id)
+            await asyncio.sleep(self._asr_reconnect_delay_seconds)
 
     async def _client_to_asr(self, ws: ClientWebSocket, asr: AsrClient) -> None:
         while True:
@@ -226,6 +281,8 @@ class VoiceWsOrchestrator:
                 raw = await ws.receive_text()
             except WebSocketDisconnect:
                 break
+            self._last_activity_ms = self._now()
+            self._pause_warned = False
             try:
                 message = parse_client_message(json.loads(raw))
             except (ValueError, json.JSONDecodeError):
@@ -321,9 +378,138 @@ class VoiceWsOrchestrator:
                 await self._safe_send(ws, AudioChunkMessage(index=self._next_audio_index(), data="", is_last=True))
                 if reply:
                     self._history.append((answer, reply))
+                    await self._persist_turn(answer, reply)
+                    self._phase_question_count += 1
+                    await self._maybe_transition_phase()
             finally:
                 self._ai_speaking = False
                 self._mute_until_ms = self._now() + ECHO_COOLDOWN_MS
+
+    async def _persist_turn(self, answer: str, reply: str) -> None:
+        """持久化一回合对话（对齐 Java saveMessage）：回填最近未答提问 + 插入新 AI 提问行。
+
+        最佳努力：失败仅记录日志，不影响实时对话（与 Java 一致）。
+        """
+        if self._context is None:
+            return
+        try:
+            async with self._session_factory() as session:
+                latest = await self._repository.find_latest_unanswered_message(session, self._session_id)
+                answer_attached = bool(answer) and latest is not None
+                if answer_attached and latest is not None:
+                    latest.user_recognized_text = answer
+                next_seq = await self._repository.count_messages_by_session(session, self._session_id) + 1
+                message = VoiceInterviewMessageORM(
+                    session_id=self._session_id,
+                    message_type=MESSAGE_TYPE_DIALOGUE,
+                    phase=self._context.current_phase,
+                    user_recognized_text=None if answer_attached else (answer or None),
+                    ai_generated_text=reply,
+                    sequence_num=next_seq,
+                )
+                await self._repository.save_message(session, message)
+                await session.commit()
+        except Exception as e:
+            logger.warning("语音对话消息持久化失败: sessionId=%s, error=%s", self._session_id, e)
+
+    async def _maybe_transition_phase(self) -> None:
+        """依三规则判定并切换到下一启用阶段（切换后重置计时/计数）。最佳努力，失败仅记录。"""
+        if self._context is None:
+            return
+        try:
+            current = InterviewPhase(self._context.current_phase)
+        except ValueError:
+            return
+        elapsed = (self._now() - self._phase_started_ms) / 1000
+        if not should_transition_to_next_phase(current, elapsed, self._phase_question_count):
+            return
+        try:
+            async with self._session_factory() as session:
+                orm = await self._repository.get_by_id(session, self._session_id)
+                if orm is None:
+                    return
+                nxt = next_phase(current, self._enabled_phases(orm))
+                await self._repository.update_current_phase(session, orm, nxt.value)
+                await session.commit()
+            self._context = replace(self._context, current_phase=nxt.value)
+            self._phase_started_ms = self._now()
+            self._phase_question_count = 0
+        except Exception as e:
+            logger.warning("语音阶段切换失败: sessionId=%s, error=%s", self._session_id, e)
+
+    @staticmethod
+    def _enabled_phases(orm: VoiceInterviewSessionORM) -> frozenset[InterviewPhase]:
+        enabled: set[InterviewPhase] = set()
+        if orm.intro_enabled:
+            enabled.add(InterviewPhase.INTRO)
+        if orm.tech_enabled:
+            enabled.add(InterviewPhase.TECH)
+        if orm.project_enabled:
+            enabled.add(InterviewPhase.PROJECT)
+        if orm.hr_enabled:
+            enabled.add(InterviewPhase.HR)
+        return frozenset(enabled)
+
+    async def _pause_watch(self, ws: ClientWebSocket) -> None:
+        """后台轮询暂停超时；达超时则关闭连接。"""
+        while True:
+            try:
+                await asyncio.sleep(self._pause_check_ms / 1000)
+            except asyncio.CancelledError:
+                return
+            if await self._check_pause_timeout(ws):
+                await ws.close(WS_CLOSE_PAUSE_TIMEOUT)
+                return
+
+    async def _check_pause_timeout(self, ws: ClientWebSocket) -> bool:
+        """>=300s 无活动置 PAUSED 并要求断开(返回 True)；>=270s 发一次 warning。"""
+        elapsed_ms = self._now() - self._last_activity_ms
+        if elapsed_ms >= PAUSE_IDLE_TIMEOUT_SECONDS * 1000:
+            await self._pause_session()
+            await self._safe_send(ws, WarningMessage(code="pause_timeout", message="长时间无活动，面试已暂停"))
+            return True
+        if elapsed_ms >= PAUSE_WARNING_SECONDS * 1000 and not self._pause_warned:
+            self._pause_warned = True
+            await self._safe_send(ws, WarningMessage(code="pause_timeout_warning", message="即将因无活动而暂停"))
+        return False
+
+    async def _pause_session(self) -> None:
+        try:
+            async with self._session_factory() as session:
+                orm = await self._repository.get_by_id(session, self._session_id)
+                if orm is None:
+                    return
+                await self._repository.pause_session(session, orm)
+                await session.commit()
+        except Exception as e:
+            logger.warning("语音会话暂停失败: sessionId=%s, error=%s", self._session_id, e)
+
+    async def _send_opening_question(self, ws: ClientWebSocket) -> None:
+        """连接建立后推送开场问题（文本 + TTS 预合成音频），并作为首行持久化。"""
+        if self._context is None:
+            return
+        opening = await self._opening_loader.get_opening_question(self._context.skill_id)
+        if not opening:
+            return
+        await self._safe_send(ws, TextMessage(text=opening, is_final=True))
+        self._ai_speaking = True
+        try:
+            await self._speak_text(ws, opening)
+        finally:
+            self._ai_speaking = False
+            self._mute_until_ms = self._now() + ECHO_COOLDOWN_MS
+        await self._persist_turn("", opening)
+
+    async def _speak_text(self, ws: ClientWebSocket, text: str) -> None:
+        """整段文本按句切分并发 TTS，按句序发送 audio_chunk，末尾 is_last。"""
+        sentences, remainder = split_sentences(text)
+        tail = remainder.strip()
+        if tail:
+            sentences.append(tail)
+        semaphore = asyncio.Semaphore(TTS_MAX_CONCURRENCY)
+        tasks = [asyncio.create_task(self._synthesize_sentence(sentence, semaphore)) for sentence in sentences]
+        await self._emit_audio_in_order(ws, tasks)
+        await self._safe_send(ws, AudioChunkMessage(index=self._next_audio_index(), data="", is_last=True))
 
     async def _emit_audio_in_order(self, ws: ClientWebSocket, tasks: list[asyncio.Task[list[str]]]) -> None:
         """按句子创建顺序等待各合成任务并发送音频块，逐任务隔离异常（不静默吞没）。"""
@@ -388,7 +574,7 @@ class VoiceWsOrchestrator:
     async def _safe_send(
         self,
         ws: ClientWebSocket,
-        message: SubtitleMessage | TextMessage | AudioChunkMessage | ErrorMessage,
+        message: SubtitleMessage | TextMessage | AudioChunkMessage | ErrorMessage | WarningMessage,
     ) -> None:
         try:
             await ws.send_text(json.dumps(message.model_dump(by_alias=True), ensure_ascii=False))

@@ -3,6 +3,7 @@
 各泵/回合单独测试以避免并发竞态；LLM/TTS/时钟均以 fake 注入。
 """
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
@@ -15,7 +16,7 @@ from app.application.voice.ws_handler import (
     VoiceWsOrchestrator,
 )
 from app.infrastructure.redis.voice_session_cache import CachedVoiceSession
-from app.infrastructure.voice.asr import AsrTranscript
+from app.infrastructure.voice.asr import AsrConnectionClosed, AsrTranscript
 from app.infrastructure.voice.tts import TtsConnectionClosed, TtsEvent
 
 
@@ -65,8 +66,6 @@ class _FakeAsr:
 
     async def receive(self) -> AsrTranscript | None:
         if not self._events:
-            from app.infrastructure.voice.asr import AsrConnectionClosed
-
             raise AsrConnectionClosed("closed", "connection closed")
         event = self._events.pop(0)
         if isinstance(event, Exception):
@@ -156,6 +155,9 @@ def _make_orchestrator(
     tts_events: list[TtsEvent] | None = None,
     debounce_ms: float = 2500,
     now_ms: float = 0.0,
+    opening: str = "",
+    asr_max_reconnect: int = 0,
+    asr_reconnect_delay: float = 0.0,
 ) -> VoiceWsOrchestrator:
     cache = MagicMock()
     cache.get_session = AsyncMock(return_value=_cached(cached_status) if cached_status else None)
@@ -166,6 +168,8 @@ def _make_orchestrator(
     tts_loader = MagicMock()
     tts_loader.load = AsyncMock(return_value=MagicMock())
     events = tts_events if tts_events is not None else [TtsEvent("QUJD", done=False), TtsEvent(None, done=True)]
+    opening_loader = MagicMock()
+    opening_loader.get_opening_question = AsyncMock(return_value=opening)
     return VoiceWsOrchestrator(
         session_id=1,
         cache=cache,
@@ -176,8 +180,11 @@ def _make_orchestrator(
         tts_config_loader=tts_loader,
         tts_client_factory=lambda _config: _FakeTts(list(events)),
         dialogue_llm=_FakeDialogueLlm(tokens or []),  # type: ignore[arg-type]
+        opening_loader=opening_loader,
         now_ms=lambda: now_ms,
         debounce_ms=debounce_ms,
+        asr_max_reconnect=asr_max_reconnect,
+        asr_reconnect_delay_seconds=asr_reconnect_delay,
     )
 
 
@@ -308,3 +315,198 @@ class TestEchoSuppression:
         asr = _FakeAsr()
         await orch._client_to_asr(ws, asr)
         assert ws.sent_of("error")[0]["code"] == "bad_message"
+
+
+class _FakeVoiceRepo:
+    """支持 #17 持久化方法的假仓储。"""
+
+    def __init__(self, latest: object = None, count: int = 0, orm: object = None) -> None:
+        self._latest = latest
+        self._count = count
+        self._orm = orm
+        self.saved: list[object] = []
+
+    async def find_latest_unanswered_message(self, _session: object, _pk: int) -> object:
+        return self._latest
+
+    async def count_messages_by_session(self, _session: object, _pk: int) -> int:
+        return self._count
+
+    async def save_message(self, _session: object, message: object) -> object:
+        self.saved.append(message)
+        return message
+
+    async def get_by_id(self, _session: object, _pk: int) -> object:
+        return self._orm
+
+    async def update_current_phase(self, _session: object, orm: object, phase: str) -> None:
+        orm.current_phase = phase
+
+    async def pause_session(self, _session: object, orm: object) -> None:
+        orm.status = "PAUSED"
+
+
+class TestPersistTurn:
+    async def test_backfills_latest_and_inserts_new_row(self) -> None:
+        latest = MagicMock(user_recognized_text=None, ai_generated_text="上一个问题")
+        repo = _FakeVoiceRepo(latest=latest, count=1)
+        orch = _make_orchestrator(tokens=["x"])
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+
+        await orch._persist_turn("我的回答", "新的问题")
+
+        assert latest.user_recognized_text == "我的回答"  # 回填最近未答提问
+        assert len(repo.saved) == 1
+        row = repo.saved[0]
+        assert row.ai_generated_text == "新的问题"
+        assert row.user_recognized_text is None  # 已回填到上一行，本行不重复
+        assert row.message_type == "DIALOGUE"
+        assert row.sequence_num == 2
+
+    async def test_no_latest_stores_answer_on_new_row(self) -> None:
+        repo = _FakeVoiceRepo(latest=None, count=0)
+        orch = _make_orchestrator()
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+
+        await orch._persist_turn("首答", "开场后的回复")
+
+        assert len(repo.saved) == 1
+        row = repo.saved[0]
+        assert row.user_recognized_text == "首答"
+        assert row.sequence_num == 1
+
+
+class TestOpeningQuestion:
+    async def test_sends_opening_text_and_audio(self) -> None:
+        orch = _make_orchestrator(opening="欢迎参加面试。")
+        _ready(orch)
+        ws = _FakeClientWs()
+        await orch._send_opening_question(ws)
+        texts = ws.sent_of("text")
+        assert texts and texts[0]["text"] == "欢迎参加面试。" and texts[0]["isFinal"] is True
+        audio = ws.sent_of("audio_chunk")
+        assert audio and audio[-1]["isLast"] is True
+
+    async def test_empty_opening_skipped(self) -> None:
+        orch = _make_orchestrator(opening="")
+        _ready(orch)
+        ws = _FakeClientWs()
+        await orch._send_opening_question(ws)
+        assert ws.sent == []
+
+
+def _phase_orm(current: str = "TECH", **enabled: bool) -> MagicMock:
+    flags = {"intro_enabled": True, "tech_enabled": True, "project_enabled": True, "hr_enabled": True}
+    flags.update(enabled)
+    return MagicMock(current_phase=current, **flags)
+
+
+class TestPhaseTransition:
+    async def test_transitions_to_next_enabled_phase(self) -> None:
+        orm = _phase_orm("TECH")
+        orch = _make_orchestrator()
+        _ready(orch)  # context current_phase=TECH, now_ms=0 -> elapsed 0
+        orch._repository = _FakeVoiceRepo(orm=orm)  # type: ignore[assignment]
+        orch._phase_question_count = 8  # >= TECH max_questions(8) -> 规则 2 切换
+        await orch._maybe_transition_phase()
+        assert orm.current_phase == "PROJECT"
+        assert orch._context is not None and orch._context.current_phase == "PROJECT"
+        assert orch._phase_question_count == 0
+
+    async def test_skips_disabled_next_phase(self) -> None:
+        orm = _phase_orm("TECH", project_enabled=False)
+        orch = _make_orchestrator()
+        _ready(orch)
+        orch._repository = _FakeVoiceRepo(orm=orm)  # type: ignore[assignment]
+        orch._phase_question_count = 8
+        await orch._maybe_transition_phase()
+        assert orch._context is not None and orch._context.current_phase == "HR"  # PROJECT 禁用 -> HR
+
+    async def test_no_transition_below_thresholds(self) -> None:
+        orch = _make_orchestrator()
+        _ready(orch)
+        orch._phase_question_count = 1
+        await orch._maybe_transition_phase()
+        assert orch._context is not None and orch._context.current_phase == "TECH"
+
+
+class TestPauseTimeout:
+    async def test_no_action_before_warning(self) -> None:
+        orch = _make_orchestrator(now_ms=0.0)
+        _ready(orch)
+        orch._last_activity_ms = 0.0
+        ws = _FakeClientWs()
+        stop = await orch._check_pause_timeout(ws)
+        assert stop is False
+        assert ws.sent == []
+
+    async def test_sends_warning_between_270s_and_300s(self) -> None:
+        orch = _make_orchestrator(now_ms=275_000.0)  # 275s: >270s 且 <300s
+        _ready(orch)
+        orch._last_activity_ms = 0.0
+        ws = _FakeClientWs()
+        stop = await orch._check_pause_timeout(ws)
+        assert stop is False
+        assert ws.sent_of("warning")[0]["code"] == "pause_timeout_warning"
+
+    async def test_warning_sent_only_once(self) -> None:
+        orch = _make_orchestrator(now_ms=275_000.0)
+        _ready(orch)
+        orch._last_activity_ms = 0.0
+        ws = _FakeClientWs()
+        await orch._check_pause_timeout(ws)
+        await orch._check_pause_timeout(ws)
+        assert len(ws.sent_of("warning")) == 1
+
+    async def test_pauses_and_stops_at_300s(self) -> None:
+        orm = _phase_orm("TECH")
+        orch = _make_orchestrator(now_ms=305_000.0)  # >300s
+        _ready(orch)
+        orch._repository = _FakeVoiceRepo(orm=orm)  # type: ignore[assignment]
+        orch._last_activity_ms = 0.0
+        ws = _FakeClientWs()
+        stop = await orch._check_pause_timeout(ws)
+        assert stop is True
+        assert orm.status == "PAUSED"
+        assert ws.sent_of("warning")[0]["code"] == "pause_timeout"
+
+
+class _BlockingClientWs(_FakeClientWs):
+    async def receive_text(self) -> str:
+        await asyncio.Event().wait()  # 永不返回，直到被取消
+        return ""
+
+
+class _ReconnectAsr:
+    def __init__(self) -> None:
+        self.connect_count = 0
+        self.closed_count = 0
+
+    async def connect(self) -> None:
+        self.connect_count += 1
+
+    async def send_audio(self, _base64_pcm: str) -> None:
+        pass
+
+    async def finish(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        self.closed_count += 1
+
+    async def receive(self) -> AsrTranscript | None:
+        raise AsrConnectionClosed("closed", "drop")
+
+
+class TestAsrReconnect:
+    async def test_reconnects_up_to_max_then_stops(self) -> None:
+        asr = _ReconnectAsr()
+        orch = _make_orchestrator(
+            cached_status="IN_PROGRESS", db_orm=_orm(), asr=asr, asr_max_reconnect=2, asr_reconnect_delay=0.0
+        )
+        ws = _BlockingClientWs()
+        await orch.run(ws)
+        assert asr.connect_count == 3  # 1 初始 + 2 重连
+        assert asr.closed_count == 3
