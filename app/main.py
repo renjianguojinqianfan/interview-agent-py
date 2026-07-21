@@ -31,6 +31,7 @@ from app.api.routers.rag_chat import router as rag_chat_router
 from app.api.routers.resume import router as resume_router
 from app.api.routers.skill import router as skill_router
 from app.api.routers.voice_interview import router as voice_interview_router
+from app.api.routers.voice_ws import router as voice_ws_router
 from app.application.llm_provider.service import seed_default_provider, seed_global_setting, seed_voice_config
 from app.config.settings import settings
 from app.infrastructure.db.session import async_session_factory
@@ -93,6 +94,7 @@ app.include_router(knowledgebase_router)
 app.include_router(rag_chat_router)
 app.include_router(llm_provider_router)
 app.include_router(voice_interview_router)
+app.include_router(voice_ws_router)
 
 
 @app.get("/health")

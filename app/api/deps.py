@@ -1,5 +1,5 @@
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -16,6 +16,7 @@ from app.application.resume.analysis import ResumeAnalysisService
 from app.application.resume.service import ResumeService
 from app.application.skill.service import SkillService
 from app.application.voice.service import VoiceEvaluationService, VoiceSessionService
+from app.application.voice.ws_handler import VoiceWsOrchestrator
 from app.config.settings import settings
 from app.graphs.evaluation import EvaluationGraph
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
@@ -64,6 +65,8 @@ from app.infrastructure.tasks.resume_analyze_producer import AnalyzeStreamProduc
 from app.infrastructure.tasks.voice_evaluate_consumer import VoiceEvaluateStreamConsumer
 from app.infrastructure.tasks.voice_evaluate_producer import VoiceEvaluateStreamProducer
 from app.infrastructure.vector.repository import VectorRepository
+from app.infrastructure.voice.asr import QwenAsrClient
+from app.infrastructure.voice.config import AsrConfigLoader
 
 _redis_client: RedisClient | None = None
 _s3_storage: S3StorageService | None = None
@@ -88,6 +91,7 @@ _voice_repository: VoiceInterviewRepository | None = None
 _voice_session_cache: VoiceInterviewSessionCache | None = None
 _voice_evaluate_producer: VoiceEvaluateStreamProducer | None = None
 _voice_evaluate_consumer: VoiceEvaluateStreamConsumer | None = None
+_asr_config_loader: AsrConfigLoader | None = None
 
 logger = logging.getLogger(__name__)
 
@@ -428,6 +432,35 @@ def get_voice_evaluation_service(
         session=session,
         repository=get_voice_repository(),
     )
+
+
+def get_asr_config_loader() -> AsrConfigLoader:
+    global _asr_config_loader
+    if _asr_config_loader is None:
+        _asr_config_loader = AsrConfigLoader(
+            session_factory=async_session_factory,
+            repository=VoiceConfigRepository(),
+            encryption_service=ApiKeyEncryptionService(settings.app_ai_config_encryption_key),
+        )
+    return _asr_config_loader
+
+
+def get_voice_ws_orchestrator_factory() -> Callable[[int], VoiceWsOrchestrator]:
+    loader = get_asr_config_loader()
+    cache = get_voice_session_cache()
+    repository = get_voice_repository()
+
+    def _build(session_id: int) -> VoiceWsOrchestrator:
+        return VoiceWsOrchestrator(
+            session_id=session_id,
+            cache=cache,
+            repository=repository,
+            session_factory=async_session_factory,
+            asr_config_loader=loader,
+            asr_client_factory=lambda config: QwenAsrClient(config),
+        )
+
+    return _build
 
 
 async def start_voice_evaluate_consumer() -> VoiceEvaluateStreamConsumer | None:
