@@ -21,31 +21,27 @@ class KnowledgeBaseUploadResponse(BaseSchema):
 
 class KnowledgeBaseListItemDTO(BaseSchema):
     id: int
-    filename: str
-    file_size: int | None
+    name: str
+    category: str | None = None
+    original_filename: str
+    file_size: int | None = None
+    content_type: str | None = None
     uploaded_at: NaiveIsoDatetime
-    chunk_count: int
+    last_accessed_at: NaiveIsoDatetime
+    access_count: int
+    question_count: int
     vector_status: str
-    vector_error: str | None
-    vectorized_at: NaiveIsoDatetime | None
-
-
-class KnowledgeBasePageDTO(BaseSchema):
-    items: list[KnowledgeBaseListItemDTO]
-    total: int
-    page: int
-    size: int
-
-
-class KnowledgeBaseDetailDTO(BaseSchema):
-    id: int
-    filename: str
-    file_size: int | None
-    content_type: str | None
-    storage_url: str | None
-    uploaded_at: NaiveIsoDatetime
-    content_text: str | None
+    vector_error: str | None = None
     chunk_count: int
-    vector_status: str
-    vector_error: str | None
-    vectorized_at: NaiveIsoDatetime | None
+
+
+class KnowledgeBaseStatsDTO(BaseSchema):
+    total_count: int
+    total_question_count: int
+    total_access_count: int
+    completed_count: int
+    processing_count: int
+
+
+class UpdateCategoryRequest(BaseSchema):
+    category: str | None = None

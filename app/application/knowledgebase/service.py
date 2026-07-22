@@ -4,10 +4,9 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.knowledgebase.schemas import (
-    KnowledgeBaseDetailDTO,
     KnowledgeBaseInfoDTO,
     KnowledgeBaseListItemDTO,
-    KnowledgeBasePageDTO,
+    KnowledgeBaseStatsDTO,
     KnowledgeBaseUploadResponse,
     StorageInfoDTO,
 )
@@ -15,6 +14,7 @@ from app.domain.entities.task_status import AsyncTaskStatus
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
+from app.infrastructure.db.repositories.rag_chat_repository import RagChatRepository
 from app.infrastructure.parsing.content_type import ContentTypeDetector
 from app.infrastructure.parsing.parser import DocumentParser
 from app.infrastructure.storage.hash import FileHashService
@@ -25,6 +25,12 @@ from app.infrastructure.vector.repository import VectorRepository
 logger = logging.getLogger(__name__)
 
 _KB_STORAGE_PREFIX = "knowledge-bases"
+_USER_MESSAGE_ROLE = "user"
+
+
+def _normalize_category(category: str | None) -> str | None:
+    """空白分类归一为 None（对齐 Java KnowledgeBaseListService 的 isBlank() 语义）。"""
+    return category if category and category.strip() else None
 
 
 class KnowledgeBaseService:
@@ -34,6 +40,7 @@ class KnowledgeBaseService:
         self,
         session: AsyncSession,
         repository: KnowledgeBaseRepository,
+        rag_repository: RagChatRepository,
         parser: DocumentParser,
         hash_service: FileHashService,
         content_detector: ContentTypeDetector,
@@ -45,6 +52,7 @@ class KnowledgeBaseService:
     ) -> None:
         self._session = session
         self._repository = repository
+        self._rag_repository = rag_repository
         self._parser = parser
         self._hash_service = hash_service
         self._content_detector = content_detector
@@ -54,7 +62,14 @@ class KnowledgeBaseService:
         self._allowed_types = allowed_types
         self._max_file_size = max_file_size
 
-    async def upload(self, filename: str, content_type: str, data: bytes) -> KnowledgeBaseUploadResponse:
+    async def upload(
+        self,
+        filename: str,
+        content_type: str,
+        data: bytes,
+        name: str | None = None,
+        category: str | None = None,
+    ) -> KnowledgeBaseUploadResponse:
         self._validate_size(data)
         detected_type = self._content_detector.detect(data, filename)
         if not self._is_allowed(detected_type):
@@ -82,6 +97,8 @@ class KnowledgeBaseService:
         kb = KnowledgeBase(
             file_hash=file_hash,
             original_filename=filename,
+            name=name or filename,
+            category=category or None,
             file_size=len(data),
             content_type=content_type or detected_type,
             storage_key=storage_key,
@@ -104,41 +121,59 @@ class KnowledgeBaseService:
             duplicate=False,
         )
 
-    async def list_knowledge_bases(self, page: int, size: int) -> KnowledgeBasePageDTO:
-        kbs, total = await self._repository.list_paginated(self._session, page, size)
-        items = [
-            KnowledgeBaseListItemDTO(
-                id=kb.id,
-                filename=kb.original_filename,
-                file_size=kb.file_size,
-                uploaded_at=kb.uploaded_at,
-                chunk_count=kb.chunk_count,
-                vector_status=kb.vector_status,
-                vector_error=kb.vector_error,
-                vectorized_at=kb.vectorized_at,
-            )
-            for kb in kbs
-        ]
-        return KnowledgeBasePageDTO(items=items, total=total, page=page, size=size)
+    async def list_knowledge_bases(
+        self, sort_by: str | None = None, vector_status: str | None = None
+    ) -> list[KnowledgeBaseListItemDTO]:
+        kbs = await self._repository.list_all(self._session, vector_status)
+        return [self._to_list_item(kb) for kb in self._sort(kbs, sort_by)]
 
-    async def get_detail(self, kb_id: int) -> KnowledgeBaseDetailDTO:
+    async def list_by_category(self, category: str | None) -> list[KnowledgeBaseListItemDTO]:
+        kbs = await self._repository.list_by_category(self._session, _normalize_category(category))
+        return [self._to_list_item(kb) for kb in kbs]
+
+    async def list_categories(self) -> list[str]:
+        return await self._repository.list_categories(self._session)
+
+    async def search(self, keyword: str) -> list[KnowledgeBaseListItemDTO]:
+        if not keyword or not keyword.strip():
+            return await self.list_knowledge_bases()
+        kbs = await self._repository.search(self._session, keyword.strip())
+        return [self._to_list_item(kb) for kb in kbs]
+
+    async def update_category(self, kb_id: int, category: str | None) -> None:
         kb = await self._repository.get_by_id(self._session, kb_id)
         if kb is None:
             raise BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
+        normalized = _normalize_category(category)
+        await self._repository.update_category(self._session, kb, normalized)
+        await self._session.commit()
+        logger.info("更新知识库分类: knowledgeBaseId=%s, category=%s", kb_id, normalized)
 
-        return KnowledgeBaseDetailDTO(
-            id=kb.id,
-            filename=kb.original_filename,
-            file_size=kb.file_size,
-            content_type=kb.content_type,
-            storage_url=kb.storage_url,
-            uploaded_at=kb.uploaded_at,
-            content_text=kb.content_text,
-            chunk_count=kb.chunk_count,
-            vector_status=kb.vector_status,
-            vector_error=kb.vector_error,
-            vectorized_at=kb.vectorized_at,
+    async def get_statistics(self) -> KnowledgeBaseStatsDTO:
+        total_count = await self._repository.count_all(self._session)
+        total_access_count = await self._repository.sum_access_count(self._session)
+        completed_count = await self._repository.count_by_vector_status(self._session, AsyncTaskStatus.COMPLETED.value)
+        processing_count = await self._repository.count_by_vector_status(
+            self._session, AsyncTaskStatus.PROCESSING.value
         )
+        # 总提问次数以 RAG 用户消息计（多知识库提问只算一次），对齐 Java KnowledgeBaseListService.getStatistics。
+        total_question_count = await self._rag_repository.count_messages_by_role(self._session, _USER_MESSAGE_ROLE)
+        return KnowledgeBaseStatsDTO(
+            total_count=total_count,
+            total_question_count=total_question_count,
+            total_access_count=total_access_count,
+            completed_count=completed_count,
+            processing_count=processing_count,
+        )
+
+    async def download(self, kb_id: int) -> tuple[bytes, str, str | None]:
+        kb = await self._repository.get_by_id(self._session, kb_id)
+        if kb is None:
+            raise BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
+        if not kb.storage_key:
+            raise BusinessException(ErrorCode.STORAGE_DOWNLOAD_FAILED, "文件存储信息不存在")
+        data = await self._storage.download_file(kb.storage_key)
+        return data, kb.original_filename, kb.content_type
 
     async def delete(self, kb_id: int) -> None:
         kb = await self._repository.get_by_id(self._session, kb_id)
@@ -195,4 +230,34 @@ class KnowledgeBaseService:
             id=kb.id,
             filename=kb.original_filename,
             vector_status=kb.vector_status,
+        )
+
+    def _sort(self, kbs: list[KnowledgeBase], sort_by: str | None) -> list[KnowledgeBase]:
+        """内存排序，对齐 Java KnowledgeBaseListService.sortEntities（time 走库层已排序）。"""
+        if not sort_by or sort_by.lower() == "time":
+            return kbs
+        key = sort_by.lower()
+        if key == "size":
+            return sorted(kbs, key=lambda kb: kb.file_size or 0, reverse=True)
+        if key == "access":
+            return sorted(kbs, key=lambda kb: kb.access_count, reverse=True)
+        if key == "question":
+            return sorted(kbs, key=lambda kb: kb.question_count, reverse=True)
+        return kbs
+
+    def _to_list_item(self, kb: KnowledgeBase) -> KnowledgeBaseListItemDTO:
+        return KnowledgeBaseListItemDTO(
+            id=kb.id,
+            name=kb.name or kb.original_filename,
+            category=kb.category,
+            original_filename=kb.original_filename,
+            file_size=kb.file_size,
+            content_type=kb.content_type,
+            uploaded_at=kb.uploaded_at,
+            last_accessed_at=kb.last_accessed_at or kb.uploaded_at,
+            access_count=kb.access_count,
+            question_count=kb.question_count,
+            vector_status=kb.vector_status,
+            vector_error=kb.vector_error,
+            chunk_count=kb.chunk_count,
         )

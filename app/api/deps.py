@@ -220,6 +220,7 @@ def get_knowledge_base_service(
     return KnowledgeBaseService(
         session=session,
         repository=KnowledgeBaseRepository(),
+        rag_repository=RagChatRepository(),
         parser=DocumentParser(TextCleaner()),
         hash_service=FileHashService(),
         content_detector=ContentTypeDetector(),

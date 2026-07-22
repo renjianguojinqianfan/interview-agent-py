@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase
@@ -22,17 +22,61 @@ class KnowledgeBaseRepository:
         await session.flush()
         return kb
 
-    async def list_paginated(self, session: AsyncSession, page: int, size: int) -> tuple[list[KnowledgeBase], int]:
-        offset = (page - 1) * size
-        items_result = await session.execute(
-            select(KnowledgeBase).order_by(KnowledgeBase.uploaded_at.desc()).offset(offset).limit(size)
+    async def list_all(self, session: AsyncSession, vector_status: str | None = None) -> list[KnowledgeBase]:
+        query = select(KnowledgeBase)
+        if vector_status is not None:
+            query = query.where(KnowledgeBase.vector_status == vector_status)
+        query = query.order_by(KnowledgeBase.uploaded_at.desc())
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    async def list_by_category(self, session: AsyncSession, category: str | None) -> list[KnowledgeBase]:
+        query = select(KnowledgeBase)
+        query = (
+            query.where(KnowledgeBase.category.is_(None))
+            if category is None
+            else query.where(KnowledgeBase.category == category)
         )
-        items = list(items_result.scalars().all())
+        query = query.order_by(KnowledgeBase.uploaded_at.desc())
+        result = await session.execute(query)
+        return list(result.scalars().all())
 
-        count_result = await session.execute(select(func.count()).select_from(KnowledgeBase))
-        total = int(count_result.scalar() or 0)
+    async def list_categories(self, session: AsyncSession) -> list[str]:
+        result = await session.execute(
+            select(KnowledgeBase.category)
+            .where(KnowledgeBase.category.is_not(None))
+            .distinct()
+            .order_by(KnowledgeBase.category.asc())
+        )
+        return [c for c in result.scalars().all() if c is not None]
 
-        return items, total
+    async def search(self, session: AsyncSession, keyword: str) -> list[KnowledgeBase]:
+        pattern = f"%{keyword}%"
+        result = await session.execute(
+            select(KnowledgeBase)
+            .where(
+                or_(
+                    KnowledgeBase.name.ilike(pattern),
+                    KnowledgeBase.original_filename.ilike(pattern),
+                )
+            )
+            .order_by(KnowledgeBase.uploaded_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def count_all(self, session: AsyncSession) -> int:
+        result = await session.execute(select(func.count()).select_from(KnowledgeBase))
+        return int(result.scalar() or 0)
+
+    async def sum_access_count(self, session: AsyncSession) -> int:
+        result = await session.execute(select(func.coalesce(func.sum(KnowledgeBase.access_count), 0)))
+        return int(result.scalar() or 0)
+
+    async def count_by_vector_status(self, session: AsyncSession, status: str) -> int:
+        result = await session.execute(
+            select(func.count()).select_from(KnowledgeBase).where(KnowledgeBase.vector_status == status)
+        )
+        return int(result.scalar() or 0)
 
     async def delete(self, session: AsyncSession, kb: KnowledgeBase) -> None:
         await session.delete(kb)
@@ -42,6 +86,10 @@ class KnowledgeBaseRepository:
     ) -> None:
         kb.vector_status = status
         kb.vector_error = error
+        await session.flush()
+
+    async def update_category(self, session: AsyncSession, kb: KnowledgeBase, category: str | None) -> None:
+        kb.category = category
         await session.flush()
 
     async def mark_vectorized(self, session: AsyncSession, kb: KnowledgeBase, job_id: str, chunk_count: int) -> None:

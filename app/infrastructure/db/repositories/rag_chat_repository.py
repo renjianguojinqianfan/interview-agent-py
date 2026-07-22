@@ -47,6 +47,12 @@ class RagChatRepository:
         await session.flush()
         return message
 
+    async def count_messages_by_role(self, session: AsyncSession, role: str) -> int:
+        result = await session.execute(
+            select(func.count()).select_from(RagChatMessage).where(RagChatMessage.role == role)
+        )
+        return int(result.scalar() or 0)
+
     async def list_messages(self, session: AsyncSession, session_pk: int) -> list[RagChatMessage]:
         result = await session.execute(
             select(RagChatMessage)
