@@ -22,17 +22,17 @@ class ResumeRepository:
         await session.flush()
         return resume
 
-    async def list_paginated(self, session: AsyncSession, page: int, size: int) -> tuple[list[Resume], int]:
-        offset = (page - 1) * size
-        items_result = await session.execute(
-            select(Resume).order_by(Resume.uploaded_at.desc()).offset(offset).limit(size)
-        )
-        items = list(items_result.scalars().all())
+    async def list_all(self, session: AsyncSession) -> list[Resume]:
+        result = await session.execute(select(Resume).order_by(Resume.uploaded_at.desc()))
+        return list(result.scalars().all())
 
-        count_result = await session.execute(select(func.count()).select_from(Resume))
-        total = int(count_result.scalar() or 0)
+    async def count_all(self, session: AsyncSession) -> int:
+        result = await session.execute(select(func.count()).select_from(Resume))
+        return int(result.scalar() or 0)
 
-        return items, total
+    async def sum_access_count(self, session: AsyncSession) -> int:
+        result = await session.execute(select(func.coalesce(func.sum(Resume.access_count), 0)))
+        return int(result.scalar() or 0)
 
     async def delete(self, session: AsyncSession, resume: Resume) -> None:
         await session.delete(resume)

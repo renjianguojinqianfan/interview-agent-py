@@ -27,15 +27,29 @@ class ResumeListItemDTO(BaseSchema):
     access_count: int
     latest_score: int | None
     last_analyzed_at: NaiveIsoDatetime | None
+    interview_count: int
     analyze_status: str
     analyze_error: str | None
 
 
-class ResumePageDTO(BaseSchema):
-    items: list[ResumeListItemDTO]
-    total: int
-    page: int
-    size: int
+class ResumeStatsDTO(BaseSchema):
+    total_count: int
+    total_interview_count: int
+    total_access_count: int
+
+
+class InterviewHistoryItemDTO(BaseSchema):
+    """简历详情页展示的关联面试记录项（对齐 Java InterviewHistoryItemDTO）。"""
+
+    id: int
+    session_id: str
+    total_questions: int
+    status: str
+    evaluate_status: str | None = None
+    evaluate_error: str | None = None
+    overall_score: int | None = None
+    created_at: NaiveIsoDatetime
+    completed_at: NaiveIsoDatetime | None = None
 
 
 class AnalysisHistoryDTO(BaseSchema):
@@ -64,3 +78,4 @@ class ResumeDetailDTO(BaseSchema):
     analyze_status: str
     analyze_error: str | None
     analyses: list[AnalysisHistoryDTO]
+    interviews: list[InterviewHistoryItemDTO]

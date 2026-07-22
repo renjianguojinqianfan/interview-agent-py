@@ -150,6 +150,29 @@ class InterviewRepository:
     ) -> None:
         await session.delete(interview_session)
 
+    async def count_all(self, session: AsyncSession) -> int:
+        result = await session.execute(select(func.count()).select_from(InterviewSessionORM))
+        return int(result.scalar() or 0)
+
+    async def count_by_resume_ids(self, session: AsyncSession, resume_ids: list[int]) -> dict[int, int]:
+        """按 resumeId 分组统计面试会话数（一次查询），用于简历列表页 interviewCount。"""
+        if not resume_ids:
+            return {}
+        result = await session.execute(
+            select(InterviewSessionORM.resume_id, func.count())
+            .where(InterviewSessionORM.resume_id.in_(resume_ids))
+            .group_by(InterviewSessionORM.resume_id)
+        )
+        return {int(resume_id): int(count) for resume_id, count in result.all() if resume_id is not None}
+
+    async def find_by_resume_id(self, session: AsyncSession, resume_id: int) -> list[InterviewSessionORM]:
+        result = await session.execute(
+            select(InterviewSessionORM)
+            .where(InterviewSessionORM.resume_id == resume_id)
+            .order_by(InterviewSessionORM.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def save_answer(
         self,
         session: AsyncSession,

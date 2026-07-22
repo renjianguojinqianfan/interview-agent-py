@@ -175,6 +175,7 @@ def get_resume_service(
     return ResumeService(
         session=session,
         repository=ResumeRepository(),
+        interview_repository=get_interview_repository(),
         parser=DocumentParser(TextCleaner()),
         hash_service=FileHashService(),
         content_detector=ContentTypeDetector(),

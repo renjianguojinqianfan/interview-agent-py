@@ -12,7 +12,7 @@ from app.application.resume.schemas import (
     ResumeDetailDTO,
     ResumeInfoDTO,
     ResumeListItemDTO,
-    ResumePageDTO,
+    ResumeStatsDTO,
     ResumeUploadResponse,
     StorageInfoDTO,
 )
@@ -34,25 +34,25 @@ def _upload_response(resume_id: int = 1, duplicate: bool = False) -> ResumeUploa
     )
 
 
-def _page_dto() -> ResumePageDTO:
-    return ResumePageDTO(
-        items=[
-            ResumeListItemDTO(
-                id=1,
-                filename="resume.pdf",
-                file_size=1024,
-                uploaded_at=datetime(2026, 7, 15, 10, 0, 0),
-                access_count=1,
-                latest_score=None,
-                last_analyzed_at=None,
-                analyze_status="PENDING",
-                analyze_error=None,
-            )
-        ],
-        total=1,
-        page=1,
-        size=10,
-    )
+def _list_items() -> list[ResumeListItemDTO]:
+    return [
+        ResumeListItemDTO(
+            id=1,
+            filename="resume.pdf",
+            file_size=1024,
+            uploaded_at=datetime(2026, 7, 15, 10, 0, 0),
+            access_count=1,
+            latest_score=None,
+            last_analyzed_at=None,
+            interview_count=3,
+            analyze_status="PENDING",
+            analyze_error=None,
+        )
+    ]
+
+
+def _stats_dto() -> ResumeStatsDTO:
+    return ResumeStatsDTO(total_count=2, total_interview_count=5, total_access_count=9)
 
 
 def _detail_dto() -> ResumeDetailDTO:
@@ -68,6 +68,7 @@ def _detail_dto() -> ResumeDetailDTO:
         analyze_status="PENDING",
         analyze_error=None,
         analyses=[],
+        interviews=[],
     )
 
 
@@ -75,6 +76,7 @@ def _mock_service() -> MagicMock:
     service = MagicMock()
     service.upload = AsyncMock()
     service.list_resumes = AsyncMock()
+    service.get_statistics = AsyncMock()
     service.get_detail = AsyncMock()
     service.delete = AsyncMock()
     service.reanalyze = AsyncMock()
@@ -155,27 +157,40 @@ class TestUploadResume:
 
 
 class TestListResumes:
-    def test_returns_paginated_list(self, mock_service: MagicMock) -> None:
-        mock_service.list_resumes.return_value = _page_dto()
+    def test_returns_bare_array(self, mock_service: MagicMock) -> None:
+        mock_service.list_resumes.return_value = _list_items()
 
-        response = client.get("/api/resumes?page=1&size=10")
+        response = client.get("/api/resumes")
 
         assert response.status_code == 200
         body = response.json()
         assert body["code"] == 200
-        assert body["data"]["total"] == 1
-        assert body["data"]["page"] == 1
-        assert body["data"]["size"] == 10
-        assert len(body["data"]["items"]) == 1
-        assert body["data"]["items"][0]["id"] == 1
-        assert body["data"]["items"][0]["analyzeStatus"] == "PENDING"
+        assert isinstance(body["data"], list)
+        assert len(body["data"]) == 1
+        assert body["data"][0]["id"] == 1
+        assert body["data"][0]["interviewCount"] == 3
+        assert body["data"][0]["analyzeStatus"] == "PENDING"
 
-    def test_uses_default_pagination(self, mock_service: MagicMock) -> None:
-        mock_service.list_resumes.return_value = _page_dto()
+    def test_calls_service_without_pagination(self, mock_service: MagicMock) -> None:
+        mock_service.list_resumes.return_value = _list_items()
 
         client.get("/api/resumes")
 
-        mock_service.list_resumes.assert_awaited_once_with(page=1, size=10)
+        mock_service.list_resumes.assert_awaited_once_with()
+
+
+class TestResumeStatistics:
+    def test_returns_aggregate_counts(self, mock_service: MagicMock) -> None:
+        mock_service.get_statistics.return_value = _stats_dto()
+
+        response = client.get("/api/resumes/statistics")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["code"] == 200
+        assert body["data"]["totalCount"] == 2
+        assert body["data"]["totalInterviewCount"] == 5
+        assert body["data"]["totalAccessCount"] == 9
 
 
 class TestGetResumeDetail:
@@ -190,6 +205,7 @@ class TestGetResumeDetail:
         assert body["data"]["id"] == 1
         assert body["data"]["resumeText"] == "张三 Java 工程师"
         assert body["data"]["analyses"] == []
+        assert body["data"]["interviews"] == []
 
     def test_not_found_returns_error(self, mock_service: MagicMock) -> None:
         mock_service.get_detail.side_effect = BusinessException(ErrorCode.RESUME_NOT_FOUND)

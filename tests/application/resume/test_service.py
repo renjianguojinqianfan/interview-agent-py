@@ -6,11 +6,12 @@ import pytest
 
 from app.application.resume.schemas import (
     ResumeDetailDTO,
-    ResumePageDTO,
+    ResumeStatsDTO,
     ResumeUploadResponse,
 )
 from app.application.resume.service import ResumeService
 from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.db.models.interview import InterviewSession
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
 
 
@@ -41,7 +42,9 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
     repository.find_by_hash = AsyncMock()
     repository.get_by_id = AsyncMock()
     repository.save = AsyncMock(side_effect=lambda _session, resume: setattr(resume, "id", 1) or resume)
-    repository.list_paginated = AsyncMock()
+    repository.list_all = AsyncMock(return_value=[])
+    repository.count_all = AsyncMock(return_value=0)
+    repository.sum_access_count = AsyncMock(return_value=0)
     repository.delete = AsyncMock()
     repository.increment_access_count = AsyncMock()
     repository.find_latest_analysis = AsyncMock()
@@ -50,6 +53,11 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
 
     repository.update_analyze_status = AsyncMock()
     repository.save_analysis = AsyncMock()
+
+    interview_repository = MagicMock()
+    interview_repository.count_by_resume_ids = AsyncMock(return_value={})
+    interview_repository.find_by_resume_id = AsyncMock(return_value=[])
+    interview_repository.count_all = AsyncMock(return_value=0)
 
     parser = MagicMock()
     hash_service = MagicMock()
@@ -68,6 +76,7 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
     service = ResumeService(
         session=session,
         repository=repository,
+        interview_repository=interview_repository,
         parser=parser,
         hash_service=hash_service,
         content_detector=content_detector,
@@ -86,6 +95,7 @@ def _make_service() -> tuple[ResumeService, dict[str, MagicMock | AsyncMock]]:
     return service, {
         "session": session,
         "repository": repository,
+        "interview_repository": interview_repository,
         "parser": parser,
         "hash_service": hash_service,
         "content_detector": content_detector,
@@ -236,33 +246,48 @@ class TestUploadValidation:
 
 
 class TestListResumes:
-    async def test_returns_paginated_items_and_total(self) -> None:
+    async def test_returns_bare_list_with_interview_count(self) -> None:
         service, deps = _make_service()
         resumes = [_make_resume(id=1), _make_resume(id=2)]
-        deps["repository"].list_paginated.return_value = (resumes, 2)
+        deps["repository"].list_all.return_value = resumes
         deps["repository"].find_latest_analysis.return_value = None
+        deps["interview_repository"].count_by_resume_ids.return_value = {1: 3}
 
-        result = await service.list_resumes(page=1, size=10)
+        result = await service.list_resumes()
 
-        assert isinstance(result, ResumePageDTO)
-        assert result.total == 2
-        assert result.page == 1
-        assert result.size == 10
-        assert len(result.items) == 2
-        assert result.items[0].id == 1
-        assert result.items[0].latest_score is None
-        assert result.items[0].analyze_status == "PENDING"
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0].id == 1
+        assert result[0].interview_count == 3
+        assert result[1].interview_count == 0
+        assert result[0].latest_score is None
+        assert result[0].analyze_status == "PENDING"
 
     async def test_populates_latest_score_when_analysis_exists(self) -> None:
         service, deps = _make_service()
         resume = _make_resume(id=1, analyze_status="COMPLETED")
-        deps["repository"].list_paginated.return_value = ([resume], 1)
+        deps["repository"].list_all.return_value = [resume]
         analysis = ResumeAnalysis(id=1, resume_id=1, overall_score=88)
         deps["repository"].find_latest_analysis.return_value = analysis
 
-        result = await service.list_resumes(page=1, size=10)
+        result = await service.list_resumes()
 
-        assert result.items[0].latest_score == 88
+        assert result[0].latest_score == 88
+
+
+class TestGetStatistics:
+    async def test_aggregates_resume_interview_and_access_counts(self) -> None:
+        service, deps = _make_service()
+        deps["repository"].count_all.return_value = 5
+        deps["repository"].sum_access_count.return_value = 12
+        deps["interview_repository"].count_all.return_value = 7
+
+        result = await service.get_statistics()
+
+        assert isinstance(result, ResumeStatsDTO)
+        assert result.total_count == 5
+        assert result.total_interview_count == 7
+        assert result.total_access_count == 12
 
 
 class TestGetDetail:
@@ -304,6 +329,36 @@ class TestGetDetail:
             await service.get_detail(999)
 
         assert exc_info.value.error_code == ErrorCode.RESUME_NOT_FOUND
+
+    async def test_includes_linked_interviews(self) -> None:
+        service, deps = _make_service()
+        deps["repository"].get_by_id.return_value = _make_resume(id=1)
+        deps["repository"].find_analyses_by_resume_id.return_value = []
+        deps["interview_repository"].find_by_resume_id.return_value = [
+            InterviewSession(
+                id=10,
+                session_id="sess-abc",
+                skill_id="java-backend",
+                difficulty="mid",
+                resume_id=1,
+                total_questions=5,
+                status="EVALUATED",
+                evaluate_status="COMPLETED",
+                evaluate_error=None,
+                overall_score=82,
+                created_at=datetime(2026, 7, 15, 12, 0, 0),
+                completed_at=datetime(2026, 7, 15, 12, 30, 0),
+            )
+        ]
+
+        result = await service.get_detail(1)
+
+        deps["interview_repository"].find_by_resume_id.assert_awaited_once()
+        assert len(result.interviews) == 1
+        assert result.interviews[0].session_id == "sess-abc"
+        assert result.interviews[0].total_questions == 5
+        assert result.interviews[0].overall_score == 82
+        assert result.interviews[0].evaluate_status == "COMPLETED"
 
 
 class TestDeleteResume:

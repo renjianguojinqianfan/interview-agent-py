@@ -279,3 +279,48 @@ class TestUpdateAnswerEvaluation:
         assert answer.reference_answer == "标准答案"
         assert answer.key_points_json == '["要点1"]'
         session.flush.assert_awaited_once()
+
+
+class TestCountAll:
+    async def test_returns_count(self, repo: InterviewRepository, session: AsyncMock) -> None:
+        result_mock = MagicMock()
+        result_mock.scalar.return_value = 4
+        session.execute.return_value = result_mock
+
+        assert await repo.count_all(session) == 4
+
+
+class TestCountByResumeIds:
+    async def test_returns_empty_for_empty_ids(self, repo: InterviewRepository, session: AsyncMock) -> None:
+        assert await repo.count_by_resume_ids(session, []) == {}
+        session.execute.assert_not_awaited()
+
+    async def test_maps_resume_id_to_count(self, repo: InterviewRepository, session: AsyncMock) -> None:
+        result_mock = MagicMock()
+        result_mock.all.return_value = [(1, 3), (2, 1)]
+        session.execute.return_value = result_mock
+
+        result = await repo.count_by_resume_ids(session, [1, 2])
+
+        assert result == {1: 3, 2: 1}
+
+    async def test_skips_null_resume_id(self, repo: InterviewRepository, session: AsyncMock) -> None:
+        result_mock = MagicMock()
+        result_mock.all.return_value = [(None, 2), (1, 3)]
+        session.execute.return_value = result_mock
+
+        result = await repo.count_by_resume_ids(session, [1])
+
+        assert result == {1: 3}
+
+
+class TestFindByResumeId:
+    async def test_returns_sessions_for_resume(self, repo: InterviewRepository, session: AsyncMock) -> None:
+        sessions = [_make_session_orm(session_id="s1"), _make_session_orm(session_id="s2")]
+        result_mock = MagicMock()
+        result_mock.scalars.return_value.all.return_value = sessions
+        session.execute.return_value = result_mock
+
+        result = await repo.find_by_resume_id(session, 1)
+
+        assert result == sessions

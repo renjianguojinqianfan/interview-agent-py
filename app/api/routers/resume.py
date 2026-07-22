@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import Response
 
 from app.api.deps import get_resume_service
@@ -6,7 +6,8 @@ from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.resume.schemas import (
     ResumeDetailDTO,
-    ResumePageDTO,
+    ResumeListItemDTO,
+    ResumeStatsDTO,
     ResumeUploadResponse,
 )
 from app.application.resume.service import ResumeService
@@ -29,13 +30,19 @@ async def upload_resume(
     return Result.success(data=result)
 
 
-@router.get("", response_model=Result[ResumePageDTO])
+@router.get("", response_model=Result[list[ResumeListItemDTO]])
 async def list_resumes(
-    page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1, le=100),
     service: ResumeService = Depends(get_resume_service),
-) -> Result[ResumePageDTO]:
-    result = await service.list_resumes(page=page, size=size)
+) -> Result[list[ResumeListItemDTO]]:
+    result = await service.list_resumes()
+    return Result.success(data=result)
+
+
+@router.get("/statistics", response_model=Result[ResumeStatsDTO])
+async def get_resume_statistics(
+    service: ResumeService = Depends(get_resume_service),
+) -> Result[ResumeStatsDTO]:
+    result = await service.get_statistics()
     return Result.success(data=result)
 
 

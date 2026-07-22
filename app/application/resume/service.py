@@ -6,16 +6,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.resume.schemas import (
     AnalysisHistoryDTO,
+    InterviewHistoryItemDTO,
     ResumeDetailDTO,
     ResumeInfoDTO,
     ResumeListItemDTO,
-    ResumePageDTO,
+    ResumeStatsDTO,
     ResumeUploadResponse,
     StorageInfoDTO,
 )
 from app.domain.entities.task_status import AsyncTaskStatus
 from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.db.models.interview import InterviewSession
 from app.infrastructure.db.models.resume import Resume, ResumeAnalysis
+from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
 from app.infrastructure.export.pdf import PdfExportService
 from app.infrastructure.parsing.content_type import ContentTypeDetector
@@ -36,6 +39,7 @@ class ResumeService:
         self,
         session: AsyncSession,
         repository: ResumeRepository,
+        interview_repository: InterviewRepository,
         parser: DocumentParser,
         hash_service: FileHashService,
         content_detector: ContentTypeDetector,
@@ -47,6 +51,7 @@ class ResumeService:
     ) -> None:
         self._session = session
         self._repository = repository
+        self._interview_repository = interview_repository
         self._parser = parser
         self._hash_service = hash_service
         self._content_detector = content_detector
@@ -109,8 +114,11 @@ class ResumeService:
             duplicate=False,
         )
 
-    async def list_resumes(self, page: int, size: int) -> ResumePageDTO:
-        resumes, total = await self._repository.list_paginated(self._session, page, size)
+    async def list_resumes(self) -> list[ResumeListItemDTO]:
+        resumes = await self._repository.list_all(self._session)
+        interview_counts = await self._interview_repository.count_by_resume_ids(
+            self._session, [resume.id for resume in resumes]
+        )
         items: list[ResumeListItemDTO] = []
         for resume in resumes:
             latest_analysis = await self._repository.find_latest_analysis(self._session, resume.id)
@@ -123,11 +131,22 @@ class ResumeService:
                     access_count=resume.access_count,
                     latest_score=latest_analysis.overall_score if latest_analysis else None,
                     last_analyzed_at=latest_analysis.analyzed_at if latest_analysis else None,
+                    interview_count=interview_counts.get(resume.id, 0),
                     analyze_status=resume.analyze_status,
                     analyze_error=resume.analyze_error,
                 )
             )
-        return ResumePageDTO(items=items, total=total, page=page, size=size)
+        return items
+
+    async def get_statistics(self) -> ResumeStatsDTO:
+        total_count = await self._repository.count_all(self._session)
+        total_access_count = await self._repository.sum_access_count(self._session)
+        total_interview_count = await self._interview_repository.count_all(self._session)
+        return ResumeStatsDTO(
+            total_count=total_count,
+            total_interview_count=total_interview_count,
+            total_access_count=total_access_count,
+        )
 
     async def get_detail(self, resume_id: int) -> ResumeDetailDTO:
         resume = await self._repository.get_by_id(self._session, resume_id)
@@ -136,6 +155,9 @@ class ResumeService:
 
         analyses = await self._repository.find_analyses_by_resume_id(self._session, resume_id)
         analysis_dtos = [self._to_analysis_dto(a) for a in analyses]
+
+        interviews = await self._interview_repository.find_by_resume_id(self._session, resume_id)
+        interview_dtos = [self._to_interview_history_item(i) for i in interviews]
 
         return ResumeDetailDTO(
             id=resume.id,
@@ -149,6 +171,7 @@ class ResumeService:
             analyze_status=resume.analyze_status,
             analyze_error=resume.analyze_error,
             analyses=analysis_dtos,
+            interviews=interview_dtos,
         )
 
     async def delete(self, resume_id: int) -> None:
@@ -236,4 +259,17 @@ class ResumeService:
             analyzed_at=analysis.analyzed_at,
             strengths=strengths,
             suggestions=suggestions,
+        )
+
+    def _to_interview_history_item(self, session: InterviewSession) -> InterviewHistoryItemDTO:
+        return InterviewHistoryItemDTO(
+            id=session.id,
+            session_id=session.session_id,
+            total_questions=session.total_questions,
+            status=session.status,
+            evaluate_status=session.evaluate_status,
+            evaluate_error=session.evaluate_error,
+            overall_score=session.overall_score,
+            created_at=session.created_at,
+            completed_at=session.completed_at,
         )

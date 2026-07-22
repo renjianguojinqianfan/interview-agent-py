@@ -92,31 +92,41 @@ class TestSave:
         assert result is resume
 
 
-class TestListPaginated:
-    async def test_returns_items_and_total_for_first_page(self, repo: ResumeRepository, session: AsyncMock) -> None:
+class TestListAll:
+    async def test_returns_all_resumes(self, repo: ResumeRepository, session: AsyncMock) -> None:
         resumes = [_make_resume(id=1), _make_resume(id=2)]
-        items_result = MagicMock()
-        items_result.scalars.return_value.all.return_value = resumes
-        count_result = MagicMock()
-        count_result.scalar.return_value = 2
-        session.execute.side_effect = [items_result, count_result]
+        result_mock = MagicMock()
+        result_mock.scalars.return_value.all.return_value = resumes
+        session.execute.return_value = result_mock
 
-        items, total = await repo.list_paginated(session, page=1, size=10)
+        result = await repo.list_all(session)
 
-        assert items == resumes
-        assert total == 2
+        assert result == resumes
 
-    async def test_returns_empty_when_no_resumes(self, repo: ResumeRepository, session: AsyncMock) -> None:
-        items_result = MagicMock()
-        items_result.scalars.return_value.all.return_value = []
-        count_result = MagicMock()
-        count_result.scalar.return_value = 0
-        session.execute.side_effect = [items_result, count_result]
 
-        items, total = await repo.list_paginated(session, page=1, size=10)
+class TestCountAll:
+    async def test_returns_count(self, repo: ResumeRepository, session: AsyncMock) -> None:
+        result_mock = MagicMock()
+        result_mock.scalar.return_value = 3
+        session.execute.return_value = result_mock
 
-        assert items == []
-        assert total == 0
+        assert await repo.count_all(session) == 3
+
+
+class TestSumAccessCount:
+    async def test_returns_sum(self, repo: ResumeRepository, session: AsyncMock) -> None:
+        result_mock = MagicMock()
+        result_mock.scalar.return_value = 17
+        session.execute.return_value = result_mock
+
+        assert await repo.sum_access_count(session) == 17
+
+    async def test_returns_zero_when_null(self, repo: ResumeRepository, session: AsyncMock) -> None:
+        result_mock = MagicMock()
+        result_mock.scalar.return_value = None
+        session.execute.return_value = result_mock
+
+        assert await repo.sum_access_count(session) == 0
 
 
 class TestDelete:
