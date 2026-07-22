@@ -6,12 +6,13 @@
 
 - **项目名称**：interview-agent-py
 - **一句话描述**：基于 LangGraph 的智能面试官平台后端，提供简历分析、模拟面试、RAG 知识库检索等能力。
-- **项目类型**：`backend`（Python Web 服务）
+- **项目类型**：`fullstack`（Python Web 服务 + React 前端）
 - **技术栈**：
   - Python 3.13 + uv（包管理）+ FastAPI（Web 框架）
   - SQLAlchemy 2.0（async）+ PostgreSQL + pgvector（数据持久化与向量检索）
   - LangGraph（AI Agent 编排）
   - pytest（测试）+ ruff（代码规范）+ mypy（类型检查）
+  - 前端：React 18 + TypeScript + Vite + TailwindCSS（`frontend/`，pnpm 管理，需 Node ≥ 20，复用自 Java 版本，见 ADR-0001/0014）
 
 ## 2. 常用命令
 
@@ -32,7 +33,13 @@ uv run ruff format .                     # 代码格式化
 # 类型检查
 uv run mypy app/                         # 提交前必须通过
 
-# 一键质量门禁（推荐提交前运行）
+# 前端（需 Node >= 20 + pnpm）
+pnpm --dir frontend install              # 安装前端依赖
+pnpm --dir frontend dev                  # 前端开发服务器 -> http://localhost:5173（代理 /api、/ws 到 8000）
+pnpm --dir frontend run lint             # 前端 lint（eslint）
+pnpm --dir frontend run build            # 前端构建（tsc + vite build）
+
+# 一键质量门禁（前后端，推荐提交前运行）
 make verify
 ```
 
@@ -44,6 +51,7 @@ make verify
 - `app/infrastructure/` - 基础设施层（仓储实现、外部服务适配器、数据库模型）
 - `app/config/` - 配置管理（环境变量、应用配置）
 - `app/graphs/` - LangGraph 子图（仅统一评估子图 + 语音管线，D3 决策；可依赖 domain + infrastructure，不属于 DDD 分层）
+- `frontend/` - 前端（React + TS + Vite，复用自 Java 版本；`src/` 下 pages/components/api/hooks/types，pnpm 管理）
 - `tests/` - 测试代码（单元测试 + 集成测试，镜像 app/ 目录结构）
 - `.githooks/` - Git hooks（commit-msg + pre-commit，通过 `core.hooksPath` 配置）
 - `docs/` - 项目文档（迁移计划、开发流程、ADR、agent 配置）
@@ -67,7 +75,7 @@ make verify
 
 ## 5. 行为边界
 
-- ✅ **允许**：修改 `app/` 和 `tests/` 下代码；运行测试与类型检查；编写单元测试
+- ✅ **允许**：修改 `app/`、`tests/` 和 `frontend/` 下代码；运行测试与类型检查；编写单元测试
 - ⚠️ **需确认**：修改 `pyproject.toml` 依赖
 
 ## 6. 完成定义（Definition of Done）
@@ -78,9 +86,10 @@ make verify
 2. `uv run ruff check .` 通过
 3. `uv run ruff format --check .` 通过
 4. `uv run mypy app/` 通过
-5. 已获用户确认（**禁止未经确认的提交**）
+5. 前端 lint / typecheck / build 通过（涉及 `frontend/` 改动时）
+6. 已获用户确认（**禁止未经确认的提交**）
 
-等价快捷方式：`make verify` 一键全检通过（test + typecheck + lint + format-check）。
+等价快捷方式：`make verify` 一键全检通过（后端 test + typecheck + lint + format-check，前端 lint + typecheck + build；需 Node ≥ 20 + pnpm）。
 
 ## 7. 上下文维护
 
@@ -94,7 +103,7 @@ make verify
 
 Git hooks 位于 `.githooks/` 目录（通过 `core.hooksPath` 配置），自动执行质量门禁，无需手动维护：
 
-- `pre-commit` - 提交前运行 `pytest` + `ruff check` + `ruff format --check` + `mypy`，失败阻止提交
+- `pre-commit` - 提交前运行 `pytest` + `ruff check` + `ruff format --check` + `mypy` + 前端 `eslint` + `tsc`（不含 vite build，保提交速度），失败阻止提交
 - `commit-msg` - 校验 commit message 格式（`<type>(<scope>): <subject>`），不符合阻止提交
 
 ## 8. Git 提交规范

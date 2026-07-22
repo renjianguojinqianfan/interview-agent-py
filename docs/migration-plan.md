@@ -17,6 +17,7 @@
 | D4 | 文档解析方案 | **unstructured 通用（方案A）** | 统一用 `unstructured` 库解析所有格式（PDF/DOCX/TXT/MD） |
 | D5 | PDF 导出方案 | **WeasyPrint（方案A）** | HTML/CSS 模板生成 PDF，排版灵活 |
 | D6 | 数据库迁移策略 | **Alembic（方案A）** | 版本化管理 schema 变更 |
+| D7 | 前端归属 | **并入 Python 单仓（`frontend/`）** | Java 版 React+TS+Vite 前端整体搬入，dev 代理指向 8000 + `/ws`；`make verify` 双栈覆盖，语音 WS 契约由后端补齐（`sessionId`/`webSocketUrl`），见 ADR-0014 |
 
 ---
 

@@ -11,6 +11,7 @@
 - **Redis**（缓存与消息队列）
 - **MinIO**（S3 兼容对象存储）
 - **pytest** + **ruff** + **mypy**（测试与代码质量）
+- **前端**：React 18 + TypeScript + Vite + TailwindCSS（`frontend/`，pnpm 管理）
 
 ## 快速启动
 
@@ -29,6 +30,20 @@ uv run uvicorn app.main:app --reload
 ```
 
 服务启动后访问 http://localhost:8000，API 文档见 http://localhost:8000/docs。
+
+## 前端（frontend/）
+
+复用自 Java 版本的 React + TypeScript 前端，需 **Node ≥ 20 + pnpm**：
+
+```bash
+# 1. 安装依赖
+pnpm --dir frontend install
+
+# 2. 启动前端开发服务器（默认 http://localhost:5173）
+pnpm --dir frontend dev
+```
+
+前端 dev server 将 `/api` 与 `/ws` 反向代理到 Python 后端（默认 `http://localhost:8000`，可用 `VITE_API_PROXY_TARGET` 覆盖，见 `frontend/.env.example`）。因此需同时启动后端（`uv run uvicorn app.main:app --reload`）。
 
 ## 容器化部署
 
@@ -69,9 +84,11 @@ cp .env.example .env
 ## 质量门禁
 
 ```bash
-make verify     # test + typecheck + lint + format-check 一键检查
+make verify     # 后端 test/typecheck/lint/format-check + 前端 lint/typecheck/build 一键检查
 make format     # ruff 代码格式化
 ```
+
+> `make verify` 现同时覆盖前后端，需本机具备 Node ≥ 20 + pnpm。
 
 ## 许可证
 
