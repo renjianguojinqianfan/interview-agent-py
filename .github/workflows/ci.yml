@@ -48,3 +48,28 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
           fail_ci_if_error: false
+
+      # ===== 前端质量门禁 =====
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm --dir frontend install --frozen-lockfile
+
+      - name: Frontend lint (eslint)
+        run: pnpm --dir frontend run lint
+
+      - name: Frontend type check (tsc)
+        run: pnpm --dir frontend run typecheck
+
+      - name: Frontend build (vite)
+        run: pnpm --dir frontend run build
