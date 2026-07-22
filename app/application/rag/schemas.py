@@ -1,4 +1,5 @@
 from app.api.responses import BaseSchema, NaiveIsoDatetime
+from app.application.knowledgebase.schemas import KnowledgeBaseListItemDTO
 
 
 class CreateRagSessionRequest(BaseSchema):
@@ -6,55 +7,55 @@ class CreateRagSessionRequest(BaseSchema):
     title: str | None = None
 
 
-class RagQueryRequest(BaseSchema):
+class SendMessageRequest(BaseSchema):
     question: str
 
 
-class RagSessionInfoDTO(BaseSchema):
+class UpdateTitleRequest(BaseSchema):
+    title: str
+
+
+class RagSessionDTO(BaseSchema):
+    """创建会话响应（对齐 Java RagChatDTO.SessionDTO）。"""
+
     id: int
-    session_id: str
     title: str | None
-    status: str
-    pinned: bool
     knowledge_base_ids: list[int]
     created_at: NaiveIsoDatetime
+
+
+class RagSessionListItemDTO(BaseSchema):
+    """会话列表项（对齐 Java RagChatDTO.SessionListItemDTO）。"""
+
+    id: int
+    title: str | None
+    message_count: int
+    knowledge_base_names: list[str]
     updated_at: NaiveIsoDatetime
+    is_pinned: bool
 
 
-class RagSessionPageDTO(BaseSchema):
-    items: list[RagSessionInfoDTO]
-    total: int
-    page: int
-    size: int
+class RagMessageDTO(BaseSchema):
+    """消息项：type 为 'user' | 'assistant'（对齐 Java RagChatDTO.MessageDTO）。"""
+
+    id: int
+    type: str
+    content: str | None
+    created_at: NaiveIsoDatetime
+
+
+class RagSessionDetailDTO(BaseSchema):
+    """会话详情（对齐 Java RagChatDTO.SessionDetailDTO）。"""
+
+    id: int
+    title: str | None
+    knowledge_bases: list[KnowledgeBaseListItemDTO]
+    messages: list[RagMessageDTO]
+    created_at: NaiveIsoDatetime
+    updated_at: NaiveIsoDatetime
 
 
 class RagSourceDTO(BaseSchema):
     content: str
     score: float
     kb_id: int
-
-
-class RagMessageDTO(BaseSchema):
-    id: int
-    role: str
-    content: str | None
-    sources: list[RagSourceDTO]
-    created_at: NaiveIsoDatetime
-
-
-class RagSessionDetailDTO(BaseSchema):
-    id: int
-    session_id: str
-    title: str | None
-    status: str
-    pinned: bool
-    knowledge_base_ids: list[int]
-    created_at: NaiveIsoDatetime
-    updated_at: NaiveIsoDatetime
-    messages: list[RagMessageDTO]
-
-
-class RagAnswerDTO(BaseSchema):
-    answer: str
-    sources: list[RagSourceDTO]
-    no_result: bool

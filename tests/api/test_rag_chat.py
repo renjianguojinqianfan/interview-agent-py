@@ -7,13 +7,12 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_rag_chat_service
 from app.api.rate_limit import limiter
+from app.application.knowledgebase.schemas import KnowledgeBaseListItemDTO
 from app.application.rag.schemas import (
-    RagAnswerDTO,
     RagMessageDTO,
     RagSessionDetailDTO,
-    RagSessionInfoDTO,
-    RagSessionPageDTO,
-    RagSourceDTO,
+    RagSessionDTO,
+    RagSessionListItemDTO,
 )
 from app.domain.errors import BusinessException, ErrorCode
 from app.main import app
@@ -21,59 +20,68 @@ from app.main import app
 client = TestClient(app)
 
 
-def _info(session_id: str = "sess-abc") -> RagSessionInfoDTO:
-    return RagSessionInfoDTO(
+def _session_dto() -> RagSessionDTO:
+    return RagSessionDTO(
         id=1,
-        session_id=session_id,
         title="会话",
-        status="ACTIVE",
-        pinned=False,
         knowledge_base_ids=[1, 2],
         created_at=datetime(2026, 7, 20, 10, 0, 0),
+    )
+
+
+def _list_item() -> RagSessionListItemDTO:
+    return RagSessionListItemDTO(
+        id=1,
+        title="会话",
+        message_count=3,
+        knowledge_base_names=["知识库A", "知识库B"],
         updated_at=datetime(2026, 7, 20, 10, 0, 0),
+        is_pinned=True,
+    )
+
+
+def _kb_item() -> KnowledgeBaseListItemDTO:
+    return KnowledgeBaseListItemDTO(
+        id=1,
+        name="知识库A",
+        category=None,
+        original_filename="doc.pdf",
+        file_size=100,
+        content_type="application/pdf",
+        uploaded_at=datetime(2026, 7, 20, 10, 0, 0),
+        last_accessed_at=datetime(2026, 7, 20, 10, 0, 0),
+        access_count=0,
+        question_count=0,
+        vector_status="COMPLETED",
+        vector_error=None,
+        chunk_count=1,
     )
 
 
 def _detail() -> RagSessionDetailDTO:
     return RagSessionDetailDTO(
         id=1,
-        session_id="sess-abc",
         title="会话",
-        status="ACTIVE",
-        pinned=False,
-        knowledge_base_ids=[1, 2],
+        knowledge_bases=[_kb_item()],
+        messages=[RagMessageDTO(id=1, type="user", content="问题", created_at=datetime(2026, 7, 20, 10, 1, 0))],
         created_at=datetime(2026, 7, 20, 10, 0, 0),
         updated_at=datetime(2026, 7, 20, 10, 0, 0),
-        messages=[
-            RagMessageDTO(id=1, role="user", content="问题", sources=[], created_at=datetime(2026, 7, 20, 10, 1, 0)),
-        ],
-    )
-
-
-def _answer() -> RagAnswerDTO:
-    return RagAnswerDTO(
-        answer="这是答案",
-        sources=[RagSourceDTO(content="片段A", score=0.9, kb_id=1)],
-        no_result=False,
     )
 
 
 async def _sse_gen() -> AsyncIterator[str]:
-    yield 'data: {"delta": "这是"}\n\n'
-    yield 'data: {"delta": "答案"}\n\n'
-    yield "data: [DONE]\n\n"
+    yield "data: 这是\n\n"
+    yield "data: 答案\n\n"
 
 
 def _mock_service() -> MagicMock:
     service = MagicMock()
-    service.create_session = AsyncMock(return_value=_info())
-    service.list_sessions = AsyncMock(return_value=RagSessionPageDTO(items=[_info()], total=1, page=1, size=10))
+    service.create_session = AsyncMock(return_value=_session_dto())
+    service.list_sessions = AsyncMock(return_value=[_list_item()])
     service.get_detail = AsyncMock(return_value=_detail())
+    service.update_title = AsyncMock()
+    service.toggle_pin = AsyncMock()
     service.delete = AsyncMock()
-    service.toggle_pin = AsyncMock(return_value=True)
-    service.get_messages = AsyncMock(return_value=_detail().messages)
-    service.query = AsyncMock(return_value=_answer())
-    service.ensure_session_exists = AsyncMock()
     service.stream_query = MagicMock(side_effect=lambda *a, **k: _sse_gen())
     return service
 
@@ -95,84 +103,75 @@ def mock_service() -> Iterator[MagicMock]:
 
 class TestCreateSession:
     def test_creates_session(self, mock_service: MagicMock) -> None:
-        response = client.post("/api/rag/sessions", json={"knowledgeBaseIds": [1, 2], "title": "会话"})
+        response = client.post("/api/rag-chat/sessions", json={"knowledgeBaseIds": [1, 2], "title": "会话"})
         assert response.status_code == 200
         body = response.json()
         assert body["code"] == 200
+        assert body["data"]["id"] == 1
         assert body["data"]["knowledgeBaseIds"] == [1, 2]
         mock_service.create_session.assert_awaited_once_with([1, 2], "会话")
 
 
 class TestListSessions:
-    def test_returns_page(self, mock_service: MagicMock) -> None:
-        response = client.get("/api/rag/sessions?page=1&size=10")
+    def test_returns_bare_array_with_contract_fields(self, mock_service: MagicMock) -> None:
+        response = client.get("/api/rag-chat/sessions")
         body = response.json()
         assert body["code"] == 200
-        assert body["data"]["total"] == 1
-        assert body["data"]["items"][0]["sessionId"] == "sess-abc"
+        assert isinstance(body["data"], list)
+        item = body["data"][0]
+        assert item["id"] == 1
+        assert item["messageCount"] == 3
+        assert item["knowledgeBaseNames"] == ["知识库A", "知识库B"]
+        assert item["isPinned"] is True
 
 
 class TestGetSession:
-    def test_returns_detail(self, mock_service: MagicMock) -> None:
-        response = client.get("/api/rag/sessions/sess-abc")
+    def test_returns_detail_with_typed_messages(self, mock_service: MagicMock) -> None:
+        response = client.get("/api/rag-chat/sessions/1")
         body = response.json()
-        assert body["data"]["messages"][0]["role"] == "user"
+        assert body["code"] == 200
+        assert body["data"]["knowledgeBases"][0]["id"] == 1
+        assert body["data"]["messages"][0]["type"] == "user"
 
     def test_not_found(self, mock_service: MagicMock) -> None:
         mock_service.get_detail.side_effect = BusinessException(ErrorCode.RAG_SESSION_NOT_FOUND)
-        response = client.get("/api/rag/sessions/missing")
+        response = client.get("/api/rag-chat/sessions/999")
         assert response.json()["code"] == ErrorCode.RAG_SESSION_NOT_FOUND.code
 
 
-class TestDeletePin:
-    def test_delete(self, mock_service: MagicMock) -> None:
-        response = client.delete("/api/rag/sessions/sess-abc")
+class TestUpdateTitleAndPin:
+    def test_update_title(self, mock_service: MagicMock) -> None:
+        response = client.put("/api/rag-chat/sessions/1/title", json={"title": "新标题"})
         assert response.json()["code"] == 200
-        mock_service.delete.assert_awaited_once_with("sess-abc")
+        mock_service.update_title.assert_awaited_once_with(1, "新标题")
 
-    def test_pin_returns_state(self, mock_service: MagicMock) -> None:
-        response = client.post("/api/rag/sessions/sess-abc/pin")
-        assert response.json()["data"] is True
-
-
-class TestMessages:
-    def test_returns_messages(self, mock_service: MagicMock) -> None:
-        response = client.get("/api/rag/sessions/sess-abc/messages")
-        body = response.json()
-        assert body["code"] == 200
-        assert len(body["data"]) == 1
+    def test_pin_uses_put_and_returns_null(self, mock_service: MagicMock) -> None:
+        response = client.put("/api/rag-chat/sessions/1/pin")
+        assert response.status_code == 200
+        assert response.json()["data"] is None
+        mock_service.toggle_pin.assert_awaited_once_with(1)
 
 
-class TestQuery:
-    def test_returns_answer(self, mock_service: MagicMock) -> None:
-        response = client.post("/api/rag/sessions/sess-abc/query", json={"question": "什么是索引？"})
-        body = response.json()
-        assert body["code"] == 200
-        assert body["data"]["answer"] == "这是答案"
-        assert body["data"]["noResult"] is False
-
-    def test_rate_limit_blocks_eleventh(self, mock_service: MagicMock) -> None:
-        codes: list[int] = []
-        for _ in range(11):
-            resp = client.post("/api/rag/sessions/sess-abc/query", json={"question": "q"})
-            codes.append(resp.json()["code"])
-        assert codes[:10] == [200] * 10
-        assert codes[10] == ErrorCode.RATE_LIMIT_EXCEEDED.code
+class TestDelete:
+    def test_delete(self, mock_service: MagicMock) -> None:
+        response = client.delete("/api/rag-chat/sessions/1")
+        assert response.json()["code"] == 200
+        mock_service.delete.assert_awaited_once_with(1)
 
 
-class TestQueryStream:
-    def test_returns_event_stream(self, mock_service: MagicMock) -> None:
-        response = client.post("/api/rag/sessions/sess-abc/query/stream", json={"question": "什么是索引？"})
+class TestMessagesStream:
+    def test_returns_text_event_stream(self, mock_service: MagicMock) -> None:
+        response = client.post("/api/rag-chat/sessions/1/messages/stream", json={"question": "什么是索引？"})
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
         assert "data:" in response.text
-        assert "[DONE]" in response.text
-        mock_service.ensure_session_exists.assert_awaited_once_with("sess-abc")
+        assert "[DONE]" not in response.text
+        mock_service.stream_query.assert_called_once_with(1, "什么是索引？")
 
     def test_rate_limit_blocks_sixth(self, mock_service: MagicMock) -> None:
         results: list[str] = []
         for _ in range(6):
-            resp = client.post("/api/rag/sessions/sess-abc/query/stream", json={"question": "q"})
+            resp = client.post("/api/rag-chat/sessions/1/messages/stream", json={"question": "q"})
             results.append(resp.text)
         assert all("data:" in r for r in results[:5])
         assert str(ErrorCode.RATE_LIMIT_EXCEEDED.code) in results[5]

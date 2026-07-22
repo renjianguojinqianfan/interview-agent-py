@@ -10,6 +10,7 @@ import pytest
 
 from app.application.rag.service import RagChatService, RagConfig
 from app.domain.errors import BusinessException, ErrorCode
+from app.infrastructure.db.models.knowledge_base import KnowledgeBase
 from app.infrastructure.db.models.rag_chat import RagChatSession
 from app.infrastructure.vector.repository import SearchResult
 
@@ -37,6 +38,30 @@ def _make_session(**overrides: Any) -> RagChatSession:
     return RagChatSession(**defaults)
 
 
+def _make_kb(**overrides: Any) -> KnowledgeBase:
+    defaults: dict[str, Any] = {
+        "id": 1,
+        "file_hash": "h",
+        "original_filename": "doc.pdf",
+        "name": "知识库A",
+        "category": None,
+        "file_size": 100,
+        "content_type": "application/pdf",
+        "storage_key": "k",
+        "storage_url": "u",
+        "content_text": "t",
+        "chunk_count": 1,
+        "access_count": 0,
+        "question_count": 0,
+        "vector_status": "COMPLETED",
+        "vector_error": None,
+        "uploaded_at": datetime(2026, 7, 20, 10, 0, 0),
+        "last_accessed_at": None,
+    }
+    defaults.update(overrides)
+    return KnowledgeBase(**defaults)
+
+
 def _make_factory() -> MagicMock:
     factory = MagicMock()
     factory.return_value.__aenter__ = AsyncMock(return_value=AsyncMock())
@@ -61,14 +86,15 @@ async def _astream_then_raise(exc: BaseException, tokens: list[str] | None = Non
 def _make_service(**over: Any) -> tuple[RagChatService, dict[str, Any]]:
     session = over.get("session") or AsyncMock()
     repository = MagicMock()
-    repository.get_by_session_id = over.get("get_by_session_id") or AsyncMock(return_value=_make_session())
-    repository.get_by_id = AsyncMock()
-    repository.list_paginated = AsyncMock(return_value=([], 0))
+    repository.get_by_id = over.get("get_by_id") or AsyncMock(return_value=_make_session())
+    repository.list_all = AsyncMock(return_value=[])
+    repository.count_messages = AsyncMock(return_value=0)
     repository.list_messages = AsyncMock(return_value=[])
     repository.recent_history = AsyncMock(return_value=[])
     repository.add_message = AsyncMock()
     repository.delete = AsyncMock()
     repository.update_pinned = AsyncMock()
+    repository.update_title = AsyncMock()
 
     async def _save(_s: Any, entity: RagChatSession) -> RagChatSession:
         entity.id = 1
@@ -79,7 +105,7 @@ def _make_service(**over: Any) -> tuple[RagChatService, dict[str, Any]]:
     repository.save = AsyncMock(side_effect=_save)
 
     kb_repository = MagicMock()
-    kb_repository.get_by_id = over.get("kb_get_by_id") or AsyncMock(return_value=object())
+    kb_repository.get_by_id = over.get("kb_get_by_id") or AsyncMock(return_value=_make_kb())
 
     vector_repository = MagicMock()
     vector_repository.search = over.get("search") or AsyncMock(return_value=[SearchResult("片段A", 0.9, 1)])
@@ -116,8 +142,9 @@ class TestCreateSession:
     async def test_creates_and_returns_dto(self) -> None:
         service, m = _make_service()
         dto = await service.create_session([1, 2], "标题")
+        assert dto.id == 1
+        assert dto.title == "标题"
         assert dto.knowledge_base_ids == [1, 2]
-        assert dto.status == "ACTIVE"
         m["repository"].save.assert_awaited_once()
         m["session"].commit.assert_awaited()
 
@@ -134,140 +161,132 @@ class TestCreateSession:
         assert exc.value.error_code is ErrorCode.KNOWLEDGE_BASE_NOT_FOUND
 
 
-class TestSessionLookups:
-    async def test_get_detail_not_found_raises(self) -> None:
-        service, _ = _make_service(get_by_session_id=AsyncMock(return_value=None))
+class TestListSessions:
+    async def test_returns_bare_list_with_contract_fields(self) -> None:
+        service, m = _make_service()
+        m["repository"].list_all.return_value = [_make_session(id=1, pinned=True)]
+        m["repository"].count_messages.return_value = 5
+
+        result = await service.list_sessions()
+
+        assert isinstance(result, list)
+        item = result[0]
+        assert item.id == 1
+        assert item.message_count == 5
+        assert item.is_pinned is True
+        assert item.knowledge_base_names == ["知识库A", "知识库A"]
+
+    async def test_missing_kb_name_falls_back(self) -> None:
+        service, m = _make_service(kb_get_by_id=AsyncMock(return_value=None))
+        m["repository"].list_all.return_value = [_make_session()]
+
+        result = await service.list_sessions()
+
+        assert result[0].knowledge_base_names == ["未知知识库", "未知知识库"]
+
+
+class TestGetDetail:
+    async def test_returns_detail_with_kb_list_and_typed_messages(self) -> None:
+        service, m = _make_service()
+        m["repository"].list_messages.return_value = [
+            SimpleNamespace(id=1, role="user", content="问题", created_at=datetime(2026, 7, 20, 10, 1, 0)),
+            SimpleNamespace(id=2, role="assistant", content="答案", created_at=datetime(2026, 7, 20, 10, 2, 0)),
+        ]
+
+        detail = await service.get_detail(1)
+
+        assert detail.id == 1
+        assert [kb.id for kb in detail.knowledge_bases] == [1, 1]
+        assert detail.messages[0].type == "user"
+        assert detail.messages[1].type == "assistant"
+
+    async def test_not_found_raises(self) -> None:
+        service, _ = _make_service(get_by_id=AsyncMock(return_value=None))
         with pytest.raises(BusinessException) as exc:
-            await service.get_detail("missing")
+            await service.get_detail(999)
         assert exc.value.error_code is ErrorCode.RAG_SESSION_NOT_FOUND
 
-    async def test_toggle_pin_flips(self) -> None:
-        service, m = _make_service(get_by_session_id=AsyncMock(return_value=_make_session(pinned=False)))
-        await service.toggle_pin("sess-abc")
+
+class TestMutations:
+    async def test_update_title_commits(self) -> None:
+        service, m = _make_service()
+        await service.update_title(1, "新标题")
+        m["repository"].update_title.assert_awaited_once()
+        assert m["repository"].update_title.call_args.args[2] == "新标题"
+        m["session"].commit.assert_awaited()
+
+    async def test_toggle_pin_flips_and_commits(self) -> None:
+        service, m = _make_service(get_by_id=AsyncMock(return_value=_make_session(pinned=False)))
+        await service.toggle_pin(1)
         assert m["repository"].update_pinned.call_args.args[2] is True
+        m["session"].commit.assert_awaited()
 
     async def test_delete_commits(self) -> None:
         service, m = _make_service()
-        await service.delete("sess-abc")
+        await service.delete(1)
         m["repository"].delete.assert_awaited_once()
         m["session"].commit.assert_awaited()
 
 
-class TestQuery:
-    async def test_happy_path_persists_and_answers(self) -> None:
-        service, m = _make_service()
-        result = await service.query("sess-abc", "什么是索引？")
-        assert result.no_result is False
-        assert result.answer == "这是基于知识库的答案"
-        assert result.sources[0].content == "片段A"
-        # 用户消息 + 助手消息
-        assert m["repository"].add_message.await_count == 2
-
-    async def test_no_result_returns_fixed_message(self) -> None:
-        service, m = _make_service(search=AsyncMock(return_value=[]))
-        result = await service.query("sess-abc", "无关问题")
-        assert result.no_result is True
-        assert "未找到" in result.answer
-        m["chat"].ainvoke.assert_not_awaited()
-
-    async def test_below_min_score_is_no_result(self) -> None:
-        service, _ = _make_service(search=AsyncMock(return_value=[SearchResult("弱相关", 0.1, 1)]))
-        result = await service.query("sess-abc", "问题")
-        assert result.no_result is True
-
-
 class TestStreamQuery:
-    async def test_streams_tokens_and_done(self) -> None:
+    async def test_streams_text_chunks_no_json_envelope(self) -> None:
         service, m = _make_service()
-        events = [chunk async for chunk in service.stream_query("sess-abc", "什么是索引？")]
+        events = [chunk async for chunk in service.stream_query(1, "什么是索引？")]
 
-        # 短答案经 probe window 归一化后整体输出
+        # 短答案经 probe window 归一化后整体输出为纯文本，无 JSON 包裹/无 [DONE]
         assert any("这是" in e and "答案" in e for e in events)
-        assert events[-1] == "data: [DONE]\n\n"
-        # 助手消息经 factory 持久化
+        assert all("[DONE]" not in e for e in events)
+        assert all('"delta"' not in e for e in events)
         m["repository"].add_message.assert_awaited()
 
     async def test_long_answer_passthrough_streams_incrementally(self) -> None:
-        # 超过 probe_window(120) 后切换 passthrough，逐 token 输出
         long_token = "答" * 130
         service, m = _make_service()
         m["chat"].astream = MagicMock(return_value=_astream([long_token, "尾部"]))
-        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
-        # 首 130 字符作为一次 delta 输出，随后 "尾部" 单独输出
-        assert events[-1] == "data: [DONE]\n\n"
-        assert m["repository"].add_message.await_count >= 2
+        events = [chunk async for chunk in service.stream_query(1, "问题")]
+        assert any("尾部" in e for e in events)
+        assert all("[DONE]" not in e for e in events)
 
-    async def test_no_result_stream(self) -> None:
+    async def test_no_result_stream_emits_text(self) -> None:
         service, _ = _make_service(search=AsyncMock(return_value=[]))
-        events = [chunk async for chunk in service.stream_query("sess-abc", "无关")]
+        events = [chunk async for chunk in service.stream_query(1, "无关")]
         assert any("未找到" in e for e in events)
-        assert events[-1] == "data: [DONE]\n\n"
+        assert all('"noResult"' not in e for e in events)
 
     async def test_missing_session_yields_error_event(self) -> None:
-        service, _ = _make_service(get_by_session_id=AsyncMock(return_value=None))
-        events = [chunk async for chunk in service.stream_query("missing", "问题")]
-        assert any('"error"' in e for e in events)
-        assert events[-1] == "data: [DONE]\n\n"
+        service, _ = _make_service(get_by_id=AsyncMock(return_value=None))
+        events = [chunk async for chunk in service.stream_query(999, "问题")]
+        assert any(e.startswith("event: error") for e in events)
 
 
 class TestStreamAiErrorClassification:
-    """8.6：流式 astream 抛 AI SDK 异常 -> 细分错误码；非 AI 异常 -> 通用文案。"""
-
-    async def test_rate_limit_yields_ai_error_code(self) -> None:
+    async def test_rate_limit_yields_error_event_with_ai_message(self) -> None:
         service, m = _make_service()
         exc = openai.RateLimitError("rate", response=httpx.Response(429, request=_ERR_REQUEST), body=None)
         m["chat"].astream = MagicMock(return_value=_astream_then_raise(exc))
-        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
-        assert any(f'"code": {ErrorCode.AI_RATE_LIMIT_EXCEEDED.code}' in e for e in events)
-        assert events[-1] == "data: [DONE]\n\n"
+        events = [chunk async for chunk in service.stream_query(1, "问题")]
+        assert any(e.startswith("event: error") and ErrorCode.AI_RATE_LIMIT_EXCEEDED.message in e for e in events)
 
     async def test_non_ai_error_yields_generic_message(self) -> None:
         service, m = _make_service()
         m["chat"].astream = MagicMock(return_value=_astream_then_raise(RuntimeError("boom")))
-        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
-        assert any("RAG 流式问答失败" in e for e in events)
-        assert not any("7005" in e for e in events)
-        assert events[-1] == "data: [DONE]\n\n"
+        events = [chunk async for chunk in service.stream_query(1, "问题")]
+        assert any(e.startswith("event: error") and "RAG 流式问答失败" in e for e in events)
 
 
 class TestNoInfoAnswerNormalization:
-    async def test_query_replaces_no_info_answer(self) -> None:
-        # LLM 返回无信息模板 -> 替换为标准提示，no_result=True
-        service, m = _make_service()
-        m["chat"].ainvoke = AsyncMock(return_value=SimpleNamespace(content="没有找到相关信息。"))
-        result = await service.query("sess-abc", "问题")
-        assert result.no_result is True
-        assert "未找到" in result.answer
-        assert m["repository"].add_message.await_count == 2
-
     async def test_stream_replaces_no_info_in_probe_window(self) -> None:
-        # 流式前 120 字符命中无信息模板 -> 输出固定提示并结束
         service, m = _make_service()
         m["chat"].astream = MagicMock(return_value=_astream(["没有找到相关信息。"]))
-        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
+        events = [chunk async for chunk in service.stream_query(1, "问题")]
         assert any("未找到" in e for e in events)
-        assert any('"noResult": true' in e or '"noResult":True' in e for e in events)
-        assert events[-1] == "data: [DONE]\n\n"
         m["repository"].add_message.assert_awaited()
 
 
 class TestErrorPersistence:
-    async def test_query_persists_placeholder_on_failure(self) -> None:
-        # _retrieve 抛异常 -> 持久化错误占位助手消息 + 重抛
-        service, m = _make_service(search=AsyncMock(side_effect=RuntimeError("boom")))
-        with pytest.raises(RuntimeError):
-            await service.query("sess-abc", "问题")
-        # 用户消息 + 错误占位助手消息
-        assert m["repository"].add_message.await_count == 2
-        last_call = m["repository"].add_message.await_args
-        assistant_msg = last_call.args[1]
-        assert assistant_msg.role == "assistant"
-        assert "失败" in (assistant_msg.content or "")
-
     async def test_stream_persists_placeholder_on_failure(self) -> None:
         service, m = _make_service(search=AsyncMock(side_effect=RuntimeError("boom")))
-        events = [chunk async for chunk in service.stream_query("sess-abc", "问题")]
-        assert any('"error"' in e for e in events)
-        assert events[-1] == "data: [DONE]\n\n"
+        events = [chunk async for chunk in service.stream_query(1, "问题")]
+        assert any(e.startswith("event: error") for e in events)
         # 用户消息 + 错误占位助手消息
         assert m["repository"].add_message.await_count >= 2

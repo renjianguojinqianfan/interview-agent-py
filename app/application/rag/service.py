@@ -15,12 +15,12 @@ from dataclasses import dataclass
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.knowledgebase.service import to_kb_list_item
 from app.application.rag.schemas import (
-    RagAnswerDTO,
     RagMessageDTO,
     RagSessionDetailDTO,
-    RagSessionInfoDTO,
-    RagSessionPageDTO,
+    RagSessionDTO,
+    RagSessionListItemDTO,
     RagSourceDTO,
 )
 from app.domain.entities.rag_session import RagSessionStatus
@@ -48,7 +48,6 @@ logger = logging.getLogger(__name__)
 
 _USER_ROLE = "user"
 _ASSISTANT_ROLE = "assistant"
-_DONE = "data: [DONE]\n\n"
 _NO_RESULT_MESSAGE = "抱歉，知识库中未找到与您问题相关的信息。请尝试换一种问法，或确认已选择正确的知识库。"
 _ERROR_PLACEHOLDER = "[回答生成失败，请稍后重试]"
 
@@ -62,8 +61,18 @@ class RagConfig:
     history_limit: int
 
 
-def _sse(payload: dict[str, object]) -> str:
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+def _escape_newlines(text: str) -> str:
+    return text.replace("\n", "\\n").replace("\r", "\\r")
+
+
+def _sse_text(text: str) -> str:
+    """纯文本 SSE 数据帧（对齐 Java RagChatController：data 为转义换行的原始文本，前端直接拼接）。"""
+    return f"data: {_escape_newlines(text)}\n\n"
+
+
+def _sse_error(message: str) -> str:
+    """错误 SSE 事件：前端 stream 解析器遇 event: error 抛出并进入 onError。"""
+    return f"event: error\ndata: {_escape_newlines(message)}\n\n"
 
 
 def _content_to_str(content: object) -> str:
@@ -103,7 +112,7 @@ class RagChatService:
 
     # ---------------- 会话 CRUD ----------------
 
-    async def create_session(self, kb_ids: list[int], title: str | None) -> RagSessionInfoDTO:
+    async def create_session(self, kb_ids: list[int], title: str | None) -> RagSessionDTO:
         if not kb_ids:
             raise BusinessException(ErrorCode.BAD_REQUEST, "请至少选择一个知识库")
         for kb_id in kb_ids:
@@ -120,93 +129,55 @@ class RagChatService:
         )
         await self._repository.save(self._session, entity)
         await self._session.commit()
-        logger.info("RAG 会话已创建: sessionId=%s, kbIds=%s", entity.session_id, kb_ids)
-        return self._to_info(entity)
+        logger.info("RAG 会话已创建: id=%s, kbIds=%s", entity.id, kb_ids)
+        return self._to_session_dto(entity)
 
-    async def list_sessions(self, page: int, size: int) -> RagSessionPageDTO:
-        sessions, total = await self._repository.list_paginated(self._session, page, size)
-        return RagSessionPageDTO(
-            items=[self._to_info(s) for s in sessions],
-            total=total,
-            page=page,
-            size=size,
-        )
+    async def list_sessions(self) -> list[RagSessionListItemDTO]:
+        sessions = await self._repository.list_all(self._session)
+        return [await self._to_list_item(s) for s in sessions]
 
-    async def get_detail(self, session_id: str) -> RagSessionDetailDTO:
-        sess = await self._get_or_raise(self._session, session_id)
+    async def get_detail(self, session_pk: int) -> RagSessionDetailDTO:
+        sess = await self._get_or_raise(self._session, session_pk)
         messages = await self._repository.list_messages(self._session, sess.id)
+        knowledge_bases = []
+        for kb_id in self._kb_ids(sess):
+            kb = await self._kb_repository.get_by_id(self._session, kb_id)
+            if kb is not None:
+                knowledge_bases.append(to_kb_list_item(kb))
         return RagSessionDetailDTO(
             id=sess.id,
-            session_id=sess.session_id,
             title=sess.title,
-            status=sess.status,
-            pinned=sess.pinned,
-            knowledge_base_ids=self._kb_ids(sess),
+            knowledge_bases=knowledge_bases,
+            messages=[self._to_message_dto(m) for m in messages],
             created_at=sess.created_at,
             updated_at=sess.updated_at,
-            messages=[self._to_message_dto(m) for m in messages],
         )
 
-    async def delete(self, session_id: str) -> None:
-        sess = await self._get_or_raise(self._session, session_id)
-        await self._repository.delete(self._session, sess)
+    async def update_title(self, session_pk: int, title: str) -> None:
+        sess = await self._get_or_raise(self._session, session_pk)
+        await self._repository.update_title(self._session, sess, title)
         await self._session.commit()
-        logger.info("RAG 会话已删除: sessionId=%s", session_id)
+        logger.info("RAG 会话标题已更新: id=%s", session_pk)
 
-    async def toggle_pin(self, session_id: str) -> bool:
-        sess = await self._get_or_raise(self._session, session_id)
+    async def toggle_pin(self, session_pk: int) -> None:
+        sess = await self._get_or_raise(self._session, session_pk)
         await self._repository.update_pinned(self._session, sess, not sess.pinned)
         await self._session.commit()
-        return sess.pinned
 
-    async def get_messages(self, session_id: str) -> list[RagMessageDTO]:
-        sess = await self._get_or_raise(self._session, session_id)
-        messages = await self._repository.list_messages(self._session, sess.id)
-        return [self._to_message_dto(m) for m in messages]
-
-    async def ensure_session_exists(self, session_id: str) -> None:
-        await self._get_or_raise(self._session, session_id)
-
-    # ---------------- 非流式问答 ----------------
-
-    async def query(self, session_id: str, question: str) -> RagAnswerDTO:
-        sess = await self._get_or_raise(self._session, session_id)
-        kb_ids = self._kb_ids(sess)
-        history = await self._repository.recent_history(self._session, sess.id, self._config.history_limit)
-        history_text = self._format_history(history)
-        await self._repository.add_message(
-            self._session, RagChatMessage(session_id=sess.id, role=_USER_ROLE, content=question)
-        )
+    async def delete(self, session_pk: int) -> None:
+        sess = await self._get_or_raise(self._session, session_pk)
+        await self._repository.delete(self._session, sess)
         await self._session.commit()
-
-        try:
-            chunks, sources = await self._retrieve(question, kb_ids, history_text)
-            no_result = detect_no_result(chunks)
-            if no_result:
-                answer = _NO_RESULT_MESSAGE
-            else:
-                answer = await self._answer(question, build_context(chunks, self._config.max_context_chars))
-                # spec 挑战 4：探测窗口归一化--LLM 仍答无信息时替换为标准提示
-                if is_no_info_answer(answer):
-                    answer = _NO_RESULT_MESSAGE
-                    no_result = True
-        except Exception:
-            logger.exception("RAG 非流式问答失败: sessionId=%s", session_id)
-            await self._safe_persist_error(sess.id, _ERROR_PLACEHOLDER)
-            raise
-
-        await self._repository.add_message(self._session, self._assistant_message(sess.id, answer, sources))
-        await self._session.commit()
-        return RagAnswerDTO(answer=answer, sources=sources, no_result=no_result)
+        logger.info("RAG 会话已删除: id=%s", session_pk)
 
     # ---------------- 流式问答（SSE） ----------------
 
-    async def stream_query(self, session_id: str, question: str) -> AsyncIterator[str]:
-        session_pk: int | None = None
+    async def stream_query(self, session_pk: int, question: str) -> AsyncIterator[str]:
+        pk: int | None = None
         try:
             async with self._session_factory() as s:
-                sess = await self._get_or_raise(s, session_id)
-                session_pk = sess.id
+                sess = await self._get_or_raise(s, session_pk)
+                pk = sess.id
                 kb_ids = self._kb_ids(sess)
                 history_text = self._format_history(
                     await self._repository.recent_history(s, sess.id, self._config.history_limit)
@@ -216,13 +187,11 @@ class RagChatService:
                 )
                 await s.commit()
 
-            assert session_pk is not None  # 块内已赋值，窄化供 happy path 使用
+            assert pk is not None  # 块内已赋值，窄化供 happy path 使用
             chunks, sources = await self._retrieve(question, kb_ids, history_text)
             if detect_no_result(chunks):
-                yield _sse({"delta": _NO_RESULT_MESSAGE})
-                await self._persist_assistant_factory(session_pk, _NO_RESULT_MESSAGE, sources)
-                yield _sse({"sources": [], "noResult": True})
-                yield _DONE
+                await self._persist_assistant_factory(pk, _NO_RESULT_MESSAGE, sources)
+                yield _sse_text(_NO_RESULT_MESSAGE)
                 return
 
             messages = await self._answer_messages(question, build_context(chunks, self._config.max_context_chars))
@@ -237,51 +206,40 @@ class RagChatService:
                     continue
                 if passthrough:
                     answer_parts.append(token)
-                    yield _sse({"delta": token})
+                    yield _sse_text(token)
                     continue
                 probe_buffer.append(token)
                 probe_text = "".join(probe_buffer)
                 if is_no_info_answer(probe_text):
-                    await self._persist_assistant_factory(session_pk, _NO_RESULT_MESSAGE, [])
-                    yield _sse({"delta": _NO_RESULT_MESSAGE})
-                    yield _sse({"sources": [], "noResult": True})
-                    yield _DONE
+                    await self._persist_assistant_factory(pk, _NO_RESULT_MESSAGE, [])
+                    yield _sse_text(_NO_RESULT_MESSAGE)
                     return
                 if len(probe_text) >= self._config.probe_window:
                     passthrough = True
                     answer_parts.append(probe_text)
-                    yield _sse({"delta": probe_text})
+                    yield _sse_text(probe_text)
                     probe_buffer.clear()
 
             # 流结束：未达 probe_window 的残余缓冲做最终归一化
             if not passthrough:
                 remaining = "".join(probe_buffer)
                 if is_no_info_answer(remaining):
-                    await self._persist_assistant_factory(session_pk, _NO_RESULT_MESSAGE, [])
-                    yield _sse({"delta": _NO_RESULT_MESSAGE})
-                    yield _sse({"sources": [], "noResult": True})
-                    yield _DONE
+                    await self._persist_assistant_factory(pk, _NO_RESULT_MESSAGE, [])
+                    yield _sse_text(_NO_RESULT_MESSAGE)
                     return
                 answer_parts.append(remaining)
-                yield _sse({"delta": remaining})
+                yield _sse_text(remaining)
 
             answer = "".join(answer_parts)
-            await self._persist_assistant_factory(session_pk, answer, sources)
-            yield _sse({"sources": [src.model_dump() for src in sources], "noResult": False})
-            yield _DONE
+            await self._persist_assistant_factory(pk, answer, sources)
         except BusinessException as e:
-            await self._safe_persist_error(session_pk, _ERROR_PLACEHOLDER)
-            yield _sse({"error": e.message, "code": e.error_code.code})
-            yield _DONE
+            await self._safe_persist_error(pk, _ERROR_PLACEHOLDER)
+            yield _sse_error(e.message)
         except Exception as e:
-            logger.error("RAG 流式问答失败: sessionId=%s, error=%s", session_id, e)
-            await self._safe_persist_error(session_pk, _ERROR_PLACEHOLDER)
+            logger.error("RAG 流式问答失败: id=%s, error=%s", session_pk, e)
+            await self._safe_persist_error(pk, _ERROR_PLACEHOLDER)
             ai_code = classify_ai_error(e)
-            if ai_code is not None:
-                yield _sse({"error": ai_code.message, "code": ai_code.code})
-            else:
-                yield _sse({"error": "RAG 流式问答失败"})
-            yield _DONE
+            yield _sse_error(ai_code.message if ai_code is not None else "RAG 流式问答失败")
 
     # ---------------- 检索与回答 ----------------
 
@@ -333,12 +291,6 @@ class RagChatService:
             logger.warning("Query 改写失败，使用原问题: %s", e)
             return question
 
-    async def _answer(self, question: str, context: str) -> str:
-        messages = await self._answer_messages(question, context)
-        llm = await self._llm_registry.get_chat_client()
-        resp = await llm.ainvoke(messages)
-        return _content_to_str(resp.content).strip()
-
     async def _answer_messages(self, question: str, context: str) -> list[BaseMessage]:
         system_tpl = await load_prompt("knowledgebase-query-system")
         user_tpl = await load_prompt("knowledgebase-query-user")
@@ -373,8 +325,8 @@ class RagChatService:
             sources_json=json.dumps([s.model_dump() for s in sources], ensure_ascii=False),
         )
 
-    async def _get_or_raise(self, session: AsyncSession, session_id: str) -> RagChatSession:
-        sess = await self._repository.get_by_session_id(session, session_id)
+    async def _get_or_raise(self, session: AsyncSession, session_pk: int) -> RagChatSession:
+        sess = await self._repository.get_by_id(session, session_pk)
         if sess is None:
             raise BusinessException(ErrorCode.RAG_SESSION_NOT_FOUND)
         return sess
@@ -388,26 +340,33 @@ class RagChatService:
         lines = [f"{'用户' if m.role == _USER_ROLE else '助手'}: {m.content or ''}" for m in messages]
         return "对话历史：\n" + "\n".join(lines)
 
-    def _to_info(self, sess: RagChatSession) -> RagSessionInfoDTO:
-        return RagSessionInfoDTO(
+    def _to_session_dto(self, sess: RagChatSession) -> RagSessionDTO:
+        return RagSessionDTO(
             id=sess.id,
-            session_id=sess.session_id,
             title=sess.title,
-            status=sess.status,
-            pinned=sess.pinned,
             knowledge_base_ids=self._kb_ids(sess),
             created_at=sess.created_at,
+        )
+
+    async def _to_list_item(self, sess: RagChatSession) -> RagSessionListItemDTO:
+        message_count = await self._repository.count_messages(self._session, sess.id)
+        kb_names: list[str] = []
+        for kb_id in self._kb_ids(sess):
+            kb = await self._kb_repository.get_by_id(self._session, kb_id)
+            kb_names.append((kb.name or kb.original_filename) if kb is not None else "未知知识库")
+        return RagSessionListItemDTO(
+            id=sess.id,
+            title=sess.title,
+            message_count=message_count,
+            knowledge_base_names=kb_names,
             updated_at=sess.updated_at,
+            is_pinned=sess.pinned,
         )
 
     def _to_message_dto(self, message: RagChatMessage) -> RagMessageDTO:
-        sources: list[RagSourceDTO] = []
-        if message.sources_json:
-            sources = [RagSourceDTO(**item) for item in json.loads(message.sources_json)]
         return RagMessageDTO(
             id=message.id,
-            role=message.role,
+            type=message.role,
             content=message.content,
-            sources=sources,
             created_at=message.created_at,
         )

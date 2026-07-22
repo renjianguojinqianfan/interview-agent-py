@@ -33,6 +33,25 @@ def _normalize_category(category: str | None) -> str | None:
     return category if category and category.strip() else None
 
 
+def to_kb_list_item(kb: KnowledgeBase) -> KnowledgeBaseListItemDTO:
+    """KnowledgeBase 实体 -> 列表项 DTO。跨模块复用（RAG 会话详情的关联知识库列表）。"""
+    return KnowledgeBaseListItemDTO(
+        id=kb.id,
+        name=kb.name or kb.original_filename,
+        category=kb.category,
+        original_filename=kb.original_filename,
+        file_size=kb.file_size,
+        content_type=kb.content_type,
+        uploaded_at=kb.uploaded_at,
+        last_accessed_at=kb.last_accessed_at or kb.uploaded_at,
+        access_count=kb.access_count,
+        question_count=kb.question_count,
+        vector_status=kb.vector_status,
+        vector_error=kb.vector_error,
+        chunk_count=kb.chunk_count,
+    )
+
+
 class KnowledgeBaseService:
     """知识库业务编排：上传(检测->去重->解析->存储->入库->入队向量化)、列表、详情、删除、重新向量化。"""
 
@@ -246,18 +265,4 @@ class KnowledgeBaseService:
         return kbs
 
     def _to_list_item(self, kb: KnowledgeBase) -> KnowledgeBaseListItemDTO:
-        return KnowledgeBaseListItemDTO(
-            id=kb.id,
-            name=kb.name or kb.original_filename,
-            category=kb.category,
-            original_filename=kb.original_filename,
-            file_size=kb.file_size,
-            content_type=kb.content_type,
-            uploaded_at=kb.uploaded_at,
-            last_accessed_at=kb.last_accessed_at or kb.uploaded_at,
-            access_count=kb.access_count,
-            question_count=kb.question_count,
-            vector_status=kb.vector_status,
-            vector_error=kb.vector_error,
-            chunk_count=kb.chunk_count,
-        )
+        return to_kb_list_item(kb)
