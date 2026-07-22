@@ -106,13 +106,8 @@ class InterviewPersistenceService:
     ) -> InterviewSessionORM | None:
         return await self._repository.find_unfinished_by_resume_id(self._session, resume_id)
 
-    async def find_all_paginated(
-        self,
-        page: int,
-        size: int,
-        status: str | None = None,
-    ) -> tuple[list[InterviewSessionORM], int]:
-        return await self._repository.find_all_paginated(self._session, page, size, status)
+    async def find_all(self) -> list[InterviewSessionORM]:
+        return await self._repository.find_all(self._session)
 
     async def find_answers_by_session_id(self, session_id: str) -> list[InterviewAnswerORM]:
         orm = await self.find_by_session_id(session_id)

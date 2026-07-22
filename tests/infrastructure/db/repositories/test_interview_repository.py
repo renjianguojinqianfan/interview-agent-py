@@ -136,18 +136,16 @@ class TestFindUnfinishedByResumeId:
         assert await repo.find_unfinished_by_resume_id(session, 999) is None
 
 
-class TestFindAllPaginated:
-    async def test_returns_items_and_total(self, repo: InterviewRepository, session: AsyncMock) -> None:
+class TestFindAll:
+    async def test_returns_all_sessions(self, repo: InterviewRepository, session: AsyncMock) -> None:
         orms = [_make_session_orm(), _make_session_orm()]
-        items_result = MagicMock()
-        items_result.scalars.return_value.all.return_value = orms
-        count_result = MagicMock()
-        count_result.scalar.return_value = 2
-        session.execute.side_effect = [items_result, count_result]
+        result_mock = MagicMock()
+        result_mock.scalars.return_value.all.return_value = orms
+        session.execute.return_value = result_mock
 
-        items, total = await repo.find_all_paginated(session, page=1, size=10)
-        assert len(items) == 2
-        assert total == 2
+        result = await repo.find_all(session)
+
+        assert result == orms
 
 
 class TestSaveAnswer:

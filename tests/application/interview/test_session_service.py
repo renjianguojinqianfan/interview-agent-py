@@ -1,5 +1,6 @@
 """InterviewSessionService 单元测试：核心生命周期路径。"""
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -76,7 +77,7 @@ def mock_persistence() -> MagicMock:
     service.update_evaluate_status = AsyncMock()
     service.save_answer = AsyncMock()
     service.find_unfinished_by_resume_id = AsyncMock()
-    service.find_all_paginated = AsyncMock()
+    service.find_all = AsyncMock(return_value=[])
     service.find_answers_by_session_id = AsyncMock()
     service.get_historical_questions = AsyncMock(return_value=[])
     service.delete_session = AsyncMock()
@@ -129,6 +130,39 @@ def service(
         evaluate_producer=mock_producer,
         resume_repository=mock_resume_repo,
     )
+
+
+class TestListSessions:
+    async def test_returns_bare_list_mapping_contract_fields(
+        self,
+        service: InterviewSessionService,
+        mock_persistence: MagicMock,
+    ) -> None:
+        mock_persistence.find_all = AsyncMock(
+            return_value=[
+                _make_orm(
+                    session_id="s1",
+                    resume_id=7,
+                    status="EVALUATED",
+                    evaluate_status="COMPLETED",
+                    evaluate_error=None,
+                    overall_score=82,
+                    created_at=datetime(2026, 7, 18, 10, 0, 0),
+                    completed_at=datetime(2026, 7, 18, 10, 30, 0),
+                )
+            ]
+        )
+
+        result = await service.list_sessions()
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        item = result[0]
+        assert item.session_id == "s1"
+        assert item.resume_id == 7
+        assert item.evaluate_status == "COMPLETED"
+        assert item.evaluate_error is None
+        assert item.overall_score == 82
 
 
 class TestCreateSession:

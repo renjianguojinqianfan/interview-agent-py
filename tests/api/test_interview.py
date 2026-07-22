@@ -1,6 +1,7 @@
 """文字面试 API 路由测试。"""
 
 from collections.abc import Iterator
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -17,7 +18,6 @@ from app.application.interview.schemas import (
     QuestionEvaluationDetailDTO,
     ReferenceAnswerDTO,
     SessionListItemDTO,
-    SessionPageDTO,
     SubmitAnswerResponse,
 )
 from app.domain.errors import BusinessException, ErrorCode
@@ -110,27 +110,36 @@ class TestCreateSession:
 
 
 class TestListSessions:
-    def test_returns_paginated(self, mock_service: MagicMock) -> None:
-        mock_service.list_sessions.return_value = SessionPageDTO(
-            items=[
-                SessionListItemDTO(
-                    sessionId="s1",
-                    skillId="java-backend",
-                    difficulty="mid",
-                    totalQuestions=3,
-                    currentQuestionIndex=3,
-                    status="COMPLETED",
-                )
-            ],
-            total=1,
-            page=1,
-            size=10,
-        )
+    def test_returns_bare_array_with_contract_fields(self, mock_service: MagicMock) -> None:
+        mock_service.list_sessions.return_value = [
+            SessionListItemDTO(
+                sessionId="s1",
+                skillId="java-backend",
+                difficulty="mid",
+                resumeId=7,
+                totalQuestions=3,
+                status="EVALUATED",
+                evaluateStatus="COMPLETED",
+                evaluateError=None,
+                overallScore=82,
+                createdAt=datetime(2026, 7, 18, 10, 0, 0),
+                completedAt=datetime(2026, 7, 18, 10, 30, 0),
+            )
+        ]
         resp = client.get("/api/interview/sessions")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["data"]["total"] == 1
-        assert body["data"]["items"][0]["sessionId"] == "s1"
+        assert isinstance(body["data"], list)
+        assert body["data"][0]["sessionId"] == "s1"
+        assert body["data"][0]["resumeId"] == 7
+        assert body["data"][0]["evaluateStatus"] == "COMPLETED"
+        assert body["data"][0]["overallScore"] == 82
+        assert body["data"][0]["createdAt"] == "2026-07-18T10:00:00"
+
+    def test_calls_service_without_pagination(self, mock_service: MagicMock) -> None:
+        mock_service.list_sessions.return_value = []
+        client.get("/api/interview/sessions")
+        mock_service.list_sessions.assert_awaited_once_with()
 
 
 class TestGetSession:
@@ -280,14 +289,6 @@ def mock_eval_service() -> Iterator[MagicMock]:
     app.dependency_overrides[get_interview_evaluation_service] = lambda: service
     yield service
     app.dependency_overrides.pop(get_interview_evaluation_service, None)
-
-
-class TestListSessionsStatusFilter:
-    def test_passes_status_filter(self, mock_service: MagicMock) -> None:
-        mock_service.list_sessions.return_value = SessionPageDTO(items=[], total=0, page=1, size=10)
-        resp = client.get("/api/interview/sessions?status=EVALUATED")
-        assert resp.status_code == 200
-        mock_service.list_sessions.assert_awaited_once_with(page=1, size=10, status="EVALUATED")
 
 
 class TestGetEvaluation:

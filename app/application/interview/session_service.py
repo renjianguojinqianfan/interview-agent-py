@@ -18,7 +18,6 @@ from app.application.interview.schemas import (
     InterviewQuestionDTO,
     InterviewSessionDTO,
     SessionListItemDTO,
-    SessionPageDTO,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
 )
@@ -221,10 +220,9 @@ class InterviewSessionService:
             raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND, "未找到未完成的面试会话")
         return dto
 
-    async def list_sessions(self, page: int, size: int, status: str | None = None) -> SessionPageDTO:
-        items, total = await self._persistence.find_all_paginated(page, size, status)
-        dtos = [self._orm_to_list_item(s) for s in items]
-        return SessionPageDTO(items=dtos, total=total, page=page, size=size)
+    async def list_sessions(self) -> list[SessionListItemDTO]:
+        sessions = await self._persistence.find_all()
+        return [self._orm_to_list_item(s) for s in sessions]
 
     async def delete_session(self, session_id: str) -> None:
         orm = await self._persistence.find_by_session_id_optional(session_id)
@@ -407,10 +405,12 @@ class InterviewSessionService:
             session_id=orm.session_id,
             skill_id=orm.skill_id,
             difficulty=orm.difficulty,
+            resume_id=orm.resume_id,
             total_questions=orm.total_questions,
-            current_question_index=orm.current_question_index,
             status=orm.status,
-            created_at=str(orm.created_at) if orm.created_at else None,
-            completed_at=str(orm.completed_at) if orm.completed_at else None,
+            evaluate_status=orm.evaluate_status,
+            evaluate_error=orm.evaluate_error,
             overall_score=orm.overall_score,
+            created_at=orm.created_at,
+            completed_at=orm.completed_at,
         )

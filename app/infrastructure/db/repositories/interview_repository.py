@@ -124,24 +124,9 @@ class InterviewRepository:
         )
         return result.scalars().first()
 
-    async def find_all_paginated(
-        self,
-        session: AsyncSession,
-        page: int,
-        size: int,
-        status: str | None = None,
-    ) -> tuple[list[InterviewSessionORM], int]:
-        offset = (page - 1) * size
-        query = select(InterviewSessionORM).order_by(InterviewSessionORM.created_at.desc()).offset(offset).limit(size)
-        count_query = select(func.count()).select_from(InterviewSessionORM)
-        if status is not None:
-            query = query.where(InterviewSessionORM.status == status)
-            count_query = count_query.where(InterviewSessionORM.status == status)
-        items_result = await session.execute(query)
-        items = list(items_result.scalars().all())
-        count_result = await session.execute(count_query)
-        total = int(count_result.scalar() or 0)
-        return items, total
+    async def find_all(self, session: AsyncSession) -> list[InterviewSessionORM]:
+        result = await session.execute(select(InterviewSessionORM).order_by(InterviewSessionORM.created_at.desc()))
+        return list(result.scalars().all())
 
     async def delete(
         self,

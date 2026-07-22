@@ -3,7 +3,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.api.responses import BaseSchema
+from app.api.responses import BaseSchema, NaiveIsoDatetime
 from app.domain.entities.interview import MAX_QUESTION_COUNT, MIN_QUESTION_COUNT
 
 
@@ -61,19 +61,14 @@ class SessionListItemDTO(BaseSchema):
     session_id: str
     skill_id: str
     difficulty: str
+    resume_id: int | None = None
     total_questions: int
-    current_question_index: int
     status: str
-    created_at: str | None = None
-    completed_at: str | None = None
+    evaluate_status: str | None = None
+    evaluate_error: str | None = None
     overall_score: int | None = None
-
-
-class SessionPageDTO(BaseSchema):
-    items: list[SessionListItemDTO]
-    total: int
-    page: int
-    size: int
+    created_at: NaiveIsoDatetime
+    completed_at: NaiveIsoDatetime | None = None
 
 
 class CurrentQuestionResponse(BaseSchema):
