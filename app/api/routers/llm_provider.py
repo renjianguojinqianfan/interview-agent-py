@@ -142,7 +142,7 @@ async def test_tts_config(
 @limiter.limit("30/second", key_func=global_key)
 async def get_provider(
     request: Request,  # noqa: ARG001
-    provider_id: int,
+    provider_id: str,
     service: LlmProviderService = Depends(get_llm_provider_service),
 ) -> Result[ProviderDTO]:
     return Result.success(data=await service.get_provider(provider_id))
@@ -152,7 +152,7 @@ async def get_provider(
 @limiter.limit("5/second", key_func=global_key)
 async def update_provider(
     request: Request,  # noqa: ARG001
-    provider_id: int,
+    provider_id: str,
     body: UpdateProviderRequest,
     service: LlmProviderService = Depends(get_llm_provider_service),
 ) -> Result[None]:
@@ -164,7 +164,7 @@ async def update_provider(
 @limiter.limit("5/second", key_func=global_key)
 async def delete_provider(
     request: Request,  # noqa: ARG001
-    provider_id: int,
+    provider_id: str,
     service: LlmProviderService = Depends(get_llm_provider_service),
 ) -> Result[None]:
     await service.delete_provider(provider_id)
@@ -175,7 +175,7 @@ async def delete_provider(
 @limiter.limit("10/second", key_func=global_key)
 async def test_provider(
     request: Request,  # noqa: ARG001
-    provider_id: int,
+    provider_id: str,
     service: LlmProviderService = Depends(get_llm_provider_service),
 ) -> Result[ProviderTestResult]:
     return Result.success(data=await service.test_provider(provider_id))

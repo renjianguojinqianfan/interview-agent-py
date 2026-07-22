@@ -2,8 +2,7 @@ from app.api.responses import BaseSchema
 
 
 class ProviderDTO(BaseSchema):
-    id: int
-    provider_name: str
+    id: str
     base_url: str
     masked_api_key: str
     model: str
@@ -16,7 +15,7 @@ class ProviderDTO(BaseSchema):
 
 
 class CreateProviderRequest(BaseSchema):
-    provider_name: str
+    id: str
     base_url: str
     api_key: str
     model: str
@@ -37,8 +36,8 @@ class UpdateProviderRequest(BaseSchema):
 
 
 class DefaultProviderDTO(BaseSchema):
-    default_provider: int | None = None
-    default_embedding_provider: int | None = None
+    default_provider: str | None = None
+    default_embedding_provider: str | None = None
 
 
 class ProviderTestResult(BaseSchema):

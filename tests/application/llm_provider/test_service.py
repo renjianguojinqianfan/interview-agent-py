@@ -148,7 +148,7 @@ class TestCreateProvider:
     ) -> None:
         mock_provider_repo.exists_by_name = AsyncMock(return_value=False)
         request = CreateProviderRequest(
-            provider_name="openai",
+            id="openai",
             base_url="https://api.openai.com/v1",
             api_key="sk-test-key-12345",
             model="gpt-4",
@@ -162,7 +162,7 @@ class TestCreateProvider:
     async def test_create_provider_duplicate_name_raises(self, service, mock_provider_repo) -> None:
         mock_provider_repo.exists_by_name = AsyncMock(return_value=True)
         request = CreateProviderRequest(
-            provider_name="dashscope",
+            id="dashscope",
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             api_key="sk-test",
             model="qwen3.5-flash",
@@ -196,34 +196,34 @@ class TestListProviders:
 class TestUpdateProvider:
     async def test_update_provider_partial_update(self, service, mock_provider_repo, encryption_service) -> None:
         provider = _make_provider(api_key_cipher=encryption_service.encrypt("sk-original"))
-        mock_provider_repo.get_by_id = AsyncMock(return_value=provider)
+        mock_provider_repo.get_by_name = AsyncMock(return_value=provider)
         request = UpdateProviderRequest(model="qwen-max")
-        await service.update_provider(1, request)
+        await service.update_provider("dashscope", request)
         assert provider.model == "qwen-max"
         assert provider.base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
     async def test_update_provider_empty_api_key_rejected(self, service, mock_provider_repo) -> None:
-        mock_provider_repo.get_by_id = AsyncMock(return_value=_make_provider())
+        mock_provider_repo.get_by_name = AsyncMock(return_value=_make_provider())
         request = UpdateProviderRequest(api_key="   ")
         with pytest.raises(BusinessException) as exc:
-            await service.update_provider(1, request)
+            await service.update_provider("dashscope", request)
         assert exc.value.error_code == ErrorCode.BAD_REQUEST
 
 
 class TestDeleteProvider:
     async def test_delete_default_provider_raises(self, service, mock_provider_repo, mock_global_setting_repo) -> None:
-        mock_provider_repo.get_by_id = AsyncMock(return_value=_make_provider(provider_id=1))
+        mock_provider_repo.get_by_name = AsyncMock(return_value=_make_provider(provider_id=1))
         mock_global_setting_repo.get_singleton = AsyncMock(return_value=_make_global_setting(chat_id=1, emb_id=1))
         with pytest.raises(BusinessException) as exc:
-            await service.delete_provider(1)
+            await service.delete_provider("dashscope")
         assert exc.value.error_code == ErrorCode.PROVIDER_DEFAULT_CANNOT_DELETE
 
     async def test_delete_non_default_provider_succeeds(
         self, service, mock_provider_repo, mock_global_setting_repo, mock_registry
     ) -> None:
-        mock_provider_repo.get_by_id = AsyncMock(return_value=_make_provider(provider_id=2, is_default=False))
+        mock_provider_repo.get_by_name = AsyncMock(return_value=_make_provider(provider_id=2, is_default=False))
         mock_global_setting_repo.get_singleton = AsyncMock(return_value=_make_global_setting(chat_id=1, emb_id=1))
-        await service.delete_provider(2)
+        await service.delete_provider("openai")
         mock_provider_repo.delete.assert_called_once()
         mock_registry.reload.assert_called_once()
 
@@ -236,8 +236,8 @@ class TestReloadProviders:
 
 class TestUpdateDefaultProvider:
     async def test_update_default_provider_validates_existence(self, service, mock_provider_repo) -> None:
-        mock_provider_repo.get_by_id = AsyncMock(return_value=None)
-        request = DefaultProviderDTO(default_provider=999)
+        mock_provider_repo.get_by_name = AsyncMock(return_value=None)
+        request = DefaultProviderDTO(default_provider="missing")
         with pytest.raises(BusinessException) as exc:
             await service.update_default_provider(request)
         assert exc.value.error_code == ErrorCode.PROVIDER_NOT_FOUND
@@ -245,8 +245,8 @@ class TestUpdateDefaultProvider:
     async def test_update_default_embedding_provider_requires_embedding_support(
         self, service, mock_provider_repo
     ) -> None:
-        mock_provider_repo.get_by_id = AsyncMock(return_value=_make_provider(provider_id=2, supports_embedding=False))
-        request = DefaultProviderDTO(default_embedding_provider=2)
+        mock_provider_repo.get_by_name = AsyncMock(return_value=_make_provider(provider_id=2, supports_embedding=False))
+        request = DefaultProviderDTO(default_embedding_provider="openai")
         with pytest.raises(BusinessException) as exc:
             await service.update_default_embedding_provider(request)
         assert exc.value.error_code == ErrorCode.BAD_REQUEST
@@ -254,9 +254,9 @@ class TestUpdateDefaultProvider:
     async def test_update_default_embedding_provider_raises_when_setting_missing(
         self, service, mock_provider_repo, mock_global_setting_repo
     ) -> None:
-        mock_provider_repo.get_by_id = AsyncMock(return_value=_make_provider(provider_id=1))
+        mock_provider_repo.get_by_name = AsyncMock(return_value=_make_provider(provider_id=1))
         mock_global_setting_repo.get_singleton = AsyncMock(return_value=None)
-        request = DefaultProviderDTO(default_embedding_provider=1)
+        request = DefaultProviderDTO(default_embedding_provider="dashscope")
         with pytest.raises(BusinessException) as exc:
             await service.update_default_embedding_provider(request)
         assert exc.value.error_code == ErrorCode.PROVIDER_CONFIG_READ_FAILED
@@ -331,23 +331,23 @@ class TestUpdateTtsConfig:
 class TestTestProvider:
     async def test_test_provider_returns_success(self, service, mock_provider_repo, encryption_service) -> None:
         cipher = encryption_service.encrypt("sk-test")
-        mock_provider_repo.get_by_id = AsyncMock(return_value=_make_provider(api_key_cipher=cipher))
+        mock_provider_repo.get_by_name = AsyncMock(return_value=_make_provider(api_key_cipher=cipher))
         with patch("app.application.llm_provider.service.ChatOpenAI") as mock_chat_class:
             mock_client = AsyncMock()
             mock_client.ainvoke = AsyncMock()
             mock_chat_class.return_value = mock_client
-            result = await service.test_provider(1)
+            result = await service.test_provider("dashscope")
         assert result.success is True
         assert result.model == "qwen3.5-flash"
 
     async def test_test_provider_returns_failure(self, service, mock_provider_repo, encryption_service) -> None:
         cipher = encryption_service.encrypt("sk-test")
-        mock_provider_repo.get_by_id = AsyncMock(return_value=_make_provider(api_key_cipher=cipher))
+        mock_provider_repo.get_by_name = AsyncMock(return_value=_make_provider(api_key_cipher=cipher))
         with patch("app.application.llm_provider.service.ChatOpenAI") as mock_chat_class:
             mock_client = AsyncMock()
             mock_client.ainvoke = AsyncMock(side_effect=RuntimeError("connection refused"))
             mock_chat_class.return_value = mock_client
-            result = await service.test_provider(1)
+            result = await service.test_provider("dashscope")
         assert result.success is False
         assert "connection refused" in result.message
 

@@ -16,6 +16,10 @@ class LlmProviderRepository:
         result = await session.execute(select(LlmProvider).where(LlmProvider.id == provider_id))
         return result.scalar_one_or_none()
 
+    async def get_by_name(self, session: AsyncSession, provider_name: str) -> LlmProvider | None:
+        result = await session.execute(select(LlmProvider).where(LlmProvider.provider_name == provider_name))
+        return result.scalar_one_or_none()
+
     async def list_all(self, session: AsyncSession) -> list[LlmProvider]:
         result = await session.execute(select(LlmProvider).order_by(LlmProvider.id))
         return list(result.scalars().all())

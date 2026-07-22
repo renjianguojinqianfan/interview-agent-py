@@ -18,13 +18,12 @@ client = TestClient(app)
 
 
 def _provider_dto(
-    provider_id: int = 1,
+    provider_id: str = "dashscope",
     default_chat: bool = True,
     default_emb: bool = True,
 ) -> ProviderDTO:
     return ProviderDTO(
         id=provider_id,
-        provider_name="dashscope",
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
         masked_api_key="sk-***key",
         model="qwen3.5-flash",
@@ -79,29 +78,31 @@ def _reset_overrides():
 class TestListProviders:
     def test_list_providers(self) -> None:
         svc = AsyncMock()
-        svc.list_providers = AsyncMock(return_value=[_provider_dto(1), _provider_dto(2, False, False)])
+        svc.list_providers = AsyncMock(return_value=[_provider_dto("dashscope"), _provider_dto("openai", False, False)])
         _override_service(svc)
         resp = client.get("/api/llm-provider/list")
         assert resp.status_code == 200
         data = resp.json()
         assert data["code"] == 200
         assert len(data["data"]) == 2
+        assert data["data"][0]["id"] == "dashscope"
 
 
 class TestGetProvider:
     def test_get_provider(self) -> None:
         svc = AsyncMock()
-        svc.get_provider = AsyncMock(return_value=_provider_dto(1))
+        svc.get_provider = AsyncMock(return_value=_provider_dto("dashscope"))
         _override_service(svc)
-        resp = client.get("/api/llm-provider/1")
+        resp = client.get("/api/llm-provider/dashscope")
         assert resp.status_code == 200
-        assert resp.json()["data"]["id"] == 1
+        assert resp.json()["data"]["id"] == "dashscope"
+        svc.get_provider.assert_awaited_once_with("dashscope")
 
     def test_get_provider_not_found(self) -> None:
         svc = AsyncMock()
         svc.get_provider = AsyncMock(side_effect=BusinessException(ErrorCode.PROVIDER_NOT_FOUND))
         _override_service(svc)
-        resp = client.get("/api/llm-provider/999")
+        resp = client.get("/api/llm-provider/missing")
         assert resp.status_code == 200
         assert resp.json()["code"] == 11001
 
@@ -114,7 +115,7 @@ class TestCreateProvider:
         resp = client.post(
             "/api/llm-provider",
             json={
-                "providerName": "openai",
+                "id": "openai",
                 "baseUrl": "https://api.openai.com/v1",
                 "apiKey": "sk-test",
                 "model": "gpt-4",
@@ -130,7 +131,7 @@ class TestUpdateProvider:
         svc = AsyncMock()
         svc.update_provider = AsyncMock()
         _override_service(svc)
-        resp = client.put("/api/llm-provider/1", json={"model": "qwen-max"})
+        resp = client.put("/api/llm-provider/dashscope", json={"model": "qwen-max"})
         assert resp.status_code == 200
         svc.update_provider.assert_called_once()
 
@@ -140,7 +141,7 @@ class TestDeleteProvider:
         svc = AsyncMock()
         svc.delete_provider = AsyncMock()
         _override_service(svc)
-        resp = client.delete("/api/llm-provider/2")
+        resp = client.delete("/api/llm-provider/openai")
         assert resp.status_code == 200
         svc.delete_provider.assert_called_once()
 
@@ -148,7 +149,7 @@ class TestDeleteProvider:
         svc = AsyncMock()
         svc.delete_provider = AsyncMock(side_effect=BusinessException(ErrorCode.PROVIDER_DEFAULT_CANNOT_DELETE))
         _override_service(svc)
-        resp = client.delete("/api/llm-provider/1")
+        resp = client.delete("/api/llm-provider/dashscope")
         assert resp.json()["code"] == 11007
 
 
@@ -159,7 +160,7 @@ class TestTestProvider:
             return_value=ProviderTestResult(success=True, message="连接成功", model="qwen3.5-flash")
         )
         _override_service(svc)
-        resp = client.post("/api/llm-provider/1/test")
+        resp = client.post("/api/llm-provider/dashscope/test")
         assert resp.status_code == 200
         assert resp.json()["data"]["success"] is True
 
@@ -178,12 +179,12 @@ class TestDefaultProvider:
     def test_get_default_provider(self) -> None:
         svc = AsyncMock()
         svc.get_default_provider = AsyncMock(
-            return_value=DefaultProviderDTO(default_provider=1, default_embedding_provider=1)
+            return_value=DefaultProviderDTO(default_provider="dashscope", default_embedding_provider="dashscope")
         )
         _override_service(svc)
         resp = client.get("/api/llm-provider/default-provider")
         assert resp.status_code == 200
-        assert resp.json()["data"]["defaultProvider"] == 1
+        assert resp.json()["data"]["defaultProvider"] == "dashscope"
 
     def test_update_default_provider(self) -> None:
         svc = AsyncMock()
@@ -191,7 +192,7 @@ class TestDefaultProvider:
         _override_service(svc)
         resp = client.put(
             "/api/llm-provider/default-provider",
-            json={"defaultProvider": 2},
+            json={"defaultProvider": "openai"},
         )
         assert resp.status_code == 200
         svc.update_default_provider.assert_called_once()
@@ -202,7 +203,7 @@ class TestDefaultProvider:
         _override_service(svc)
         resp = client.put(
             "/api/llm-provider/default-embedding-provider",
-            json={"defaultEmbeddingProvider": 2},
+            json={"defaultEmbeddingProvider": "openai"},
         )
         assert resp.status_code == 200
         svc.update_default_embedding_provider.assert_called_once()

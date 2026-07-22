@@ -139,26 +139,26 @@ class LlmProviderService:
         emb_id = setting.default_embedding_provider_id if setting else None
         return [self._to_dto(p, chat_id, emb_id) for p in providers]
 
-    async def get_provider(self, provider_id: int) -> ProviderDTO:
-        provider = await self._provider_repository.get_by_id(self._session, provider_id)
+    async def get_provider(self, provider_name: str) -> ProviderDTO:
+        provider = await self._provider_repository.get_by_name(self._session, provider_name)
         if provider is None:
-            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_id}")
+            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_name}")
         setting = await self._global_setting_repository.get_singleton(self._session)
         chat_id = setting.default_chat_provider_id if setting else None
         emb_id = setting.default_embedding_provider_id if setting else None
         return self._to_dto(provider, chat_id, emb_id)
 
     async def create_provider(self, request: CreateProviderRequest) -> None:
-        if await self._provider_repository.exists_by_name(self._session, request.provider_name):
+        if await self._provider_repository.exists_by_name(self._session, request.id):
             raise BusinessException(
                 ErrorCode.PROVIDER_ALREADY_EXISTS,
-                f"Provider '{request.provider_name}' 已存在",
+                f"Provider '{request.id}' 已存在",
             )
         encrypted_key = self._encryption_service.encrypt(request.api_key)
         embedding_dimensions = request.embedding_dimensions if request.embedding_dimensions is not None else 1024
         supports_embedding = request.supports_embedding if request.supports_embedding is not None else False
         provider = LlmProvider(
-            provider_name=request.provider_name,
+            provider_name=request.id,
             base_url=request.base_url,
             api_key=encrypted_key,
             model=request.model,
@@ -170,12 +170,12 @@ class LlmProviderService:
         await self._provider_repository.save(self._session, provider)
         await self._session.commit()
         self._registry.reload()
-        logger.info("Created provider: name=%s", request.provider_name)
+        logger.info("Created provider: name=%s", request.id)
 
-    async def update_provider(self, provider_id: int, request: UpdateProviderRequest) -> None:
-        provider = await self._provider_repository.get_by_id(self._session, provider_id)
+    async def update_provider(self, provider_name: str, request: UpdateProviderRequest) -> None:
+        provider = await self._provider_repository.get_by_name(self._session, provider_name)
         if provider is None:
-            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_id}")
+            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_name}")
         if request.base_url is not None:
             provider.base_url = request.base_url
         if request.model is not None:
@@ -194,29 +194,29 @@ class LlmProviderService:
             provider.api_key = self._encryption_service.encrypt(request.api_key)
         await self._session.commit()
         self._registry.reload()
-        logger.info("Updated provider: id=%s", provider_id)
+        logger.info("Updated provider: name=%s", provider_name)
 
-    async def delete_provider(self, provider_id: int) -> None:
-        provider = await self._provider_repository.get_by_id(self._session, provider_id)
+    async def delete_provider(self, provider_name: str) -> None:
+        provider = await self._provider_repository.get_by_name(self._session, provider_name)
         if provider is None:
-            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_id}")
+            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_name}")
         setting = await self._global_setting_repository.get_singleton(self._session)
         if setting is not None and (
-            provider_id == setting.default_chat_provider_id or provider_id == setting.default_embedding_provider_id
+            provider.id == setting.default_chat_provider_id or provider.id == setting.default_embedding_provider_id
         ):
             raise BusinessException(
                 ErrorCode.PROVIDER_DEFAULT_CANNOT_DELETE,
-                f"默认 Provider '{provider_id}' 不可删除，请先切换默认 Provider",
+                f"默认 Provider '{provider_name}' 不可删除，请先切换默认 Provider",
             )
         await self._provider_repository.delete(self._session, provider)
         await self._session.commit()
         self._registry.reload()
-        logger.info("Deleted provider: id=%s", provider_id)
+        logger.info("Deleted provider: name=%s", provider_name)
 
-    async def test_provider(self, provider_id: int) -> ProviderTestResult:
-        provider = await self._provider_repository.get_by_id(self._session, provider_id)
+    async def test_provider(self, provider_name: str) -> ProviderTestResult:
+        provider = await self._provider_repository.get_by_name(self._session, provider_name)
         if provider is None:
-            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_id}")
+            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"LLM Provider 不存在: {provider_name}")
         api_key = self._encryption_service.decrypt(provider.api_key)
         try:
             client = ChatOpenAI(
@@ -241,14 +241,14 @@ class LlmProviderService:
         if setting is None:
             return DefaultProviderDTO(default_provider=None, default_embedding_provider=None)
         return DefaultProviderDTO(
-            default_provider=setting.default_chat_provider_id,
-            default_embedding_provider=setting.default_embedding_provider_id,
+            default_provider=await self._resolve_name(setting.default_chat_provider_id),
+            default_embedding_provider=await self._resolve_name(setting.default_embedding_provider_id),
         )
 
     async def update_default_provider(self, request: DefaultProviderDTO) -> None:
         if request.default_provider is None:
             raise BusinessException(ErrorCode.BAD_REQUEST, "defaultProvider 不能为空")
-        provider = await self._provider_repository.get_by_id(self._session, request.default_provider)
+        provider = await self._provider_repository.get_by_name(self._session, request.default_provider)
         if provider is None:
             raise BusinessException(
                 ErrorCode.PROVIDER_NOT_FOUND,
@@ -258,10 +258,10 @@ class LlmProviderService:
         if setting is None:
             setting = LlmGlobalSetting(
                 id=LlmGlobalSetting.SINGLETON_ID,
-                default_chat_provider_id=request.default_provider,
+                default_chat_provider_id=provider.id,
             )
         else:
-            setting.default_chat_provider_id = request.default_provider
+            setting.default_chat_provider_id = provider.id
         await self._global_setting_repository.save(self._session, setting)
         await self._session.commit()
         self._registry.reload()
@@ -270,7 +270,7 @@ class LlmProviderService:
     async def update_default_embedding_provider(self, request: DefaultProviderDTO) -> None:
         if request.default_embedding_provider is None:
             raise BusinessException(ErrorCode.BAD_REQUEST, "defaultEmbeddingProvider 不能为空")
-        provider = await self._provider_repository.get_by_id(self._session, request.default_embedding_provider)
+        provider = await self._provider_repository.get_by_name(self._session, request.default_embedding_provider)
         if provider is None:
             raise BusinessException(
                 ErrorCode.PROVIDER_NOT_FOUND,
@@ -287,11 +287,19 @@ class LlmProviderService:
                 ErrorCode.PROVIDER_CONFIG_READ_FAILED,
                 "全局设置未初始化，请先配置默认 Chat Provider",
             )
-        setting.default_embedding_provider_id = request.default_embedding_provider
+        setting.default_embedding_provider_id = provider.id
         await self._global_setting_repository.save(self._session, setting)
         await self._session.commit()
         self._registry.reload()
         logger.info("Updated default embedding provider: %s", request.default_embedding_provider)
+
+    async def _resolve_name(self, provider_id: int | None) -> str | None:
+        """内部 int 主键 -> 对外字符串标识（provider_name）。默认设置以 int PK 存储，
+        对外契约（ADR-0001，对齐 Java）以 provider 名称为 id。"""
+        if provider_id is None:
+            return None
+        provider = await self._provider_repository.get_by_id(self._session, provider_id)
+        return provider.provider_name if provider else None
 
     async def get_asr_config(self) -> AsrConfigDTO:
         config = await self._voice_config_repository.get_singleton(self._session)
@@ -439,8 +447,7 @@ class LlmProviderService:
     def _to_dto(self, provider: LlmProvider, chat_id: int | None, emb_id: int | None) -> ProviderDTO:
         masked_key = _mask_api_key(self._encryption_service.decrypt(provider.api_key))
         return ProviderDTO(
-            id=provider.id,
-            provider_name=provider.provider_name,
+            id=provider.provider_name,
             base_url=provider.base_url,
             masked_api_key=masked_key,
             model=provider.model,
