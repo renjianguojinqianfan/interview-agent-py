@@ -18,6 +18,7 @@
 | D5 | PDF 导出方案 | **WeasyPrint（方案A）** | HTML/CSS 模板生成 PDF，排版灵活 |
 | D6 | 数据库迁移策略 | **Alembic（方案A）** | 版本化管理 schema 变更 |
 | D7 | 前端归属 | **并入 Python 单仓（`frontend/`）** | Java 版 React+TS+Vite 前端整体搬入，dev 代理指向 8000 + `/ws`；`make verify` 双栈覆盖，语音 WS 契约由后端补齐（`sessionId`/`webSocketUrl`），见 ADR-0014 |
+| D8 | API 契约对齐 | **改 Python 对齐 Java+前端，前端零改动** | 非语音端点逐模块对齐：裸数组形状、路径前缀（knowledgebase/rag-chat）、DTO 字段、RAG 流式纯文本 SSE、供应商字符串 id、简历 `/statistics` 补齐、知识库元数据加列（迁移 011），见 ADR-0015 |
 
 ---
 
