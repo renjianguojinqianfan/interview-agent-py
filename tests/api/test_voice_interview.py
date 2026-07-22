@@ -24,6 +24,7 @@ def _session_dto(session_id: int = 1, status: str = "IN_PROGRESS") -> VoiceSessi
     now = datetime(2026, 7, 21, 10, 0, 0)
     return VoiceSessionDTO(
         id=session_id,
+        session_id=session_id,
         user_id="default",
         role_type="Java面试官",
         skill_id="java-backend",
@@ -53,6 +54,7 @@ def _meta_dto(session_id: int = 1) -> VoiceSessionMetaDTO:
     now = datetime(2026, 7, 21, 10, 0, 0)
     return VoiceSessionMetaDTO(
         id=session_id,
+        session_id=session_id,
         role_type="Java面试官",
         skill_id="java-backend",
         status="IN_PROGRESS",
@@ -128,6 +130,8 @@ class TestCreateSession:
         body = resp.json()
         assert body["code"] == 200
         assert body["data"]["id"] == 1
+        assert body["data"]["sessionId"] == 1
+        assert body["data"]["webSocketUrl"].endswith("/ws/voice-interview/1")
         assert body["data"]["status"] == "IN_PROGRESS"
         assert body["data"]["currentPhase"] == "INTRO"
         mock.create_session.assert_awaited_once()
@@ -143,6 +147,8 @@ class TestGetSession:
 
         assert resp.status_code == 200
         assert resp.json()["data"]["id"] == 2
+        assert resp.json()["data"]["sessionId"] == 2
+        assert resp.json()["data"]["webSocketUrl"].endswith("/ws/voice-interview/2")
         assert resp.json()["data"]["status"] == "PAUSED"
         mock.get_session.assert_awaited_once()
 
@@ -203,6 +209,8 @@ class TestResumeSession:
         resp = client.put("/api/voice-interview/sessions/1/resume")
 
         assert resp.status_code == 200
+        assert resp.json()["data"]["sessionId"] == 1
+        assert resp.json()["data"]["webSocketUrl"].endswith("/ws/voice-interview/1")
         assert resp.json()["data"]["status"] == "IN_PROGRESS"
 
 
@@ -218,6 +226,7 @@ class TestListSessions:
         data = resp.json()["data"]
         assert len(data) == 2
         assert data[0]["id"] == 1
+        assert data[0]["sessionId"] == 1
 
     def test_list_no_filters(self) -> None:
         mock = AsyncMock()

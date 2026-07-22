@@ -223,6 +223,7 @@ def _determine_first_phase(request: CreateVoiceSessionRequest) -> str:
 def _to_session_dto(orm: VoiceInterviewSessionORM) -> VoiceSessionDTO:
     return VoiceSessionDTO(
         id=orm.id,
+        session_id=orm.id,
         user_id=orm.user_id,
         role_type=orm.role_type,
         skill_id=orm.skill_id,
@@ -251,6 +252,7 @@ def _to_session_dto(orm: VoiceInterviewSessionORM) -> VoiceSessionDTO:
 def _to_meta_dto(orm: VoiceInterviewSessionORM) -> VoiceSessionMetaDTO:
     return VoiceSessionMetaDTO(
         id=orm.id,
+        session_id=orm.id,
         role_type=orm.role_type,
         skill_id=orm.skill_id,
         status=orm.status,

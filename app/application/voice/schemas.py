@@ -40,6 +40,7 @@ class PauseSessionRequest(BaseSchema):
 
 class VoiceSessionDTO(BaseSchema):
     id: int
+    session_id: int
     user_id: str
     role_type: str
     skill_id: str
@@ -62,10 +63,12 @@ class VoiceSessionDTO(BaseSchema):
     paused_at: NaiveIsoDatetime | None = None
     resumed_at: NaiveIsoDatetime | None = None
     evaluate_status: str | None = None
+    web_socket_url: str | None = None
 
 
 class VoiceSessionMetaDTO(BaseSchema):
     id: int
+    session_id: int
     role_type: str
     skill_id: str
     status: str

@@ -16,14 +16,22 @@ from app.application.voice.service import VoiceEvaluationService, VoiceSessionSe
 router = APIRouter(prefix="/api/voice-interview", tags=["语音面试"])
 
 
+def _attach_ws_url(request: Request, dto: VoiceSessionDTO) -> VoiceSessionDTO:
+    """按当前请求的 scheme/host 拼出前端可直接连接的 WebSocket URL。"""
+    scheme = "wss" if request.url.scheme == "https" else "ws"
+    host = request.headers.get("host") or request.url.netloc
+    dto.web_socket_url = f"{scheme}://{host}/ws/voice-interview/{dto.id}"
+    return dto
+
+
 @router.post("/sessions", response_model=Result[VoiceSessionDTO])
 @limiter.limit("5/second")
 async def create_session(
-    request: Request,  # noqa: ARG001
+    request: Request,
     body: CreateVoiceSessionRequest,
     service: VoiceSessionService = Depends(get_voice_session_service),
 ) -> Result[VoiceSessionDTO]:
-    return Result.success(data=await service.create_session(body))
+    return Result.success(data=_attach_ws_url(request, await service.create_session(body)))
 
 
 @router.get("/sessions", response_model=Result[list[VoiceSessionMetaDTO]])
@@ -38,9 +46,10 @@ async def list_sessions(
 @router.get("/sessions/{session_id}", response_model=Result[VoiceSessionDTO])
 async def get_session(
     session_id: int,
+    request: Request,
     service: VoiceSessionService = Depends(get_voice_session_service),
 ) -> Result[VoiceSessionDTO]:
-    return Result.success(data=await service.get_session(session_id))
+    return Result.success(data=_attach_ws_url(request, await service.get_session(session_id)))
 
 
 @router.post("/sessions/{session_id}/end", response_model=Result[None])
@@ -65,9 +74,10 @@ async def pause_session(
 @router.put("/sessions/{session_id}/resume", response_model=Result[VoiceSessionDTO])
 async def resume_session(
     session_id: int,
+    request: Request,
     service: VoiceSessionService = Depends(get_voice_session_service),
 ) -> Result[VoiceSessionDTO]:
-    return Result.success(data=await service.resume_session(session_id))
+    return Result.success(data=_attach_ws_url(request, await service.resume_session(session_id)))
 
 
 @router.delete("/sessions/{session_id}", response_model=Result[None])
