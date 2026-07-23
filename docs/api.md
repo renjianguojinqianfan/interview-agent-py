@@ -463,12 +463,12 @@
 
 ## 附录 B：已知契约差异（待修复）
 
-> 以下为终局迁移审查发现的 Python 实现与「复用的 Java 前端契约」不一致项，**文档如实标注**，修复前请前端联调注意。级别沿用审查：Blocker=页面崩溃/契约不符。
+> 终局迁移审查发现的**功能性契约缺口已全部修复**（语音评估 `answers[]`/#24、面试详情 `/details`/#25、语音列表元数据/#27、`forceCreate`/`resumeText`/#28、`llmProvider`/#29）。下表仅剩**前端声明但无页面调用的死端点**（有意不实现，与 ADR-0015 死端点清单一致）。
 
 | 级别 | 端点 / 字段 | 前端期望 | Python 现状 | 影响 |
 |---|---|---|---|---|
-| Low | `GET /api/interview/sessions/{id}/report` | 面试报告（`InterviewReport`） | 未实现（前端无页面调用，`/evaluation` 已覆盖数据） | 死端点 |
-| Low | `GET /api/knowledgebase/{id}`、`/uncategorized` | 详情 / 未分类列表 | 未实现（前端无页面调用；ADR-0015 死端点清单未收录此二者） | 契约/文档完整性 |
+| Low | `GET /api/interview/sessions/{id}/report` | 面试报告（`InterviewReport`） | 未实现（前端无页面调用，`/evaluation`+`/details` 已覆盖数据；已入 ADR-0015 死端点清单） | 死端点 |
+| Low | `GET /api/knowledgebase/{id}`、`/uncategorized` | 详情 / 未分类列表 | 未实现（前端无页面调用；已入 ADR-0015 死端点清单） | 死端点 |
 | Low | KB `/query`、`/query/stream`；RAG `/{id}/knowledge-bases`；简历 `/health` | — | 未实现（**已在 ADR-0015 记录为死端点**） | 无（前端无页面调用） |
 
 > 完整证据（file:line 三方比对）见终局迁移审查报告。

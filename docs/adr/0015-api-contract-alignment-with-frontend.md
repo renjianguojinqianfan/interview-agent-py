@@ -10,7 +10,9 @@ ADR-0001 定「复用 Java 前端、Python API 与 Java 严格兼容」，ADR-00
 - **RAG 前缀 / 形状 / 流式格式**：前缀 `/api/rag/sessions` 改为 `/api/rag-chat/sessions`；路径参数用数字主键 id；列表裸数组含 messageCount/knowledgeBaseNames/isPinned；详情含 knowledgeBases[] 且消息字段用 `type`（非 `role`）；置顶由 POST 改 PUT；新增 PUT title；流式端点由 `/query/stream` 改为 `/messages/stream`，其 SSE 由 JSON 包裹（`{"delta"}`/`{"sources"}`/`[DONE]`）改为**纯文本 data 帧**（换行转义），对齐 Java `ServerSentEvent<String>` 与前端 `parseMode:'event'` 直接拼接；错误用 `event: error` 帧。
 - **LLM 供应商标识**：provider 对外标识由自增 int 改为字符串 id（= provider_name）；CRUD/测试/默认设置均按名查找，默认设置对外以名解析、内部仍存 int 主键（边界映射，不做数据库迁移）。对齐 Java `String id` 与前端 `ProviderItem.id: string`。
 
-**不变量**：前端零改动；每模块后端补齐对应契约测试；`make verify` 双栈全绿；对齐后各页面浏览器冒烟 0 致命 console error。前端声明但无页面调用的死端点（知识库 `/query`、`/query/stream`；RAG `/{id}/knowledge-bases`；简历 `/health`）不实现，聚焦页面可用。
+**不变量**：前端零改动；每模块后端补齐对应契约测试；`make verify` 双栈全绿；对齐后各页面浏览器冒烟 0 致命 console error。前端声明但无页面调用的死端点（面试 `/sessions/{id}/report`；知识库 `/query`、`/query/stream`、`/{id}`、`/uncategorized`；RAG `/{id}/knowledge-bases`；简历 `/health`）不实现，聚焦页面可用。
+
+**后续修复（终局迁移审查）**：审查发现的功能性契约缺口已按前端权威修复——语音评估扁平 `answers[]`/`totalQuestions`/`evaluateError`、`GET /interview/sessions/{id}/details`、语音会话列表 `createdAt`/`actualDuration`/`messageCount`/`evaluateError`、文字面试创建 `forceCreate`/`resumeText`、创建请求 `llmProvider`（字符串供应商名，按名解析）。上述死端点仍不实现（前端无页面调用）。
 
 **Considered Options**：
 - 改前端迁就后端——**否**：违背 ADR-0001「前端为权威契约」，且分歧面广、回归风险高。
