@@ -323,9 +323,9 @@
 ### CreateInterviewRequest
 ```ts
 { questionCount /* 3-20 */, skillId, difficulty?, resumeId?, resumeText?, forceCreate?,
-  llmProviderId?, customCategories?, jdText? }
+  llmProvider?, customCategories?, jdText? }
 ```
-> 注：`forceCreate`（兼容旧 `forceNew`）与 `resumeText` 已对齐前端；`llmProviderId` 仍与前端 `llmProvider` 存在差异，见[附录 B](#附录-b已知契约差异待修复)。
+> 注：`forceCreate`（兼容旧 `forceNew`）、`resumeText`、`llmProvider`（字符串供应商名，按名解析）均已对齐前端。
 
 ### InterviewSession
 ```ts
@@ -434,7 +434,7 @@
 ### CreateVoiceSessionRequest
 ```ts
 { roleType?, skillId, difficulty?, resumeId?, customJdText?,
-  introEnabled?, techEnabled?, projectEnabled?, hrEnabled?, plannedDuration?, llmProviderId? }
+  introEnabled?, techEnabled?, projectEnabled?, hrEnabled?, plannedDuration?, llmProvider? }
 ```
 ### VoiceSession
 ```ts
@@ -467,7 +467,6 @@
 
 | 级别 | 端点 / 字段 | 前端期望 | Python 现状 | 影响 |
 |---|---|---|---|---|
-| High | 面试/语音创建请求 `llmProvider` | `llmProvider: string`（供应商名） | 字段为 `llmProviderId: int` → **被忽略** | 用户选定的 LLM 供应商被忽略、回退默认 |
 | Low | `GET /api/interview/sessions/{id}/report` | 面试报告（`InterviewReport`） | 未实现（前端无页面调用，`/evaluation` 已覆盖数据） | 死端点 |
 | Low | `GET /api/knowledgebase/{id}`、`/uncategorized` | 详情 / 未分类列表 | 未实现（前端无页面调用；ADR-0015 死端点清单未收录此二者） | 契约/文档完整性 |
 | Low | KB `/query`、`/query/stream`；RAG `/{id}/knowledge-bases`；简历 `/health` | — | 未实现（**已在 ADR-0015 记录为死端点**） | 无（前端无页面调用） |

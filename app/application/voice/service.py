@@ -30,6 +30,7 @@ from app.domain.entities.voice_interview import (
 )
 from app.domain.errors import BusinessException, ErrorCode
 from app.domain.services.voice_session_state import validate_transition
+from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.db.models.voice_interview import (
     VoiceInterviewEvaluation as VoiceInterviewEvaluationORM,
 )
@@ -69,13 +70,17 @@ class VoiceSessionService:
         repository: VoiceInterviewRepository,
         session_cache: VoiceInterviewSessionCache,
         evaluate_producer: VoiceEvaluateStreamProducer,
+        llm_registry: LlmProviderRegistry,
     ) -> None:
         self._session = session
         self._repository = repository
         self._cache = session_cache
         self._producer = evaluate_producer
+        self._registry = llm_registry
 
     async def create_session(self, request: CreateVoiceSessionRequest) -> VoiceSessionDTO:
+        # 校验供应商名（不存在则抛 PROVIDER_NOT_FOUND，非静默回退）；LLM 在 WS 对话时按名解析
+        await self._registry.resolve_provider_id_by_name(request.llm_provider)
         orm = VoiceInterviewSessionORM(
             user_id=DEFAULT_USER_ID,
             role_type=request.role_type,
@@ -87,7 +92,7 @@ class VoiceSessionService:
             tech_enabled=request.tech_enabled,
             project_enabled=request.project_enabled,
             hr_enabled=request.hr_enabled,
-            llm_provider=str(request.llm_provider_id) if request.llm_provider_id is not None else None,
+            llm_provider=request.llm_provider,
             current_phase=_determine_first_phase(request),
             status=VoiceSessionStatus.IN_PROGRESS.value,
             planned_duration=request.planned_duration,

@@ -90,7 +90,7 @@ async def test_voice_turn_persists_to_real_db_e2e(live_session_factory: async_se
         difficulty="mid",
         current_phase="TECH",
         custom_jd_text=None,
-        llm_provider_id=None,
+        llm_provider=None,
     )
     orch._tts_config = MagicMock()
     orch._final_segments = ["我做过一个高并发系统"]

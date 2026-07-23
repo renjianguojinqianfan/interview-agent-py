@@ -152,6 +152,19 @@ class TestCreateSession:
         assert body["data"]["currentPhase"] == "INTRO"
         mock.create_session.assert_awaited_once()
 
+    def test_create_accepts_llm_provider_string(self) -> None:
+        """#29 契约：llmProvider（字符串供应商名）被接收为字符串并传入服务。"""
+        mock = AsyncMock()
+        mock.create_session.return_value = _session_dto(1)
+        _override_services(mock, AsyncMock())
+
+        resp = client.post("/api/voice-interview/sessions", json={**_create_body(), "llmProvider": "dashscope"})
+
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 200
+        req = mock.create_session.await_args.args[0]
+        assert req.llm_provider == "dashscope"
+
 
 class TestGetSession:
     def test_get_returns_session(self) -> None:

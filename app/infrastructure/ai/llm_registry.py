@@ -77,6 +77,20 @@ class LlmProviderRegistry:
     async def get_default_embeddings(self) -> OpenAIEmbeddings:
         return await self.get_embeddings()
 
+    async def resolve_provider_id_by_name(self, provider_name: str | None) -> int | None:
+        """将对外字符串供应商标识（= provider_name，ADR-0015）解析为内部 int 主键。
+
+        None/空 → None（调用方回退默认）；传入不存在的名称 → 抛 PROVIDER_NOT_FOUND（非静默回退）。
+        """
+        if not provider_name:
+            return None
+        async with self._session_factory() as session:
+            result = await session.execute(select(LlmProvider.id).where(LlmProvider.provider_name == provider_name))
+            provider_id = result.scalar_one_or_none()
+        if provider_id is None:
+            raise BusinessException(ErrorCode.PROVIDER_NOT_FOUND, f"未找到 LLM Provider: {provider_name}")
+        return int(provider_id)
+
     def reload(self) -> None:
         size = len(self._client_cache) + len(self._embedding_cache)
         self._client_cache.clear()

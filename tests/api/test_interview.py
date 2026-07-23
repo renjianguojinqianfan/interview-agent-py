@@ -128,6 +128,18 @@ class TestCreateSession:
         assert req.force_create is True
         assert req.resume_text == "纯文本简历"
 
+    def test_accepts_llm_provider_string(self, mock_service: MagicMock) -> None:
+        """#29 契约：llmProvider（字符串供应商名）被接收为字符串。"""
+        mock_service.create_session.return_value = _session_dto()
+        resp = client.post(
+            "/api/interview/sessions",
+            json={"questionCount": 3, "skillId": "java-backend", "llmProvider": "dashscope"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 200
+        req = mock_service.create_session.await_args.args[0]
+        assert req.llm_provider == "dashscope"
+
 
 class TestListSessions:
     def test_returns_bare_array_with_contract_fields(self, mock_service: MagicMock) -> None:

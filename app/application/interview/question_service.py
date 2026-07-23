@@ -59,16 +59,18 @@ class QuestionService:
         historical: list[HistoricalQuestion],
         custom_categories: list[dict[str, object]] | None = None,
         jd_text: str | None = None,
-        llm_provider_id: int | None = None,
+        llm_provider: str | None = None,
     ) -> list[InterviewQuestion]:
         skill = await self._resolve_skill(skill_id, custom_categories, jd_text)
+        provider_id = None
+        if llm_provider:
+            # 按名解析供应商（早早抛 PROVIDER_NOT_FOUND，早于并行 gather 的兵底链，保证非静默回退）
+            provider_id = await self._llm_registry.resolve_provider_id_by_name(llm_provider)
         if resume_text:
             return await self._generate_with_resume(
-                skill, difficulty, resume_text, question_count, historical, jd_text, llm_provider_id
+                skill, difficulty, resume_text, question_count, historical, jd_text, provider_id
             )
-        return await self._generate_direction_only(
-            skill, difficulty, question_count, historical, jd_text, llm_provider_id
-        )
+        return await self._generate_direction_only(skill, difficulty, question_count, historical, jd_text, provider_id)
 
     async def _generate_with_resume(
         self,

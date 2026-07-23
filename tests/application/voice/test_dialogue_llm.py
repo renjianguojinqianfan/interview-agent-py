@@ -30,13 +30,14 @@ def _context() -> DialogueContext:
         difficulty="mid",
         current_phase="TECH",
         custom_jd_text=None,
-        llm_provider_id=None,
+        llm_provider=None,
     )
 
 
-def _make_llm(tokens: list[str]) -> tuple[VoiceDialogueLlm, MagicMock]:
+def _make_llm(tokens: list[str], resolved_id: int | None = None) -> tuple[VoiceDialogueLlm, MagicMock]:
     registry = MagicMock()
     registry.get_voice_chat_client = AsyncMock(return_value=_FakeLlm(tokens))
+    registry.resolve_provider_id_by_name = AsyncMock(return_value=resolved_id)
     sanitizer = MagicMock()
     sanitizer.sanitize = MagicMock(side_effect=lambda s: s)
     return VoiceDialogueLlm(registry, sanitizer), registry
@@ -49,15 +50,16 @@ class TestStreamReply:
         assert tokens == ["你好", "，请", "介绍"]
         registry.get_voice_chat_client.assert_awaited_once_with(None)
 
-    async def test_uses_provider_id_when_present(self) -> None:
+    async def test_uses_provider_resolved_by_name_when_present(self) -> None:
         ctx = DialogueContext(
             role_type="r",
             skill_id="s",
             difficulty="mid",
             current_phase="TECH",
             custom_jd_text="要求 Java",
-            llm_provider_id=7,
+            llm_provider="dashscope",
         )
-        llm, registry = _make_llm(["ok"])
+        llm, registry = _make_llm(["ok"], resolved_id=7)
         _ = [t async for t in llm.stream_reply(ctx, history="Q1\nA1", answer="回答")]
+        registry.resolve_provider_id_by_name.assert_awaited_once_with("dashscope")
         registry.get_voice_chat_client.assert_awaited_once_with(7)

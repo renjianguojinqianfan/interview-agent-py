@@ -4,8 +4,12 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from app.application.voice.schemas import CreateVoiceSessionRequest
 from app.application.voice.service import VoiceEvaluationService, VoiceSessionService
 from app.domain.entities.task_status import AsyncTaskStatus
+from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.voice_interview import (
     VoiceInterviewEvaluation as VoiceInterviewEvaluationORM,
 )
@@ -148,6 +152,7 @@ class TestListSessionsContract:
             repository=repository,
             session_cache=MagicMock(),
             evaluate_producer=MagicMock(),
+            llm_registry=MagicMock(),
         )
 
         metas = await service.list_sessions()
@@ -160,3 +165,55 @@ class TestListSessionsContract:
         assert m.message_count == 4
         # 一次聚合查询拿到所有会话的消息数（避 N+1）
         repository.count_messages_by_sessions.assert_awaited_once_with(service._session, [5])
+
+
+class TestCreateSessionProvider:
+    """#29 语音创建 llmProvider：按名校验/存储；不存在报业务错。"""
+
+    async def test_create_stores_provider_name(self) -> None:
+        now = datetime(2026, 7, 21, 10, 0, 0, tzinfo=UTC)
+
+        def _stamp(_session: object, orm: object) -> object:
+            orm.id = 1  # type: ignore[attr-defined]
+            orm.start_time = now  # type: ignore[attr-defined]
+            orm.created_at = now  # type: ignore[attr-defined]
+            orm.updated_at = now  # type: ignore[attr-defined]
+            return orm
+
+        repository = MagicMock()
+        repository.save_session = AsyncMock(side_effect=_stamp)
+        session = MagicMock()
+        session.commit = AsyncMock()
+        cache = MagicMock()
+        cache.save_session = AsyncMock()
+        registry = MagicMock()
+        registry.resolve_provider_id_by_name = AsyncMock(return_value=3)
+        service = VoiceSessionService(
+            session=session,
+            repository=repository,
+            session_cache=cache,
+            evaluate_producer=MagicMock(),
+            llm_registry=registry,
+        )
+
+        dto = await service.create_session(CreateVoiceSessionRequest(skill_id="java-backend", llm_provider="dashscope"))
+
+        registry.resolve_provider_id_by_name.assert_awaited_once_with("dashscope")
+        assert dto.llm_provider == "dashscope"
+
+    async def test_create_rejects_unknown_provider(self) -> None:
+        registry = MagicMock()
+        registry.resolve_provider_id_by_name = AsyncMock(
+            side_effect=BusinessException(ErrorCode.PROVIDER_NOT_FOUND, "未找到")
+        )
+        service = VoiceSessionService(
+            session=MagicMock(),
+            repository=MagicMock(),
+            session_cache=MagicMock(),
+            evaluate_producer=MagicMock(),
+            llm_registry=registry,
+        )
+
+        with pytest.raises(BusinessException) as exc:
+            await service.create_session(CreateVoiceSessionRequest(skill_id="java-backend", llm_provider="ghost"))
+        assert exc.value.error_code == ErrorCode.PROVIDER_NOT_FOUND

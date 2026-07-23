@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.entities.evaluation import EvaluationReport, QaRecord
 from app.domain.entities.task_status import AsyncTaskStatus
+from app.domain.errors import BusinessException
 from app.graphs.evaluation import EvaluationGraph
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.db.repositories.resume_repository import ResumeRepository
@@ -83,7 +84,9 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
 
             qa_records = await self._build_qa_records(session, orm)
             resume_text = await self._load_resume_text(session, self._resume_id(orm))
-            chat_client = await self._llm_registry.get_chat_client(self._parse_provider_id(self._llm_provider(orm)))
+            chat_client = await self._llm_registry.get_chat_client(
+                await self._resolve_provider_id(self._llm_provider(orm))
+            )
 
             report = await self._evaluation_graph.evaluate(
                 chat_client=chat_client,
@@ -136,13 +139,19 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
         resume = await self._resume_repository.get_by_id(session, resume_id)
         return resume.resume_text if resume else None
 
-    @staticmethod
-    def _parse_provider_id(llm_provider: str | None) -> int | None:
-        if not llm_provider:
-            return None
+    async def _resolve_provider_id(self, llm_provider: str | None) -> int | None:
+        """按名解析会话使用的供应商（ADR-0015 字符串标识）；已删除/无效则回退默认。
+
+        后台评估不因供应商失效而崩溃（区别于创建请求的非静默报错）。
+        """
         try:
-            return int(llm_provider)
-        except ValueError:
+            return await self._llm_registry.resolve_provider_id_by_name(llm_provider)
+        except BusinessException:
+            logger.warning(
+                "%s会话的 LLM Provider 已不存在，回退默认: %s",
+                self.task_display_name(),
+                llm_provider,
+            )
             return None
 
     # ==================== 领域差异钩子 ====================

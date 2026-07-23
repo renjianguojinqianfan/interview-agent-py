@@ -33,7 +33,7 @@ class DialogueContext:
     difficulty: str
     current_phase: str
     custom_jd_text: str | None
-    llm_provider_id: int | None
+    llm_provider: str | None
 
 
 def _content_to_str(content: Any) -> str:
@@ -61,7 +61,8 @@ class VoiceDialogueLlm:
     async def stream_reply(self, context: DialogueContext, history: str, answer: str) -> AsyncIterator[str]:
         """流式生成面试官下一句回复的增量 token。"""
         messages = await self._build_messages(context, history, answer)
-        llm = await self._llm_registry.get_voice_chat_client(context.llm_provider_id)
+        provider_id = await self._llm_registry.resolve_provider_id_by_name(context.llm_provider)
+        llm = await self._llm_registry.get_voice_chat_client(provider_id)
         async for chunk in llm.astream(messages):
             token = _content_to_str(chunk.content)
             if token:

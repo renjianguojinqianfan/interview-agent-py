@@ -430,6 +430,7 @@ def get_voice_session_service(
         repository=get_voice_repository(),
         session_cache=get_voice_session_cache(),
         evaluate_producer=get_voice_evaluate_producer(),
+        llm_registry=get_llm_registry(),
     )
 
 

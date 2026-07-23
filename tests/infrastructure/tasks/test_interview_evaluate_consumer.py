@@ -126,6 +126,7 @@ def _make_consumer(
 
     llm_registry = MagicMock()
     llm_registry.get_chat_client = AsyncMock(return_value=MagicMock(name="chat_client"))
+    llm_registry.resolve_provider_id_by_name = AsyncMock(return_value=None)
 
     evaluation_graph = MagicMock()
     evaluation_graph.evaluate = AsyncMock(return_value=report or _make_report())

@@ -122,6 +122,38 @@ class TestLlmProviderRegistryGetChatClient:
         assert isinstance(client, ChatOpenAI)
 
 
+def _make_scalar_factory(scalar_value: object):
+    @asynccontextmanager
+    async def factory():
+        session = AsyncMock()
+
+        async def fake_execute(stmt):  # noqa: ANN001, ANN202
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = scalar_value
+            return result
+
+        session.execute = fake_execute
+        yield session
+
+    return factory
+
+
+class TestResolveProviderIdByName:
+    async def test_none_returns_none_without_query(self, registry: LlmProviderRegistry) -> None:
+        assert await registry.resolve_provider_id_by_name(None) is None
+        assert await registry.resolve_provider_id_by_name("") is None
+
+    async def test_valid_name_returns_id(self, encryption_service: ApiKeyEncryptionService) -> None:
+        registry = LlmProviderRegistry(encryption_service, _make_scalar_factory(5))
+        assert await registry.resolve_provider_id_by_name("dashscope") == 5
+
+    async def test_unknown_name_raises_provider_not_found(self, encryption_service: ApiKeyEncryptionService) -> None:
+        registry = LlmProviderRegistry(encryption_service, _make_scalar_factory(None))
+        with pytest.raises(BusinessException) as exc:
+            await registry.resolve_provider_id_by_name("ghost")
+        assert exc.value.error_code == ErrorCode.PROVIDER_NOT_FOUND
+
+
 class TestLlmProviderRegistryClientTypes:
     async def test_plain_client_cached_separately(self, registry: LlmProviderRegistry) -> None:
         default_client = await registry.get_chat_client()

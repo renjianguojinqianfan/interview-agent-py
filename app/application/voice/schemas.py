@@ -25,7 +25,7 @@ class CreateVoiceSessionRequest(BaseSchema):
     tech_enabled: bool = True
     project_enabled: bool = True
     hr_enabled: bool = True
-    llm_provider_id: int | None = None
+    llm_provider: str | None = None
     planned_duration: int = Field(default=DEFAULT_PLANNED_DURATION_MINUTES, ge=1, le=120)
 
 

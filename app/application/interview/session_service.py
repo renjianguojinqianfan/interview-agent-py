@@ -90,7 +90,7 @@ class InterviewSessionService:
             historical=historical,
             custom_categories=request.custom_categories or None,
             jd_text=request.jd_text,
-            llm_provider_id=request.llm_provider_id,
+            llm_provider=request.llm_provider,
         )
 
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
@@ -99,7 +99,7 @@ class InterviewSessionService:
             resume_id=request.resume_id,
             total_questions=len(questions),
             questions=questions,
-            llm_provider=str(request.llm_provider_id) if request.llm_provider_id else None,
+            llm_provider=request.llm_provider,
             skill_id=skill_id,
             difficulty=difficulty,
         )

@@ -219,7 +219,7 @@ def _ready(orch: VoiceWsOrchestrator) -> None:
     from app.application.voice.dialogue_llm import DialogueContext
 
     orch._context = DialogueContext(
-        role_type="r", skill_id="s", difficulty="mid", current_phase="TECH", custom_jd_text=None, llm_provider_id=None
+        role_type="r", skill_id="s", difficulty="mid", current_phase="TECH", custom_jd_text=None, llm_provider=None
     )
     orch._tts_config = MagicMock()
 

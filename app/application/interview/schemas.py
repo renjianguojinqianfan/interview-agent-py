@@ -87,7 +87,7 @@ class CreateSessionRequest(BaseSchema):
         default=False,
         validation_alias=AliasChoices("forceCreate", "forceNew", "force_create", "force_new"),
     )
-    llm_provider_id: int | None = None
+    llm_provider: str | None = None
     custom_categories: list[dict[str, object]] = Field(default_factory=list)
     jd_text: str | None = None
 

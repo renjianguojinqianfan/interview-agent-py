@@ -125,15 +125,6 @@ def _now_ms() -> float:
     return time.monotonic() * 1000
 
 
-def _parse_provider_id(llm_provider: str | None) -> int | None:
-    if not llm_provider:
-        return None
-    try:
-        return int(llm_provider)
-    except ValueError:
-        return None
-
-
 def _build_context(orm: VoiceInterviewSessionORM) -> DialogueContext:
     return DialogueContext(
         role_type=orm.role_type,
@@ -141,7 +132,7 @@ def _build_context(orm: VoiceInterviewSessionORM) -> DialogueContext:
         difficulty=orm.difficulty,
         current_phase=orm.current_phase,
         custom_jd_text=orm.custom_jd_text,
-        llm_provider_id=_parse_provider_id(orm.llm_provider),
+        llm_provider=orm.llm_provider,
     )
 
 

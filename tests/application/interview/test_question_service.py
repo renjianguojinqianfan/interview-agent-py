@@ -287,3 +287,51 @@ class TestFollowUpAttachment:
         assert result[1].parent_question_index == 0
         assert result[2].is_follow_up is True
         assert result[2].parent_question_index == 0
+
+
+class TestGenerateProviderResolution:
+    """#29 llmProvider 按名解析：字符串供应商名 → int id → get_chat_client。"""
+
+    async def test_generate_resolves_llm_provider_by_name(
+        self,
+        service: QuestionService,
+        mock_invoker: MagicMock,
+        mock_llm_registry: MagicMock,
+        mock_load_prompt: MagicMock,
+    ) -> None:
+        mock_invoker.invoke = AsyncMock(return_value=_question_list(3))
+        mock_llm_registry.resolve_provider_id_by_name = AsyncMock(return_value=7)
+
+        await service.generate(
+            skill_id="java-backend",
+            difficulty="mid",
+            resume_text="我的简历",
+            question_count=3,
+            historical=[],
+            llm_provider="dashscope",
+        )
+
+        mock_llm_registry.resolve_provider_id_by_name.assert_awaited_with("dashscope")
+        # 解析出的 int id 传给 get_chat_client
+        assert any(c.args and c.args[0] == 7 for c in mock_llm_registry.get_chat_client.await_args_list)
+
+    async def test_generate_default_provider_skips_resolution(
+        self,
+        service: QuestionService,
+        mock_invoker: MagicMock,
+        mock_llm_registry: MagicMock,
+        mock_load_prompt: MagicMock,
+    ) -> None:
+        """未传 llmProvider 时不触发名称解析（回退默认 provider）。"""
+        mock_invoker.invoke = AsyncMock(return_value=_question_list(3))
+        mock_llm_registry.resolve_provider_id_by_name = AsyncMock()
+
+        await service.generate(
+            skill_id="java-backend",
+            difficulty="mid",
+            resume_text=None,
+            question_count=3,
+            historical=[],
+        )
+
+        mock_llm_registry.resolve_provider_id_by_name.assert_not_awaited()
