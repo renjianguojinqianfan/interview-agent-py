@@ -1,7 +1,7 @@
 # ruff: noqa: N815  LLM 输出模型字段须 camelCase 对齐 prompt 的 Output Format
 """文字面试应用层 DTO 与 LLM 输出模型。"""
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from app.api.responses import BaseSchema, NaiveIsoDatetime
 from app.domain.entities.interview import MAX_QUESTION_COUNT, MIN_QUESTION_COUNT
@@ -82,7 +82,11 @@ class CreateSessionRequest(BaseSchema):
     skill_id: str = Field(min_length=1)
     difficulty: str = "mid"
     resume_id: int | None = None
-    force_new: bool = False
+    resume_text: str | None = None
+    force_create: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("forceCreate", "forceNew", "force_create", "force_new"),
+    )
     llm_provider_id: int | None = None
     custom_categories: list[dict[str, object]] = Field(default_factory=list)
     jd_text: str | None = None

@@ -110,6 +110,24 @@ class TestCreateSession:
         assert resp.status_code == 200
         assert resp.json()["code"] == 400
 
+    def test_accepts_force_create_and_resume_text(self, mock_service: MagicMock) -> None:
+        """#28 契约：forceCreate + resumeText 被接收并传入服务（非静默丢弃）。"""
+        mock_service.create_session.return_value = _session_dto()
+        resp = client.post(
+            "/api/interview/sessions",
+            json={
+                "questionCount": 3,
+                "skillId": "java-backend",
+                "forceCreate": True,
+                "resumeText": "纯文本简历",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 200
+        req = mock_service.create_session.await_args.args[0]
+        assert req.force_create is True
+        assert req.resume_text == "纯文本简历"
+
 
 class TestListSessions:
     def test_returns_bare_array_with_contract_fields(self, mock_service: MagicMock) -> None:

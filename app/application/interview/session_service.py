@@ -71,13 +71,13 @@ class InterviewSessionService:
         self._resume_repository = resume_repository
 
     async def create_session(self, request: CreateSessionRequest) -> InterviewSessionDTO:
-        if request.resume_id and not request.force_new:
+        if request.resume_id and not request.force_create:
             unfinished = await self._find_unfinished_session(request.resume_id)
             if unfinished is not None:
                 logger.info("检测到未完成会话，返回现有: resumeId=%s", request.resume_id)
                 return unfinished
 
-        resume_text = await self._load_resume_text(request.resume_id)
+        resume_text = await self._load_resume_text(request.resume_id) or request.resume_text
         skill_id = request.skill_id or DEFAULT_SKILL_ID
         difficulty = request.difficulty or DEFAULT_DIFFICULTY
         historical = await self._persistence.get_historical_questions(skill_id, request.resume_id)

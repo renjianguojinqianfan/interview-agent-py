@@ -207,6 +207,41 @@ class TestCreateSession:
         assert result.session_id == "existing123"
         mock_question_service.generate.assert_not_awaited()
 
+    async def test_force_create_bypasses_unfinished_and_creates_new(
+        self,
+        service: InterviewSessionService,
+        mock_cache: MagicMock,
+        mock_question_service: MagicMock,
+        mock_persistence: MagicMock,
+        mock_resume_repo: MagicMock,
+    ) -> None:
+        """#28 forceCreate=True：存在未完成会话时仍强制新建（忽略未完成会话）。"""
+        mock_cache.find_unfinished_session_id = AsyncMock(return_value="existing123")
+        mock_resume_repo.get_by_id = AsyncMock(return_value=None)
+        mock_question_service.generate = AsyncMock(return_value=[_question(i) for i in range(3)])
+
+        request = CreateSessionRequest(question_count=3, skill_id="java-backend", resume_id=42, force_create=True)
+        result = await service.create_session(request)
+
+        # 未复用现有会话，而是生成新题并保存新会话
+        mock_question_service.generate.assert_awaited_once()
+        mock_persistence.save_session.assert_awaited_once()
+        assert result.status == SessionStatus.CREATED.value
+
+    async def test_resume_text_used_when_no_resume_id(
+        self,
+        service: InterviewSessionService,
+        mock_question_service: MagicMock,
+    ) -> None:
+        """#28 resumeText：无 resumeId 时以传入纯文本作为出题依据。"""
+        mock_question_service.generate = AsyncMock(return_value=[_question(i) for i in range(3)])
+
+        request = CreateSessionRequest(question_count=3, skill_id="java-backend", resume_text="我的简历纯文本")
+        await service.create_session(request)
+
+        kwargs = mock_question_service.generate.await_args.kwargs
+        assert kwargs["resume_text"] == "我的简历纯文本"
+
 
 class TestGetSession:
     async def test_returns_from_cache(
