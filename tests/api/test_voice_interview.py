@@ -62,8 +62,12 @@ def _meta_dto(session_id: int = 1) -> VoiceSessionMetaDTO:
         current_phase="INTRO",
         start_time=now,
         end_time=None,
-        evaluate_status=None,
+        created_at=now,
         updated_at=now,
+        actual_duration=120,
+        message_count=6,
+        evaluate_status=None,
+        evaluate_error=None,
     )
 
 
@@ -239,6 +243,11 @@ class TestListSessions:
         assert len(data) == 2
         assert data[0]["id"] == 1
         assert data[0]["sessionId"] == 1
+        # #27 列表元数据对齐（camelCase）：修复 Invalid Date / 排序
+        assert data[0]["createdAt"]
+        assert data[0]["messageCount"] == 6
+        assert data[0]["actualDuration"] == 120
+        assert "evaluateError" in data[0]
 
     def test_list_no_filters(self) -> None:
         mock = AsyncMock()

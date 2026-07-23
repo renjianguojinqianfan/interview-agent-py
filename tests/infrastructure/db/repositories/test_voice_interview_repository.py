@@ -49,3 +49,21 @@ class TestFindLatestUnansweredMessage:
         session.execute.return_value = result_mock
 
         assert await repo.find_latest_unanswered_message(session, 1) is None
+
+
+class TestCountMessagesBySessions:
+    async def test_maps_counts_by_session_pk(self, repo: VoiceInterviewRepository, session: AsyncMock) -> None:
+        result_mock = MagicMock()
+        result_mock.all.return_value = [(1, 3), (2, 0)]
+        session.execute.return_value = result_mock
+
+        counts = await repo.count_messages_by_sessions(session, [1, 2])
+
+        assert counts == {1: 3, 2: 0}
+        session.execute.assert_awaited_once()
+
+    async def test_empty_ids_short_circuits(self, repo: VoiceInterviewRepository, session: AsyncMock) -> None:
+        counts = await repo.count_messages_by_sessions(session, [])
+
+        assert counts == {}
+        session.execute.assert_not_awaited()

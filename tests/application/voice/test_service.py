@@ -1,9 +1,10 @@
 """语音评估读侧服务单元测试：mock 仓储，验证 DB->DTO 重建与契约对齐（#24）。"""
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
-from app.application.voice.service import VoiceEvaluationService
+from app.application.voice.service import VoiceEvaluationService, VoiceSessionService
 from app.domain.entities.task_status import AsyncTaskStatus
 from app.infrastructure.db.models.voice_interview import (
     VoiceInterviewEvaluation as VoiceInterviewEvaluationORM,
@@ -122,3 +123,40 @@ class TestGetEvaluationContract:
         assert dto.evaluate_status == "FAILED"
         assert dto.evaluate_error == "评估超时"
         assert dto.evaluation is None
+
+
+class TestListSessionsContract:
+    """#27 会话列表元数据对齐：createdAt/actualDuration/messageCount/evaluateError。"""
+
+    async def test_metas_include_created_at_and_message_count(self) -> None:
+        now = datetime(2026, 7, 21, 10, 0, 0, tzinfo=UTC)
+        row = _make_session_orm(
+            id=5,
+            status="COMPLETED",
+            actual_duration=120,
+            evaluate_status="COMPLETED",
+            evaluate_error=None,
+            start_time=now,
+            created_at=now,
+            updated_at=now,
+        )
+        repository = MagicMock()
+        repository.list_by_user = AsyncMock(return_value=[row])
+        repository.count_messages_by_sessions = AsyncMock(return_value={5: 4})
+        service = VoiceSessionService(
+            session=MagicMock(),
+            repository=repository,
+            session_cache=MagicMock(),
+            evaluate_producer=MagicMock(),
+        )
+
+        metas = await service.list_sessions()
+
+        assert len(metas) == 1
+        m = metas[0]
+        assert m.session_id == 5
+        assert m.created_at is not None
+        assert m.actual_duration == 120
+        assert m.message_count == 4
+        # 一次聚合查询拿到所有会话的消息数（避 N+1）
+        repository.count_messages_by_sessions.assert_awaited_once_with(service._session, [5])

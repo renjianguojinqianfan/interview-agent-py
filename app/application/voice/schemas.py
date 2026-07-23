@@ -70,8 +70,12 @@ class VoiceSessionMetaDTO(BaseSchema):
     current_phase: str
     start_time: NaiveIsoDatetime
     end_time: NaiveIsoDatetime | None = None
-    evaluate_status: str | None = None
+    created_at: NaiveIsoDatetime
     updated_at: NaiveIsoDatetime
+    actual_duration: int | None = None
+    message_count: int = 0
+    evaluate_status: str | None = None
+    evaluate_error: str | None = None
 
 
 class VoiceMessageDTO(BaseSchema):

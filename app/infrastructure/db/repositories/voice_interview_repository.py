@@ -125,6 +125,21 @@ class VoiceInterviewRepository:
         )
         return int(result.scalar() or 0)
 
+    async def count_messages_by_sessions(
+        self,
+        session: AsyncSession,
+        session_pks: list[int],
+    ) -> dict[int, int]:
+        """按会话主键分组统计消息数（一次查询），用于会话列表 messageCount（避 N+1）。"""
+        if not session_pks:
+            return {}
+        result = await session.execute(
+            select(VoiceInterviewMessageORM.session_id, func.count())
+            .where(VoiceInterviewMessageORM.session_id.in_(session_pks))
+            .group_by(VoiceInterviewMessageORM.session_id)
+        )
+        return {int(sid): int(count) for sid, count in result.all()}
+
     async def find_latest_unanswered_message(
         self,
         session: AsyncSession,

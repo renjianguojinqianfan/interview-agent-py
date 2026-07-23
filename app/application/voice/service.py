@@ -140,7 +140,8 @@ class VoiceSessionService:
     ) -> list[VoiceSessionMetaDTO]:
         target_user = user_id if user_id is not None else DEFAULT_USER_ID
         rows = await self._repository.list_by_user(self._session, target_user, status)
-        return [_to_meta_dto(r) for r in rows]
+        counts = await self._repository.count_messages_by_sessions(self._session, [r.id for r in rows])
+        return [_to_meta_dto(r, counts.get(r.id, 0)) for r in rows]
 
     async def delete_session(self, session_id: int) -> None:
         orm = await self._load_session(session_id)
@@ -251,7 +252,7 @@ def _to_session_dto(orm: VoiceInterviewSessionORM) -> VoiceSessionDTO:
     )
 
 
-def _to_meta_dto(orm: VoiceInterviewSessionORM) -> VoiceSessionMetaDTO:
+def _to_meta_dto(orm: VoiceInterviewSessionORM, message_count: int = 0) -> VoiceSessionMetaDTO:
     return VoiceSessionMetaDTO(
         id=orm.id,
         session_id=orm.id,
@@ -261,8 +262,12 @@ def _to_meta_dto(orm: VoiceInterviewSessionORM) -> VoiceSessionMetaDTO:
         current_phase=orm.current_phase,
         start_time=orm.start_time,
         end_time=orm.end_time,
-        evaluate_status=orm.evaluate_status,
+        created_at=orm.created_at,
         updated_at=orm.updated_at,
+        actual_duration=orm.actual_duration,
+        message_count=message_count,
+        evaluate_status=orm.evaluate_status,
+        evaluate_error=orm.evaluate_error,
     )
 
 
