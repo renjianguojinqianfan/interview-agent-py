@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_voice_evaluation_service, get_voice_session_service
 from app.application.voice.schemas import (
+    VoiceAnswerDetailDTO,
     VoiceEvaluationDetailDTO,
     VoiceEvaluationStatusDTO,
     VoiceMessageDTO,
@@ -79,19 +80,30 @@ def _message_dto(msg_id: int = 1, seq: int = 1) -> VoiceMessageDTO:
     )
 
 
-def _eval_status_dto(status: str = "COMPLETED") -> VoiceEvaluationStatusDTO:
+def _eval_status_dto(status: str = "COMPLETED", evaluate_error: str | None = None) -> VoiceEvaluationStatusDTO:
     detail = None
     if status == "COMPLETED":
         detail = VoiceEvaluationDetailDTO(
+            session_id=1,
+            total_questions=1,
             overall_score=85,
             overall_feedback="整体表现良好",
-            category_scores=[],
-            question_details=[],
             strengths=["基础扎实"],
             improvements=["需加强系统设计"],
-            reference_answers=[],
+            answers=[
+                VoiceAnswerDetailDTO(
+                    question_index=0,
+                    question="Q0",
+                    category="Java",
+                    user_answer="A0",
+                    score=90,
+                    feedback="好",
+                    reference_answer="参考0",
+                    key_points=["要点0"],
+                )
+            ],
         )
-    return VoiceEvaluationStatusDTO(evaluate_status=status, evaluation=detail)
+    return VoiceEvaluationStatusDTO(evaluate_status=status, evaluate_error=evaluate_error, evaluation=detail)
 
 
 def _create_body() -> dict:
@@ -278,8 +290,20 @@ class TestGetEvaluation:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["evaluateStatus"] == "COMPLETED"
+        assert data["evaluation"]["sessionId"] == 1
+        assert data["evaluation"]["totalQuestions"] == 1
         assert data["evaluation"]["overallScore"] == 85
         assert data["evaluation"]["strengths"] == ["基础扎实"]
+        # 扁平 answers[]（修复前端 evaluation.answers.map() 崩溃）+ camelCase
+        answers = data["evaluation"]["answers"]
+        assert len(answers) == 1
+        assert answers[0]["questionIndex"] == 0
+        assert answers[0]["userAnswer"] == "A0"
+        assert answers[0]["referenceAnswer"] == "参考0"
+        assert answers[0]["keyPoints"] == ["要点0"]
+        # 旧三段式字段已下线
+        assert "categoryScores" not in data["evaluation"]
+        assert "questionDetails" not in data["evaluation"]
 
     def test_get_pending_without_detail(self) -> None:
         mock_eval = AsyncMock()
@@ -291,6 +315,19 @@ class TestGetEvaluation:
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["evaluateStatus"] == "PENDING"
+        assert data["evaluation"] is None
+
+    def test_get_failed_exposes_evaluate_error(self) -> None:
+        mock_eval = AsyncMock()
+        mock_eval.get_evaluation.return_value = _eval_status_dto("FAILED", evaluate_error="评估超时")
+        _override_services(AsyncMock(), mock_eval)
+
+        resp = client.get("/api/voice-interview/sessions/1/evaluation")
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["evaluateStatus"] == "FAILED"
+        assert data["evaluateError"] == "评估超时"
         assert data["evaluation"] is None
 
 

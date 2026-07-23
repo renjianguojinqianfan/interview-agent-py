@@ -443,9 +443,9 @@
 ```
 ### VoiceEvaluationStatus
 ```ts
-{ evaluateStatus, evaluation?: {
-    overallScore, overallFeedback,
-    categoryScores[], questionDetails[], strengths[], improvements[], referenceAnswers[] } }
+{ evaluateStatus, evaluateError?, evaluation?: {
+    sessionId, totalQuestions, overallScore, overallFeedback, strengths[], improvements[],
+    answers: { questionIndex, question, category, userAnswer, score, feedback, referenceAnswer?, keyPoints? }[] } }
 ```
 
 ---
@@ -456,12 +456,10 @@
 
 | 级别 | 端点 / 字段 | 前端期望 | Python 现状 | 影响 |
 |---|---|---|---|---|
-| **Blocker** | `GET/POST /api/voice-interview/sessions/{id}/evaluation` → `evaluation` | 含扁平 `answers[]`（每项含 `referenceAnswer`/`keyPoints`）+ `sessionId`/`totalQuestions` | 返回 `categoryScores`/`questionDetails`/`referenceAnswers`，**无 `answers`/`totalQuestions`** | 语音评估报告页 `evaluation.answers.map()` 抛错、整页崩溃 |
 | High | `GET /api/interview/sessions/{id}/details` | 面试详情（`InterviewDetail`，含 `answers[]`） | **未实现该路由** | 简历详情页/历史看面试详情失败 |
 | High | `GET /api/voice-interview/sessions`（`VoiceSessionMeta`） | 含 `createdAt`（列表按其排序展示）、`evaluateError` | 缺 `createdAt`/`evaluateError`（仅 `startTime`/`updatedAt`） | `/interviews`、`/interview-hub` 语音项日期为 Invalid Date、排序异常 |
 | High | `POST /api/interview/sessions` 请求 `forceCreate` | `forceCreate: boolean` | 字段名为 `forceNew` → **被忽略** | 存在未完成会话时"强制新建/重开"失效 |
 | High | 面试/语音创建请求 `llmProvider` | `llmProvider: string`（供应商名） | 字段为 `llmProviderId: int` → **被忽略** | 用户选定的 LLM 供应商被忽略、回退默认 |
-| Medium | `.../evaluation` 状态 `evaluateError` | 可选 `evaluateError` | `VoiceEvaluationStatus` 缺该字段 | 评估 FAILED 时错误详情丢失（有兜底文案） |
 | Medium | `POST /api/interview/sessions` 请求 `resumeText` | 传纯文本 | Python 忽略、由 `resumeId` 反查 | 纯文本无简历路径可能取不到文本（常规有 `resumeId` 兜底） |
 | Low | `GET /api/interview/sessions/{id}/report` | 面试报告（`InterviewReport`） | 未实现（前端无页面调用，`/evaluation` 已覆盖数据） | 死端点 |
 | Low | `GET /api/knowledgebase/{id}`、`/uncategorized` | 详情 / 未分类列表 | 未实现（前端无页面调用；ADR-0015 死端点清单未收录此二者） | 契约/文档完整性 |

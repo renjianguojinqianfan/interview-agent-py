@@ -10,19 +10,18 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.interview.schemas import (
-    CategoryScoreDTO,
     QuestionEvaluationDetailDTO,
     ReferenceAnswerDTO,
 )
 from app.application.voice.schemas import (
     CreateVoiceSessionRequest,
+    VoiceAnswerDetailDTO,
     VoiceEvaluationDetailDTO,
     VoiceEvaluationStatusDTO,
     VoiceMessageDTO,
     VoiceSessionDTO,
     VoiceSessionMetaDTO,
 )
-from app.domain.entities.evaluation import CategoryScore, QuestionEvaluation
 from app.domain.entities.task_status import AsyncTaskStatus
 from app.domain.entities.voice_interview import (
     DEFAULT_USER_ID,
@@ -30,7 +29,6 @@ from app.domain.entities.voice_interview import (
     VoiceSessionStatus,
 )
 from app.domain.errors import BusinessException, ErrorCode
-from app.domain.services.evaluation import compute_category_scores
 from app.domain.services.voice_session_state import validate_transition
 from app.infrastructure.db.models.voice_interview import (
     VoiceInterviewEvaluation as VoiceInterviewEvaluationORM,
@@ -163,12 +161,12 @@ class VoiceSessionService:
             AsyncTaskStatus.PENDING.value,
             AsyncTaskStatus.PROCESSING.value,
         ):
-            return VoiceEvaluationStatusDTO(evaluate_status=current or "")
+            return VoiceEvaluationStatusDTO(evaluate_status=current or "", evaluate_error=orm.evaluate_error)
         orm.evaluate_status = AsyncTaskStatus.PENDING.value
         orm.evaluate_error = None
         await self._session.commit()
         await self._producer.send_task(VoiceEvaluatePayload(session_id=orm.id))
-        return VoiceEvaluationStatusDTO(evaluate_status=AsyncTaskStatus.PENDING.value)
+        return VoiceEvaluationStatusDTO(evaluate_status=AsyncTaskStatus.PENDING.value, evaluate_error=None)
 
     async def _load_session(self, session_id: int) -> VoiceInterviewSessionORM:
         orm = await self._repository.get_by_id(self._session, session_id)
@@ -209,8 +207,12 @@ class VoiceEvaluationService:
         if evaluate_status == AsyncTaskStatus.COMPLETED.value:
             evaluation = await self._repository.get_evaluation_by_session(self._session, orm.id)
             if evaluation is not None:
-                detail = _to_evaluation_detail(evaluation)
-        return VoiceEvaluationStatusDTO(evaluate_status=evaluate_status, evaluation=detail)
+                detail = _to_evaluation_detail(evaluation, orm.id)
+        return VoiceEvaluationStatusDTO(
+            evaluate_status=evaluate_status,
+            evaluate_error=orm.evaluate_error,
+            evaluation=detail,
+        )
 
 
 def _determine_first_phase(request: CreateVoiceSessionRequest) -> str:
@@ -291,18 +293,30 @@ def _to_cache_snapshot(orm: VoiceInterviewSessionORM) -> CachedVoiceSession:
     )
 
 
-def _to_evaluation_detail(orm: VoiceInterviewEvaluationORM) -> VoiceEvaluationDetailDTO:
+def _to_evaluation_detail(orm: VoiceInterviewEvaluationORM, session_id: int) -> VoiceEvaluationDetailDTO:
     question_details = _parse_question_details(orm.question_evaluations_json)
-    domain_scores = compute_category_scores(_to_domain_evaluations(question_details))
-    category_scores = _to_category_dtos(domain_scores)
+    ref_map = {r.question_index: r for r in _parse_reference_answers(orm.reference_answers_json)}
+    answers = [
+        VoiceAnswerDetailDTO(
+            question_index=q.question_index,
+            question=q.question,
+            category=q.category,
+            user_answer=q.user_answer,
+            score=q.score,
+            feedback=q.feedback,
+            reference_answer=ref_map[q.question_index].reference_answer if q.question_index in ref_map else None,
+            key_points=list(ref_map[q.question_index].key_points) if q.question_index in ref_map else [],
+        )
+        for q in question_details
+    ]
     return VoiceEvaluationDetailDTO(
+        session_id=session_id,
+        total_questions=len(answers),
         overall_score=orm.overall_score or 0,
         overall_feedback=orm.overall_feedback or "",
-        category_scores=category_scores,
-        question_details=question_details,
         strengths=[str(s) for s in json_loads_list(orm.strengths_json)],
         improvements=[str(s) for s in json_loads_list(orm.improvements_json)],
-        reference_answers=_parse_reference_answers(orm.reference_answers_json),
+        answers=answers,
     )
 
 
@@ -336,25 +350,3 @@ def _parse_reference_answers(raw: str | None) -> list[ReferenceAnswerDTO]:
             )
         )
     return result
-
-
-def _to_domain_evaluations(
-    details: list[QuestionEvaluationDetailDTO],
-) -> list[QuestionEvaluation]:
-    """DTO -> domain 评估实体（字段一致），供统一评估领域服务消费。"""
-    return [
-        QuestionEvaluation(
-            question_index=d.question_index,
-            question=d.question,
-            category=d.category,
-            user_answer=d.user_answer,
-            score=d.score,
-            feedback=d.feedback,
-        )
-        for d in details
-    ]
-
-
-def _to_category_dtos(scores: list[CategoryScore]) -> list[CategoryScoreDTO]:
-    """domain CategoryScore -> DTO。"""
-    return [CategoryScoreDTO(category=s.category, score=s.score, question_count=s.question_count) for s in scores]

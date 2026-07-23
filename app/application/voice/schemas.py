@@ -1,17 +1,12 @@
 """语音面试应用层 Pydantic schemas。
 
-复用文字面试的评估相关 DTO（CategoryScoreDTO/QuestionEvaluationDetailDTO/ReferenceAnswerDTO），
-因 EvaluationReport 为文字/语音共用领域实体。
+评估结果对外契约对齐复用的前端 `VoiceEvaluationDetail`（ADR-0001/0015）：
+扁平 `answers[]`（由逐题明细 + 参考答案按 questionIndex 合并）+ sessionId + totalQuestions。
 """
 
 from pydantic import Field
 
 from app.api.responses import BaseSchema, NaiveIsoDatetime
-from app.application.interview.schemas import (
-    CategoryScoreDTO,
-    QuestionEvaluationDetailDTO,
-    ReferenceAnswerDTO,
-)
 from app.domain.entities.voice_interview import (
     DEFAULT_DIFFICULTY,
     DEFAULT_PLANNED_DURATION_MINUTES,
@@ -90,16 +85,30 @@ class VoiceMessageDTO(BaseSchema):
     sequence_num: int
 
 
+class VoiceAnswerDetailDTO(BaseSchema):
+    """语音评估扁平逐题项，对齐前端 `VoiceAnswerDetail`。"""
+
+    question_index: int
+    question: str
+    category: str
+    user_answer: str | None = None
+    score: int
+    feedback: str
+    reference_answer: str | None = None
+    key_points: list[str] = Field(default_factory=list)
+
+
 class VoiceEvaluationDetailDTO(BaseSchema):
+    session_id: int
+    total_questions: int
     overall_score: int
     overall_feedback: str
-    category_scores: list[CategoryScoreDTO]
-    question_details: list[QuestionEvaluationDetailDTO]
     strengths: list[str]
     improvements: list[str]
-    reference_answers: list[ReferenceAnswerDTO]
+    answers: list[VoiceAnswerDetailDTO]
 
 
 class VoiceEvaluationStatusDTO(BaseSchema):
     evaluate_status: str
+    evaluate_error: str | None = None
     evaluation: VoiceEvaluationDetailDTO | None = None
