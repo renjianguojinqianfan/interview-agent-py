@@ -1,6 +1,7 @@
 """面试评估读侧服务单元测试：mock 仓储，验证 DB->DTO 重建逻辑。"""
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -76,6 +77,7 @@ def _make_answer_orm(index: int, score: int, category: str = "Java") -> Intervie
         feedback="反馈",
         reference_answer="参考",
         key_points_json='["要点"]',
+        answered_at=datetime(2026, 7, 20, 9, 0, 0, tzinfo=UTC),
     )
 
 
@@ -252,3 +254,56 @@ class TestExportReport:
         with pytest.raises(BusinessException) as exc:
             await service.export_report("sess123")
         assert exc.value.error_code == ErrorCode.INTERVIEW_EVALUATION_NOT_FOUND
+
+
+class TestGetDetail:
+    """#25 面试详情：返回 InterviewDetail（含逐题 answers[]），不限 EVALUATED 状态。"""
+
+    async def test_returns_detail_with_flat_answers(self) -> None:
+        created = datetime(2026, 7, 20, 9, 0, 0, tzinfo=UTC)
+        completed = datetime(2026, 7, 20, 9, 30, 0, tzinfo=UTC)
+        orm = _make_session_orm(created_at=created, completed_at=completed, evaluate_status="COMPLETED")
+        answers = [_make_answer_orm(0, 90), _make_answer_orm(1, 70)]
+        service, _ = _make_service(session_orm=orm, answers=answers)
+
+        dto = await service.get_detail("sess123")
+
+        assert dto.id == 1
+        assert dto.session_id == "sess123"
+        assert dto.total_questions == 2
+        assert dto.status == "EVALUATED"
+        assert dto.evaluate_status == "COMPLETED"
+        assert dto.overall_score == 80
+        assert dto.overall_feedback == "整体良好"
+        assert dto.strengths == ["基础扎实"]
+        assert dto.improvements == ["需补深度"]
+        # 逐题 answers[]，含 answeredAt + 按 index 合并的参考答案
+        assert len(dto.answers) == 2
+        a0 = dto.answers[0]
+        assert a0.question_index == 0
+        assert a0.score == 90
+        assert a0.answered_at is not None
+        assert a0.reference_answer == "参考1"
+        assert a0.key_points == ["要点1"]
+        a1 = dto.answers[1]
+        assert a1.question_index == 1
+        assert a1.reference_answer is None
+        assert not a1.key_points
+
+    async def test_works_for_non_evaluated_status(self) -> None:
+        """非 EVALUATED 也应返回详情（不抛 INTERVIEW_EVALUATION_NOT_FOUND）。"""
+        created = datetime(2026, 7, 20, 9, 0, 0, tzinfo=UTC)
+        orm = _make_session_orm(status=SessionStatus.COMPLETED.value, created_at=created)
+        answers = [_make_answer_orm(0, 90)]
+        service, _ = _make_service(session_orm=orm, answers=answers)
+
+        dto = await service.get_detail("sess123")
+
+        assert dto.status == "COMPLETED"
+        assert len(dto.answers) == 2  # questions_json 有 2 题，未答题补齐
+
+    async def test_raises_not_found_when_session_missing(self) -> None:
+        service, _ = _make_service(session_orm=None)
+        with pytest.raises(BusinessException) as exc:
+            await service.get_detail("missing")
+        assert exc.value.error_code == ErrorCode.INTERVIEW_SESSION_NOT_FOUND

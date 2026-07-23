@@ -9,8 +9,10 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.interview.schemas import (
+    AnswerItemDTO,
     CategoryScoreDTO,
     EvaluationResultDTO,
+    InterviewDetailDTO,
     QuestionEvaluationDetailDTO,
     ReferenceAnswerDTO,
 )
@@ -51,6 +53,18 @@ class InterviewEvaluationService:
         orm, answers = await self._load_evaluated(session_id)
         report = self._reconstruct_report(orm, answers)
         return self._to_dto(report, orm.evaluate_status or "")
+
+    async def get_detail(self, session_id: str) -> InterviewDetailDTO:
+        """面试详情（#25）：不限 EVALUATED 状态，会话不存在时抛 3001（对外 HTTP 200）。
+
+        复用 `_reconstruct_report` 从会话聚合字段 + 逐题 answer 重建，再展平为 answers[]。
+        """
+        orm = await self._repository.find_by_session_id(self._session, session_id)
+        if orm is None:
+            raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND)
+        answers = await self._repository.find_answers_by_session_id(self._session, orm.id)
+        report = self._reconstruct_report(orm, answers)
+        return self._to_detail_dto(orm, report, answers)
 
     async def export_report(self, session_id: str) -> bytes:
         orm, answers = await self._load_evaluated(session_id)
@@ -146,6 +160,58 @@ class InterviewEvaluationService:
     @staticmethod
     def _parse_list(raw: str | None) -> list[str]:
         return [str(s) for s in json_loads_list(raw)]
+
+    @staticmethod
+    def _to_detail_dto(
+        orm: InterviewSessionORM,
+        report: EvaluationReport,
+        answers: list[InterviewAnswerORM],
+    ) -> InterviewDetailDTO:
+        answer_map = {a.question_index: a for a in answers}
+        ref_map = {r.question_index: r for r in report.reference_answers}
+        fallback_answered_at = orm.completed_at or orm.created_at
+        answer_items: list[AnswerItemDTO] = []
+        for d in report.question_details:
+            ans = answer_map.get(d.question_index)
+            ref = ref_map.get(d.question_index)
+            answered_at = ans.answered_at if (ans is not None and ans.answered_at is not None) else fallback_answered_at
+            answer_items.append(
+                AnswerItemDTO(
+                    question_index=d.question_index,
+                    question=d.question,
+                    category=d.category,
+                    user_answer=d.user_answer,
+                    score=d.score,
+                    feedback=d.feedback,
+                    reference_answer=ref.reference_answer if ref is not None else None,
+                    key_points=list(ref.key_points) if ref is not None else [],
+                    answered_at=answered_at,
+                )
+            )
+        return InterviewDetailDTO(
+            id=orm.id,
+            session_id=orm.session_id,
+            total_questions=orm.total_questions,
+            status=orm.status,
+            evaluate_status=orm.evaluate_status,
+            evaluate_error=orm.evaluate_error,
+            overall_score=orm.overall_score,
+            overall_feedback=orm.overall_feedback,
+            created_at=orm.created_at,
+            completed_at=orm.completed_at,
+            strengths=list(report.strengths),
+            improvements=list(report.improvements),
+            reference_answers=[
+                ReferenceAnswerDTO(
+                    question_index=r.question_index,
+                    question=r.question,
+                    reference_answer=r.reference_answer,
+                    key_points=list(r.key_points),
+                )
+                for r in report.reference_answers
+            ],
+            answers=answer_items,
+        )
 
     @staticmethod
     def _to_dto(report: EvaluationReport, evaluate_status: str) -> EvaluationResultDTO:

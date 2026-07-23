@@ -11,6 +11,7 @@ from app.application.interview.schemas import (
     CreateSessionRequest,
     CurrentQuestionResponse,
     EvaluationResultDTO,
+    InterviewDetailDTO,
     InterviewSessionDTO,
     SessionListItemDTO,
     SubmitAnswerRequest,
@@ -114,6 +115,15 @@ async def get_evaluation(
     service: InterviewEvaluationService = Depends(get_interview_evaluation_service),
 ) -> Result[EvaluationResultDTO]:
     data = await service.get_evaluation(session_id)
+    return Result.success(data=data)
+
+
+@router.get("/sessions/{session_id}/details", response_model=Result[InterviewDetailDTO])
+async def get_detail(
+    session_id: str,
+    service: InterviewEvaluationService = Depends(get_interview_evaluation_service),
+) -> Result[InterviewDetailDTO]:
+    data = await service.get_detail(session_id)
     return Result.success(data=data)
 
 

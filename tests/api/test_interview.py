@@ -10,9 +10,11 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_interview_evaluation_service, get_interview_session_service
 from app.api.rate_limit import limiter
 from app.application.interview.schemas import (
+    AnswerItemDTO,
     CategoryScoreDTO,
     CurrentQuestionResponse,
     EvaluationResultDTO,
+    InterviewDetailDTO,
     InterviewQuestionDTO,
     InterviewSessionDTO,
     QuestionEvaluationDetailDTO,
@@ -279,6 +281,7 @@ def _evaluation_dto() -> EvaluationResultDTO:
 def _mock_eval_service() -> MagicMock:
     service = MagicMock()
     service.get_evaluation = AsyncMock()
+    service.get_detail = AsyncMock()
     service.export_report = AsyncMock()
     return service
 
@@ -307,6 +310,74 @@ class TestGetEvaluation:
         resp = client.get("/api/interview/sessions/sess123/evaluation")
         assert resp.status_code == 200
         assert resp.json()["code"] == ErrorCode.INTERVIEW_EVALUATION_NOT_FOUND.code
+
+
+def _detail_dto() -> InterviewDetailDTO:
+    now = datetime(2026, 7, 20, 9, 0, 0)
+    return InterviewDetailDTO(
+        id=1,
+        sessionId="sess123",
+        totalQuestions=2,
+        status="EVALUATED",
+        evaluateStatus="COMPLETED",
+        evaluateError=None,
+        overallScore=80,
+        overallFeedback="整体良好",
+        createdAt=now,
+        completedAt=now,
+        strengths=["基础扎实"],
+        improvements=["需补深度"],
+        referenceAnswers=[
+            ReferenceAnswerDTO(questionIndex=0, question="Q1", referenceAnswer="参考1", keyPoints=["要点1"])
+        ],
+        answers=[
+            AnswerItemDTO(
+                questionIndex=0,
+                question="Q1",
+                category="Java",
+                userAnswer="A1",
+                score=90,
+                feedback="优",
+                referenceAnswer="参考1",
+                keyPoints=["要点1"],
+                answeredAt=now,
+            ),
+            AnswerItemDTO(
+                questionIndex=1,
+                question="Q2",
+                category="Java",
+                userAnswer="A2",
+                score=70,
+                feedback="良",
+                answeredAt=now,
+            ),
+        ],
+    )
+
+
+class TestGetDetail:
+    def test_returns_detail_with_camelcase_answers(self, mock_eval_service: MagicMock) -> None:
+        mock_eval_service.get_detail.return_value = _detail_dto()
+        resp = client.get("/api/interview/sessions/sess123/details")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["code"] == 200
+        data = body["data"]
+        # 裸对象（非分页包装）+ camelCase
+        assert data["id"] == 1
+        assert data["sessionId"] == "sess123"
+        assert data["createdAt"]
+        assert len(data["answers"]) == 2
+        assert data["answers"][0]["questionIndex"] == 0
+        assert data["answers"][0]["answeredAt"]
+        assert data["answers"][0]["referenceAnswer"] == "参考1"
+        assert data["answers"][0]["keyPoints"] == ["要点1"]
+
+    def test_session_missing_returns_3001(self, mock_eval_service: MagicMock) -> None:
+        mock_eval_service.get_detail.side_effect = BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND)
+        resp = client.get("/api/interview/sessions/missing/details")
+        assert resp.status_code == 200
+        assert resp.json()["code"] == ErrorCode.INTERVIEW_SESSION_NOT_FOUND.code
 
 
 class TestExportReport:

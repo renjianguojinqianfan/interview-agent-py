@@ -121,3 +121,36 @@ class EvaluationResultDTO(BaseSchema):
     improvements: list[str]
     reference_answers: list[ReferenceAnswerDTO]
     evaluate_status: str
+
+
+class AnswerItemDTO(BaseSchema):
+    """面试详情逐题项，对齐前端 historyApi `AnswerItem`。"""
+
+    question_index: int
+    question: str
+    category: str
+    user_answer: str | None = None
+    score: int
+    feedback: str
+    reference_answer: str | None = None
+    key_points: list[str] = Field(default_factory=list)
+    answered_at: NaiveIsoDatetime
+
+
+class InterviewDetailDTO(BaseSchema):
+    """文字面试详情，对齐前端 historyApi `InterviewDetail`（InterviewItem + answers[]）。"""
+
+    id: int
+    session_id: str
+    total_questions: int
+    status: str
+    evaluate_status: str | None = None
+    evaluate_error: str | None = None
+    overall_score: int | None = None
+    overall_feedback: str | None = None
+    created_at: NaiveIsoDatetime
+    completed_at: NaiveIsoDatetime | None = None
+    strengths: list[str] = Field(default_factory=list)
+    improvements: list[str] = Field(default_factory=list)
+    reference_answers: list[ReferenceAnswerDTO] = Field(default_factory=list)
+    answers: list[AnswerItemDTO] = Field(default_factory=list)

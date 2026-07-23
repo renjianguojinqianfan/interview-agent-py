@@ -152,10 +152,11 @@
 | POST | `/api/interview/sessions/{sessionId}/complete` | 提前交卷 | - | `null` | - |
 | DELETE | `/api/interview/sessions/{sessionId}` | 删除会话 | - | `null` | - |
 | GET | `/api/interview/sessions/{sessionId}/evaluation` | 获取评估结果（仅会话 `EVALUATED` 时返回，否则报错 `3011`/`3001`） | - | [`EvaluationResult`](#evaluationresult) | - |
+| GET | `/api/interview/sessions/{sessionId}/details` | 面试详情（含逐题 `answers[]`；会话不存在报 `3001`） | - | [`InterviewDetail`](#interviewdetail) | - |
 | GET | `/api/interview/sessions/{sessionId}/export` | 导出面试报告 PDF | - | *PDF 二进制* | - |
 
 - 交卷后评估为异步（后台消费者生成）：`GET /evaluation` 在会话状态达到 `EVALUATED` 前返回错误码 `3011`（评估结果不存在），完成后返回 `EvaluationResult`；它是「结果查询」端点，非状态轮询端点。
-- ⚠️ 契约提示：复用的前端**查看文字面试结果实际调用 `GET /sessions/{id}/details`**（`historyApi.getInterviewDetail`），当前 Python **未实现（404）**；前端 `getReport`→`GET /sessions/{id}/report` 亦未实现且无页面调用；`GET /evaluation` 后端已实现但前端无页面直接调用。详见[附录 B](#附录-b已知契约差异待修复)。
+- ✅ 契约提示：复用的前端**查看文字面试详情调用 `GET /sessions/{id}/details`**（`historyApi.getInterviewDetail`，返回 [`InterviewDetail`](#interviewdetail)，含逐题 `answers[]`）。前端 `getReport`→`GET /sessions/{id}/report` 未实现且无页面调用（死端点）；`GET /evaluation` 后端已实现但前端无页面直接调用。详见[附录 B](#附录-b已知契约差异待修复)。
 
 ---
 
@@ -355,6 +356,16 @@
   evaluateStatus }
 ```
 
+### InterviewDetail
+```ts
+{ id, sessionId, totalQuestions, status, evaluateStatus?, evaluateError?,
+  overallScore?, overallFeedback?, createdAt, completedAt?,
+  strengths: string[], improvements: string[],
+  referenceAnswers: { questionIndex, question, referenceAnswer, keyPoints[] }[],
+  answers: { questionIndex, question, category, userAnswer?, score, feedback,
+             referenceAnswer?, keyPoints?, answeredAt }[] }
+```
+
 ### CreateScheduleRequest
 ```ts
 { companyName, position, interviewTime, interviewType?, meetingLink?, roundNumber?, interviewer?, notes? }
@@ -456,7 +467,6 @@
 
 | 级别 | 端点 / 字段 | 前端期望 | Python 现状 | 影响 |
 |---|---|---|---|---|
-| High | `GET /api/interview/sessions/{id}/details` | 面试详情（`InterviewDetail`，含 `answers[]`） | **未实现该路由** | 简历详情页/历史看面试详情失败 |
 | High | `GET /api/voice-interview/sessions`（`VoiceSessionMeta`） | 含 `createdAt`（列表按其排序展示）、`evaluateError` | 缺 `createdAt`/`evaluateError`（仅 `startTime`/`updatedAt`） | `/interviews`、`/interview-hub` 语音项日期为 Invalid Date、排序异常 |
 | High | `POST /api/interview/sessions` 请求 `forceCreate` | `forceCreate: boolean` | 字段名为 `forceNew` → **被忽略** | 存在未完成会话时"强制新建/重开"失效 |
 | High | 面试/语音创建请求 `llmProvider` | `llmProvider: string`（供应商名） | 字段为 `llmProviderId: int` → **被忽略** | 用户选定的 LLM 供应商被忽略、回退默认 |
