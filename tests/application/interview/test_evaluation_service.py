@@ -301,6 +301,9 @@ class TestGetDetail:
 
         assert dto.status == "COMPLETED"
         assert len(dto.answers) == 2  # questions_json 有 2 题，未答题补齐
+        # 未答题 userAnswer 为空串（非 null），对齐前端 AnswerItem.userAnswer: string
+        unanswered = next(a for a in dto.answers if a.question_index == 1)
+        assert unanswered.user_answer == ""
 
     async def test_raises_not_found_when_session_missing(self) -> None:
         service, _ = _make_service(session_orm=None)

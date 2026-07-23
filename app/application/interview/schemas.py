@@ -128,12 +128,12 @@ class EvaluationResultDTO(BaseSchema):
 
 
 class AnswerItemDTO(BaseSchema):
-    """面试详情逐题项，对齐前端 historyApi `AnswerItem`。"""
+    """面试详情逐题项，对齐前端 historyApi `AnswerItem`（userAnswer 为非空 string）。"""
 
     question_index: int
     question: str
     category: str
-    user_answer: str | None = None
+    user_answer: str = ""
     score: int
     feedback: str
     reference_answer: str | None = None

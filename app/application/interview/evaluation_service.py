@@ -180,7 +180,7 @@ class InterviewEvaluationService:
                     question_index=d.question_index,
                     question=d.question,
                     category=d.category,
-                    user_answer=d.user_answer,
+                    user_answer=d.user_answer or "",
                     score=d.score,
                     feedback=d.feedback,
                     reference_answer=ref.reference_answer if ref is not None else None,

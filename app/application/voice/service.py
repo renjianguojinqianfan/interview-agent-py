@@ -311,7 +311,7 @@ def _to_evaluation_detail(orm: VoiceInterviewEvaluationORM, session_id: int) -> 
             question_index=q.question_index,
             question=q.question,
             category=q.category,
-            user_answer=q.user_answer,
+            user_answer=q.user_answer or "",
             score=q.score,
             feedback=q.feedback,
             reference_answer=ref_map[q.question_index].reference_answer if q.question_index in ref_map else None,

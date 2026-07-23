@@ -95,7 +95,7 @@ class VoiceAnswerDetailDTO(BaseSchema):
     question_index: int
     question: str
     category: str
-    user_answer: str | None = None
+    user_answer: str = ""
     score: int
     feedback: str
     reference_answer: str | None = None
