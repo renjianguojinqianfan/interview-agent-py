@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import {defineConfig, loadEnv} from 'vite'
 import react from '@vitejs/plugin-react'
 import wasm from 'vite-plugin-wasm'
@@ -46,6 +47,14 @@ export default defineConfig(({ mode }) => {
     },
     optimizeDeps: {
       // No need to optimize vad-web since we load it via script tag
+    },
+    // ADR-0016 Phase 3：前端行为测试（vitest + jsdom + MSW）。
+    test: {
+      environment: 'jsdom',
+      globals: false,
+      setupFiles: ['./src/test/setup.ts'],
+      include: ['src/**/*.{test,spec}.{ts,tsx}'],
+      css: false,
     },
   }
 });
