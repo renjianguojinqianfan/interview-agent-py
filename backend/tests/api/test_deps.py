@@ -40,7 +40,7 @@ class TestGetS3StorageService:
     def test_returns_s3_storage_service(self, mock_create: object) -> None:
         import app.api.deps as deps
 
-        mock_service = S3StorageService(client=None)
+        mock_service = S3StorageService(client_factory=lambda: None)
         mock_create.return_value = mock_service
 
         deps._s3_storage = None

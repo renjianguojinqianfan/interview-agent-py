@@ -1,6 +1,7 @@
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,14 +16,17 @@ _SAFE_CHAR_RE = re.compile(r"[^a-zA-Z0-9._\-]")
 
 
 class S3StorageService:
-    def __init__(self, client: Any = None, bucket: str | None = None) -> None:
-        self._client = client
+    def __init__(self, client_factory: Callable[[], Any], bucket: str | None = None) -> None:
+        # aioboto3 client 是必须 async with 进入的上下文管理器；持有工厂、逐操作进入，
+        # 避免"未进入的 ClientCreatorContext 直接 await put_object"缺陷（真库集成竖切曾暴露）。
+        self._client_factory = client_factory
         self._bucket = bucket or settings.s3_bucket
 
     async def upload_file(self, data: bytes, filename: str, prefix: str) -> str:
         key = self._generate_file_key(filename, prefix)
         try:
-            await self._client.put_object(Bucket=self._bucket, Key=key, Body=data)
+            async with self._client_factory() as client:
+                await client.put_object(Bucket=self._bucket, Key=key, Body=data)
             logger.info("文件上传成功: %s -> %s", filename, key)
             return key
         except Exception as e:
@@ -34,9 +38,10 @@ class S3StorageService:
 
     async def download_file(self, key: str) -> bytes:
         try:
-            response = await self._client.get_object(Bucket=self._bucket, Key=key)
-            body = response["Body"]
-            data: bytes = await body.read()
+            async with self._client_factory() as client:
+                response = await client.get_object(Bucket=self._bucket, Key=key)
+                body = response["Body"]
+                data: bytes = await body.read()
             return data
         except Exception as e:
             logger.error("下载文件失败: %s, error=%s", key, e)
@@ -52,7 +57,8 @@ class S3StorageService:
             logger.warning("文件不存在，跳过删除: %s", key)
             return
         try:
-            await self._client.delete_object(Bucket=self._bucket, Key=key)
+            async with self._client_factory() as client:
+                await client.delete_object(Bucket=self._bucket, Key=key)
             logger.info("文件删除成功: %s", key)
         except Exception as e:
             logger.error("删除文件失败: %s, error=%s", key, e)
@@ -63,7 +69,8 @@ class S3StorageService:
 
     async def file_exists(self, key: str) -> bool:
         try:
-            await self._client.head_object(Bucket=self._bucket, Key=key)
+            async with self._client_factory() as client:
+                await client.head_object(Bucket=self._bucket, Key=key)
             return True
         except Exception:
             return False
@@ -109,4 +116,4 @@ def create_s3_client() -> Any:
 
 
 def create_s3_storage_service() -> S3StorageService:
-    return S3StorageService(client=create_s3_client(), bucket=settings.s3_bucket)
+    return S3StorageService(client_factory=create_s3_client, bucket=settings.s3_bucket)
