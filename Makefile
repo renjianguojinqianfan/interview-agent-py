@@ -6,27 +6,27 @@ verify: test typecheck lint format-check frontend-verify
 
 # 运行测试
 test:
-	uv run --frozen pytest
+	uv run --directory backend --frozen pytest
 
 # 类型检查（mypy 严格模式）
 typecheck:
-	uv run --frozen mypy app/
+	uv run --directory backend --frozen mypy app/
 
 # 代码规范检查
 lint:
-	uv run --frozen ruff check .
+	uv run --directory backend --frozen ruff check .
 
 # 代码格式检查（不修改文件，仅校验）
 format-check:
-	uv run --frozen ruff format --check .
+	uv run --directory backend --frozen ruff format --check .
 
 # 代码格式化
 format:
-	uv run --frozen ruff format .
+	uv run --directory backend --frozen ruff format .
 
 # 开发服务器
 dev:
-	uv run uvicorn app.main:app --reload
+	uv run --directory backend uvicorn app.main:app --reload
 
 # ===== 前端质量门禁（需 Node>=20 + pnpm）=====
 # 安装前端依赖（锁文件驱动，保证可复现）

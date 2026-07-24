@@ -16,7 +16,10 @@ KNOWN_MISSING 为已登记的计划未建/历史引用，文件创建后应移�
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# 迁移后布局：本测试位于 backend/tests/，docs/ 仍在仓库根。
+# BACKEND_ROOT 解析 app/、tests/；REPO_ROOT 解析仓库根的 docs/。
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_DIR = REPO_ROOT / "docs"
 
 KNOWN_EXTENSIONS = (
@@ -76,9 +79,10 @@ def _exists_anywhere(candidate: str, doc_path: Path) -> bool:
     """在多个解析基下检查路径是否存在：repo 根 / app/ / docs/ / tests/ / 文档所在目录。"""
     bases = [
         REPO_ROOT / candidate,
-        REPO_ROOT / "app" / candidate,
+        BACKEND_ROOT / candidate,
+        BACKEND_ROOT / "app" / candidate,
         REPO_ROOT / "docs" / candidate,
-        REPO_ROOT / "tests" / candidate,
+        BACKEND_ROOT / "tests" / candidate,
         doc_path.parent / candidate,
     ]
     return any(b.exists() for b in bases)

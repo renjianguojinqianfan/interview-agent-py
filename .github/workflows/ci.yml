@@ -28,25 +28,30 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
+        working-directory: backend
         run: uv sync --all-extras --dev
 
       - name: Lint (ruff)
+        working-directory: backend
         run: uv run ruff check .
 
       - name: Format check (ruff)
+        working-directory: backend
         run: uv run ruff format --check .
 
       - name: Type check (mypy)
+        working-directory: backend
         run: uv run mypy app/
 
       - name: Test (pytest)
+        working-directory: backend
         run: uv run pytest tests/ --cov=app --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
+          files: ./backend/coverage.xml
           fail_ci_if_error: false
 
       # ===== 前端质量门禁 =====

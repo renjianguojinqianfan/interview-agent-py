@@ -17,7 +17,7 @@
 ## 2. 常用命令
 
 ```bash
-# 依赖安装
+# 依赖安装（后端命令均在 backend/ 目录下执行，或从仓库根用 make）
 uv sync
 
 # 开发服务器
@@ -43,19 +43,21 @@ pnpm --dir frontend run build            # 前端构建（tsc + vite build）
 make verify
 ```
 
-## 3. 目录结构（DDD 分层）
+## 3. 目录结构（前后端分离；后端 DDD 分层）
 
-- `app/api/` - API 路由层（FastAPI Router，仅做路由、校验和委托）
-- `app/application/` - 应用服务层（业务编排，事务边界）
-- `app/domain/` - 领域层（实体、值对象、领域服务、仓储接口）
-- `app/infrastructure/` - 基础设施层（仓储实现、外部服务适配器、数据库模型）
-- `app/config/` - 配置管理（环境变量、应用配置）
-- `app/graphs/` - LangGraph 子图（仅统一评估子图 + 语音管线，D3 决策；可依赖 domain + infrastructure，不属于 DDD 分层）
+- `backend/` - 后端全部代码与配置（`pyproject.toml`/`uv.lock`/`alembic.ini`/`Dockerfile` 等在此；后端命令在此目录下执行）
+  - `app/api/` - API 路由层（FastAPI Router，仅做路由、校验和委托）
+  - `app/application/` - 应用服务层（业务编排，事务边界）
+  - `app/domain/` - 领域层（实体、值对象、领域服务、仓储接口）
+  - `app/infrastructure/` - 基础设施层（仓储实现、外部服务适配器、数据库模型）
+  - `app/config/` - 配置管理（环境变量、应用配置）
+  - `app/graphs/` - LangGraph 子图（仅统一评估子图 + 语音管线，D3 决策；可依赖 domain + infrastructure，不属于 DDD 分层）
+  - `alembic/` - 数据库迁移；`tests/` - 测试代码（镜像 app/ 目录结构）
 - `frontend/` - 前端（React + TS + Vite，复用自 Java 版本；`src/` 下 pages/components/api/hooks/types，pnpm 管理）
-- `tests/` - 测试代码（单元测试 + 集成测试，镜像 app/ 目录结构）
+- `docker/` - 基础设施初始化（PostgreSQL init.sql，供根 docker-compose 使用）
 - `.githooks/` - Git hooks（commit-msg + pre-commit，通过 `core.hooksPath` 配置）
 - `docs/` - 项目文档（迁移计划、开发流程、ADR、agent 配置）
-- `Makefile` - 质量门禁命令
+- `Makefile` / `docker-compose.yml` - 仓库根编排（前后端质量门禁 / 基础设施）
 
 ## 4. 关键约定
 
