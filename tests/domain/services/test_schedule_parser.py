@@ -35,7 +35,7 @@ class TestParseTencent:
         assert result.interview_time == datetime(2026, 8, 2, 10, 0)
         assert result.meeting_link is not None
         assert "123456789" in result.meeting_link
-        assert "1234" in result.meeting_link
+        assert "密码: 1234" in result.meeting_link  # 精确校验密码段，避免与会议号子串混淆
 
 
 class TestParseZoom:
