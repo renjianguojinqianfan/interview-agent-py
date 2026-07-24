@@ -400,3 +400,125 @@ def test_frontend_api_calls_conform_to_openapi_schema() -> None:
         "前后端 API 契约漂移（ADR-0016：前端调用了后端不存在的路由；若为前端无页面调用的"
         "死声明，经确认后登记 FRONTEND_DEAD_ENDPOINTS_ALLOWLIST）：\n" + "\n".join(violations)
     )
+
+
+# ADR-0016：竖切覆盖守卫 —— 有副作用端点（POST/PUT/PATCH/DELETE）须被集成竖切（真 HTTP -> 真库）覆盖，
+# 或显式登记为「暂未覆盖」债务白名单（附原因）。契约守卫只保证前端调用的路由存在，不保证其副作用被真库
+# 整链验证；本守卫补上这一维度，阻止「新增有副作用端点却无整链守护」悄悄堆积（见 ADR-0016 病灶）。
+# 覆盖集由 ast 扫描 tests/integration/*.py 的 <client>.<method>(<path>) 推导，路径与 OpenAPI 同款归一。
+INTEGRATION_TEST_DIR = Path(__file__).resolve().parent / "integration"
+_SIDE_EFFECT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# 暂未被集成竖切覆盖的有副作用端点（承认的测试债务，非「无需测试」豁免）。
+# 补上对应竖切后应从此表移除，使守卫收紧。
+VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # —— 面试（核心 create/answer/交卷链已由 test_interview_flow 竖切覆盖）——
+        "POST /api/interview/sessions/{}/complete",  # 显式交卷（末题作答已隐式触发并被竖切覆盖）
+        "PUT /api/interview/sessions/{}/answers",  # 作答 PUT 变体（POST 变体已被竖切覆盖）
+        "DELETE /api/interview/sessions/{}",  # 删除会话（CRUD）
+        "POST /api/interview/skills/parse-jd",  # JD 解析（含 LLM，AI 行为靠评估集/人工）
+        # —— 简历（上传链已由 test_upload_pipelines 竖切覆盖）——
+        "DELETE /api/resumes/{}",  # 删除简历（CRUD）
+        "POST /api/resumes/{}/reanalyze",  # 重新分析（重入队，与上传入队同类）
+        # —— 知识库（上传链已由 test_upload_pipelines 竖切覆盖）——
+        "DELETE /api/knowledgebase/{}",  # 删除知识库（CRUD + 向量清理）
+        "POST /api/knowledgebase/{}/revectorize",  # 重新向量化（重入队）
+        "PUT /api/knowledgebase/{}/category",  # 改分类（CRUD）
+        # —— RAG（建会话 + 发消息流式已由 test_rag_chat_flow 竖切覆盖）——
+        "DELETE /api/rag-chat/sessions/{}",  # 删除会话（CRUD）
+        "PUT /api/rag-chat/sessions/{}/pin",  # 置顶（CRUD）
+        "PUT /api/rag-chat/sessions/{}/title",  # 改标题（CRUD）
+        # —— 语音面试（create + end→评估已由 test_voice_flow 竖切覆盖）——
+        "DELETE /api/voice-interview/sessions/{}",  # 删除会话（CRUD）
+        "POST /api/voice-interview/sessions/{}/evaluation",  # 触发评估（与 end→评估入队同类）
+        "PUT /api/voice-interview/sessions/{}/pause",  # 暂停（状态机 CRUD）
+        "PUT /api/voice-interview/sessions/{}/resume",  # 恢复（状态机 CRUD）
+        # —— 面试排期 ——
+        "POST /api/interview-schedule",  # 创建排期（CRUD）
+        "POST /api/interview-schedule/parse",  # 解析排期（含 LLM）
+        "PATCH /api/interview-schedule/{}/status",  # 改状态（CRUD）
+        "PUT /api/interview-schedule/{}",  # 更新排期（CRUD）
+        "DELETE /api/interview-schedule/{}",  # 删除排期（CRUD）
+        # —— LLM 供应商配置（配置 CRUD + 外呼连通性测试，非核心业务数据流）——
+        "POST /api/llm-provider",  # 新增供应商（配置 CRUD）
+        "PUT /api/llm-provider/{}",  # 更新供应商（配置 CRUD）
+        "DELETE /api/llm-provider/{}",  # 删除供应商（配置 CRUD）
+        "POST /api/llm-provider/reload",  # 重载注册表缓存
+        "POST /api/llm-provider/{}/test",  # 连通性测试（外呼真实 LLM）
+        "POST /api/llm-provider/voice/asr/test",  # ASR 连通性测试（外呼）
+        "POST /api/llm-provider/voice/tts/test",  # TTS 连通性测试（外呼）
+        "PUT /api/llm-provider/default-provider",  # 设默认 chat 供应商（配置）
+        "PUT /api/llm-provider/default-embedding-provider",  # 设默认 embedding 供应商（配置）
+        "PUT /api/llm-provider/voice/asr",  # 配置 ASR（配置）
+        "PUT /api/llm-provider/voice/tts",  # 配置 TTS（配置）
+    }
+)
+
+
+def _ast_url_literal(node: ast.expr) -> str | None:
+    """从字符串字面量或 f-string 取 URL 原文；f-string 的 {expr} 插值段替换为 _INTERP 占位。"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            else:
+                parts.append(_INTERP)
+        return "".join(parts)
+    return None
+
+
+def _integration_call_endpoints() -> set[str]:
+    """ast 扫描 tests/integration/*.py，抽取 <client>.<get|post|put|patch|delete>(<url>) 的「METHOD path」。
+
+    与契约守卫共用 _normalize_frontend_path（通用路径归一：去查询串、路径参数 -> {}、去尾斜杠）。
+    """
+    calls: set[str] = set()
+    if not INTEGRATION_TEST_DIR.is_dir():
+        return calls
+    for py_file in sorted(INTEGRATION_TEST_DIR.glob("*.py")):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            method = node.func.attr.upper()
+            if method not in {"GET", "POST", "PUT", "PATCH", "DELETE"} or not node.args:
+                continue
+            raw = _ast_url_literal(node.args[0])
+            if raw is None:
+                continue
+            path = _normalize_frontend_path(raw)
+            if path.startswith("/api/"):
+                calls.add(f"{method} {path}")
+    return calls
+
+
+def test_side_effect_endpoints_covered_by_vertical_or_registered() -> None:
+    """ADR-0016：有副作用端点须被集成竖切覆盖，或登记于 VERTICAL_UNCOVERED_ALLOWLIST（债务）。
+
+    覆盖集 = 扫描 tests/integration 得到的真 HTTP 调用；有副作用集 = OpenAPI 中 POST/PUT/PATCH/DELETE。
+    新增有副作用端点若既无竖切又未登记债务即失败，逼迫「补竖切或显式承认债务」，防覆盖缺口悄悄扩大。
+    """
+    schema_routes = _openapi_route_set()
+    side_effect = {r for r in schema_routes if r.split(" ", 1)[0] in _SIDE_EFFECT_METHODS}
+    covered = _integration_call_endpoints()
+
+    # 覆盖集须真实：竖切命中的端点必须存在于 schema（防路径写错 / 打幽灵端点）
+    phantom = sorted(covered - schema_routes)
+    assert not phantom, "集成竖切调用了 OpenAPI 中不存在的端点（路径写错？）：\n" + "\n".join(phantom)
+
+    covered_side_effect = covered & side_effect
+    unexpected = sorted(side_effect - covered_side_effect - VERTICAL_UNCOVERED_ALLOWLIST)
+    assert not unexpected, (
+        "ADR-0016：以下有副作用端点无集成竖切覆盖，也未登记债务白名单。补一条真 HTTP -> 真库竖切，"
+        "或（确属暂不覆盖）登记 VERTICAL_UNCOVERED_ALLOWLIST 并注明原因：\n" + "\n".join(unexpected)
+    )
+
+    # 白名单自紧：登记项若已被竖切覆盖应移除；端点已消失应清理。
+    leaked = sorted(VERTICAL_UNCOVERED_ALLOWLIST & covered_side_effect)
+    assert not leaked, "VERTICAL_UNCOVERED_ALLOWLIST 中的端点已被竖切覆盖，应移除以收紧守卫：\n" + "\n".join(leaked)
+    stale = sorted(VERTICAL_UNCOVERED_ALLOWLIST - side_effect)
+    assert not stale, "VERTICAL_UNCOVERED_ALLOWLIST 存在已消失或非副作用端点，请清理：\n" + "\n".join(stale)
