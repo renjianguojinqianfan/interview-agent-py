@@ -109,5 +109,8 @@ jobs:
       - name: Frontend type check (tsc)
         run: pnpm --dir frontend run typecheck
 
+      - name: Frontend test (vitest)
+        run: pnpm --dir frontend run test
+
       - name: Frontend build (vite)
         run: pnpm --dir frontend run build

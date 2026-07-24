@@ -1,4 +1,4 @@
-.PHONY: verify test typecheck lint format format-check dev frontend-verify fe-install fe-lint fe-typecheck fe-build
+.PHONY: verify test typecheck lint format format-check dev frontend-verify fe-install fe-lint fe-typecheck fe-test fe-build
 
 # 一键质量门禁（前后端，推荐提交前运行）
 verify: test typecheck lint format-check frontend-verify
@@ -41,10 +41,14 @@ fe-lint:
 fe-typecheck:
 	pnpm --dir frontend run typecheck
 
+# 前端行为测试（vitest + jsdom + MSW）
+fe-test:
+	pnpm --dir frontend run test
+
 # 前端构建（vite build）
 fe-build:
 	pnpm --dir frontend run build
 
-# 前端聚合门禁：安装 -> lint -> typecheck -> build
-frontend-verify: fe-install fe-lint fe-typecheck fe-build
+# 前端聚合门禁：安装 -> lint -> typecheck -> test -> build
+frontend-verify: fe-install fe-lint fe-typecheck fe-test fe-build
 	@echo "✔ 前端验证通过"
