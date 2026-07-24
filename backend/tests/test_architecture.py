@@ -10,6 +10,7 @@
 """
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -227,3 +228,175 @@ def test_infrastructure_imports_application_only_via_allowlist() -> None:
                 f" - {rel_path}:{lineno}"
             )
     assert not violations, "infrastructure 存在非法 application 反向依赖：\n" + "\n".join(violations)
+
+
+# ADR-0016：前后端 API 契约一致性守卫（前端为权威契约、零改动 —— ADR-0001/0015）。
+# 扫描 frontend/src/api/*.ts 声明的 (method, path)，断言每个都命中 FastAPI OpenAPI schema，
+# 阻止「前端调用后端不存在的路由」这类契约漂移悄悄堆积（分层单测无法捕获，见 ADR-0016 病灶）。
+# 方向单一：前端调用 ⊆ 后端 schema，不做后端 -> 前端 codegen（那会改写前端，违背 ADR-0001）。
+FRONTEND_API_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "api"
+
+# 仅扫描 API 声明文件；request.ts（axios 封装）与 stream.ts（SSE 引擎）是 HTTP 管道，非契约声明。
+_API_PLUMBING_FILES = frozenset({"request.ts", "stream.ts"})
+
+# ADR-0015 已记录、决定「不实现」的前端死端点声明（前端无页面调用）。登记为显式白名单：
+# 把散落的隐性约定升级为机器校验的登记表；清理前端死代码后应从本集合移除以收紧守卫。
+FRONTEND_DEAD_ENDPOINTS_ALLOWLIST = frozenset(
+    {
+        "GET /api/interview/sessions/{}/report",  # interview.ts getReport
+        "GET /api/resumes/health",  # resume.ts healthCheck
+        "PUT /api/rag-chat/sessions/{}/knowledge-bases",  # ragChat.ts updateKnowledgeBases
+        "GET /api/knowledgebase/{}",  # knowledgebase.ts getKnowledgeBase
+        "GET /api/knowledgebase/uncategorized",  # knowledgebase.ts getUncategorized
+        "POST /api/knowledgebase/query",  # knowledgebase.ts queryKnowledgeBase
+        "POST /api/knowledgebase/query/stream",  # knowledgebase.ts queryKnowledgeBaseStream
+    }
+)
+
+# request.<method>() -> HTTP 动词映射（upload 走 POST、download 走 GET）。
+_REQUEST_METHOD_VERBS = {
+    "get": "GET",
+    "post": "POST",
+    "put": "PUT",
+    "delete": "DELETE",
+    "patch": "PATCH",
+    "upload": "POST",
+    "download": "GET",
+}
+
+_INTERP = "\x00"  # ${...} 插值占位符
+
+
+def _scan_string_literal(text: str, i: int) -> tuple[str, int] | None:
+    """从 text[i]（应为引号 ' \" 或 `）解析字符串/模板字面量，返回 (内容, 结束下标)。
+
+    模板字面量中的 ${...}（含嵌套 ${}）按平衡花括号整体消费并替换为占位符 _INTERP，
+    从而稳健处理 `/api/x/${id}/y` 与 `/api/x/list${q ? `?${q}` : ''}` 等嵌套写法。
+    """
+    if i >= len(text) or text[i] not in "'\"`":
+        return None
+    quote = text[i]
+    i += 1
+    out: list[str] = []
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
+            out.append(text[i : i + 2])
+            i += 2
+            continue
+        if quote == "`" and c == "$" and i + 1 < len(text) and text[i + 1] == "{":
+            i += 1  # 移到 '{'
+            depth = 0
+            while i < len(text):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        i += 1
+                        break
+                i += 1
+            out.append(_INTERP)
+            continue
+        if c == quote:
+            i += 1
+            break
+        out.append(c)
+        i += 1
+    return "".join(out), i
+
+
+def _normalize_frontend_path(raw: str) -> str:
+    """把前端路径字面量归一为与 OpenAPI 对齐的形式：去查询串、路径参数 -> {}、去尾斜杠。"""
+    path = raw.split("?", 1)[0]  # 去查询串（? 之后）
+    path = path.replace("/" + _INTERP, "/{}")  # 作为完整路径段的 ${...} -> {}
+    path = path.replace(_INTERP, "")  # 残留占位符（拼在段尾的查询后缀）丢弃
+    if len(path) > 1 and path.endswith("/"):
+        path = path[:-1]
+    return path
+
+
+def _find_first_arg_path(text: str, open_paren: int) -> str | None:
+    """从 '(' 位置起跳过空白，解析第一个字符串实参并归一为路径；非字符串实参返回 None。"""
+    i = open_paren + 1
+    while i < len(text) and text[i] in " \t\r\n":
+        i += 1
+    scanned = _scan_string_literal(text, i)
+    if scanned is None:
+        return None
+    return _normalize_frontend_path(scanned[0])
+
+
+def _extract_frontend_calls(text: str) -> set[str]:
+    """从单个 .ts 文件抽取所有 「METHOD path」：request.<verb>(...) 与 streamSse({url, init.method})。"""
+    calls: set[str] = set()
+
+    for m in re.finditer(r"request\.(get|post|put|delete|patch|upload|download)\s*(?:<[^>]*>)?\s*\(", text):
+        verb = _REQUEST_METHOD_VERBS[m.group(1)]
+        path = _find_first_arg_path(text, m.end() - 1)
+        if path and path.startswith("/api/"):
+            calls.add(f"{verb} {path}")
+
+    for m in re.finditer(r"streamSse\s*\(", text):
+        window = text[m.end() : m.end() + 600]
+        url_match = re.search(r"url\s*:\s*(['\"`])", window)
+        if not url_match:
+            continue
+        scanned = _scan_string_literal(window, url_match.end() - 1)
+        if scanned is None:
+            continue
+        path = _normalize_frontend_path(scanned[0])
+        method_match = re.search(r"method\s*:\s*['\"](\w+)['\"]", window)
+        verb = method_match.group(1).upper() if method_match else "GET"
+        if path.startswith("/api/"):
+            calls.add(f"{verb} {path}")
+
+    return calls
+
+
+def _openapi_route_set() -> set[str]:
+    """从 app.main:app 的 OpenAPI schema 取全部 「METHOD path」，路径参数归一为 {}。"""
+    from app.main import app
+
+    routes: set[str] = set()
+    for path, ops in app.openapi()["paths"].items():
+        norm = re.sub(r"\{[^{}]+\}", "{}", path)
+        if len(norm) > 1 and norm.endswith("/"):
+            norm = norm[:-1]
+        for method in ops:
+            if method.upper() in {"GET", "POST", "PUT", "DELETE", "PATCH"}:
+                routes.add(f"{method.upper()} {norm}")
+    return routes
+
+
+def test_frontend_api_calls_conform_to_openapi_schema() -> None:
+    """ADR-0016：扫描 frontend/src/api/*.ts 声明的 (method, path)，断言 ⊆ 后端 OpenAPI schema。
+
+    前端为权威契约、零改动（ADR-0001/0015）：本守卫只做单向子集校验 + 死声明白名单，
+    不生成/改写前端。ADR-0015 已知的 7 处死端点登记于 FRONTEND_DEAD_ENDPOINTS_ALLOWLIST。
+    新增「前端调用后端不存在的路由」即失败，阻止契约漂移复利积累（分层单测无法捕获，见 ADR-0016）。
+    """
+    assert FRONTEND_API_DIR.is_dir(), f"未找到前端 API 目录：{FRONTEND_API_DIR}"
+    schema_routes = _openapi_route_set()
+
+    # 白名单自紧：死端点若已被后端实现，应从白名单移除，否则守卫形同虚设。
+    stale = sorted(e for e in FRONTEND_DEAD_ENDPOINTS_ALLOWLIST if e in schema_routes)
+    assert not stale, "FRONTEND_DEAD_ENDPOINTS_ALLOWLIST 中的死端点已在后端实现，应移除以收紧守卫：\n" + "\n".join(
+        stale
+    )
+
+    violations: list[str] = []
+    for ts_file in sorted(FRONTEND_API_DIR.glob("*.ts")):
+        if ts_file.name in _API_PLUMBING_FILES:
+            continue
+        text = ts_file.read_text(encoding="utf-8")
+        for call in sorted(_extract_frontend_calls(text)):
+            if call in FRONTEND_DEAD_ENDPOINTS_ALLOWLIST:
+                continue
+            if call not in schema_routes:
+                violations.append(f"{ts_file.name}: 前端调用 `{call}` 在后端 OpenAPI schema 中不存在")
+
+    assert not violations, (
+        "前后端 API 契约漂移（ADR-0016：前端调用了后端不存在的路由；若为前端无页面调用的"
+        "死声明，经确认后登记 FRONTEND_DEAD_ENDPOINTS_ALLOWLIST）：\n" + "\n".join(violations)
+    )
