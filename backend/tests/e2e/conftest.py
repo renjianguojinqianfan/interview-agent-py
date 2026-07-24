@@ -5,6 +5,7 @@ DB 不可达/未迁移时自动 skip —— 保证 make verify 在无基础设�
 每个测试用独立 engine，避免 pytest-asyncio 函数级事件循环复用模块级 async engine 的冲突。
 """
 
+import os
 from collections.abc import AsyncIterator
 
 import pytest
@@ -33,14 +34,24 @@ async def _truncate(engine: AsyncEngine) -> None:
         await conn.execute(text(f"TRUNCATE {_E2E_TABLES} RESTART IDENTITY CASCADE"))
 
 
+def _require_infra_or_skip(reason: str) -> None:
+    """基础设施（Postgres/Redis）不可用时的处置（ADR-0016）。
+
+    CI 中 fail（真库集成必跑，不容 silent skip 掩盖回归）；本地无 docker 则 skip（开发体验不退化）。
+    """
+    if os.environ.get("CI"):
+        pytest.fail(reason)
+    pytest.skip(reason)
+
+
 @pytest.fixture
 async def live_session_factory() -> AsyncIterator[async_sessionmaker]:
-    """真实 Postgres 会话工厂；连不上或未迁移则 skip。"""
+    """真实 Postgres 会话工厂；连不上或未迁移时按 _require_infra_or_skip 处置（CI fail / 本地 skip）。"""
     engine = create_async_engine(settings.database_url)
     try:
         await _truncate(engine)
     except Exception:
         await engine.dispose()
-        pytest.skip("Postgres 不可用或未迁移：docker compose up -d postgres && uv run alembic upgrade head")
+        _require_infra_or_skip("Postgres 不可用或未迁移：docker compose up -d postgres && uv run alembic upgrade head")
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()

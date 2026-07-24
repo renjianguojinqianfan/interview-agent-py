@@ -7,6 +7,7 @@ produce(xadd) -> Redis stream -> consume(xreadgroup) -> 评估(假 LLM 图) -> �
 
 import contextlib
 import json
+import os
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -111,6 +112,8 @@ async def test_interview_evaluate_task_e2e(live_session_factory: async_sessionma
     try:
         await redis.create_stream_group(config.stream_key, config.group_name)
     except Exception:
+        if os.environ.get("CI"):
+            raise  # ADR-0016：CI 中基础设施必达，Redis 不可用即失败而非静默 skip
         pytest.skip("Redis 不可用：docker compose up -d redis")
 
     session_id = f"e2e-{uuid.uuid4().hex[:8]}"
@@ -118,6 +121,7 @@ async def test_interview_evaluate_task_e2e(live_session_factory: async_sessionma
 
     registry = MagicMock()
     registry.get_chat_client = AsyncMock(return_value=MagicMock())
+    registry.resolve_provider_id_by_name = AsyncMock(return_value=None)  # ADR-0015 按名解析：无 provider 时回退默认
     graph = MagicMock()
     graph.evaluate = AsyncMock(return_value=_report(session_id))
     consumer = EvaluateStreamConsumer(
