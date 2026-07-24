@@ -23,8 +23,8 @@ uv sync
 # 开发服务器
 uv run uvicorn app.main:app --reload    # -> http://localhost:8000
 
-# 测试
-uv run pytest                            # 运行所有测试
+# 测试（集成/e2e 竖切需真库：docker compose up -d postgres redis minio createbuckets）
+uv run pytest                            # 运行所有测试（本地无 docker 则集成/e2e 优雅 skip）
 
 # 代码规范
 uv run ruff check .                      # lint 检查
@@ -37,6 +37,7 @@ uv run mypy app/                         # 提交前必须通过
 pnpm --dir frontend install              # 安装前端依赖
 pnpm --dir frontend dev                  # 前端开发服务器 -> http://localhost:5173（代理 /api、/ws 到 8000）
 pnpm --dir frontend run lint             # 前端 lint（eslint）
+pnpm --dir frontend run test             # 前端行为测试（vitest + jsdom + MSW）
 pnpm --dir frontend run build            # 前端构建（tsc + vite build）
 
 # 一键质量门禁（前后端，推荐提交前运行）
@@ -52,8 +53,8 @@ make verify
   - `app/infrastructure/` - 基础设施层（仓储实现、外部服务适配器、数据库模型）
   - `app/config/` - 配置管理（环境变量、应用配置）
   - `app/graphs/` - LangGraph 子图（仅统一评估子图 + 语音管线，D3 决策；可依赖 domain + infrastructure，不属于 DDD 分层）
-  - `alembic/` - 数据库迁移；`tests/` - 测试代码（镜像 app/ 目录结构）
-- `frontend/` - 前端（React + TS + Vite，复用自 Java 版本；`src/` 下 pages/components/api/hooks/types，pnpm 管理）
+  - `alembic/` - 数据库迁移；`tests/` - 测试代码（分层单测镜像 app/ 结构 + `integration/` 真库竖切 + `e2e/` 端到端 + `test_architecture.py` fitness/契约/覆盖守卫）
+- `frontend/` - 前端（React + TS + Vite，复用自 Java 版本；`src/` 下 pages/components/api/hooks/types + `test/` 测试基建，pnpm 管理；行为测试用 vitest + jsdom + MSW）
 - `docker/` - 基础设施初始化（PostgreSQL init.sql，供根 docker-compose 使用）
 - `.githooks/` - Git hooks（commit-msg + pre-commit，通过 `core.hooksPath` 配置）
 - `docs/` - 项目文档（迁移计划、开发流程、ADR、agent 配置）
@@ -88,10 +89,10 @@ make verify
 2. `uv run ruff check .` 通过
 3. `uv run ruff format --check .` 通过
 4. `uv run mypy app/` 通过
-5. 前端 lint / typecheck / build 通过（涉及 `frontend/` 改动时）
+5. 前端 lint / typecheck / test / build 通过（涉及 `frontend/` 改动时）
 6. 已获用户确认（**禁止未经确认的提交**）
 
-等价快捷方式：`make verify` 一键全检通过（后端 test + typecheck + lint + format-check，前端 lint + typecheck + build；需 Node ≥ 20 + pnpm）。
+等价快捷方式：`make verify` 一键全检通过（后端 test + typecheck + lint + format-check，前端 lint + typecheck + test + build；需 Node ≥ 20 + pnpm）。真库集成/e2e 竖切在 CI 必跑（ci.yml 挂 pgvector + redis service），本地缺 docker 则优雅 skip。
 
 ## 7. 上下文维护
 
