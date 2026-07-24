@@ -52,3 +52,8 @@ frontend/*.local
 .DS_Store
 Thumbs.db
 nul
+
+# 本地 agent / scratch 产物（不共享：Qoder 工作文件、临时草稿、冒烟截图）
+.qoder/
+.scratch/
+.smoke/
