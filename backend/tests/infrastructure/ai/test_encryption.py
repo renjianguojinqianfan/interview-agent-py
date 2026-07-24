@@ -87,3 +87,15 @@ class TestApiKeyEncryptionServiceKeyResolution:
         service = ApiKeyEncryptionService("   ")
         with pytest.raises(BusinessException):
             service.encrypt("test")
+
+    def test_key_wrong_length_31_bytes_raises(self) -> None:
+        service = ApiKeyEncryptionService(base64.b64encode(b"a" * 31).decode())
+        with pytest.raises(BusinessException) as exc_info:
+            service.encrypt("test")
+        assert exc_info.value.error_code == ErrorCode.PROVIDER_CONFIG_READ_FAILED
+
+    def test_key_wrong_length_33_bytes_raises(self) -> None:
+        service = ApiKeyEncryptionService(base64.b64encode(b"a" * 33).decode())
+        with pytest.raises(BusinessException) as exc_info:
+            service.encrypt("test")
+        assert exc_info.value.error_code == ErrorCode.PROVIDER_CONFIG_READ_FAILED

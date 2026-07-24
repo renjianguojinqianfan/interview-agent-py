@@ -59,6 +59,15 @@ class TestTypePredicates:
         detector = ContentTypeDetector()
         assert detector.is_markdown(None, None) is False
 
+    def test_is_markdown_content_type_and_filename_both_present(self) -> None:
+        detector = ContentTypeDetector()
+        # content_type 命中即短路，不看 filename
+        assert detector.is_markdown("text/markdown", "doc.pdf") is True
+        # content_type 未命中 → fallback 到 filename
+        assert detector.is_markdown("text/plain", "readme.md") is True
+        # 两者都不命中
+        assert detector.is_markdown("text/plain", "doc.pdf") is False
+
 
 class TestIsAllowed:
     def test_allows_pdf(self) -> None:

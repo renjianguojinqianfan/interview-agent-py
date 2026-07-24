@@ -27,3 +27,8 @@ class TestErrorCodeIntegrity:
         exc = BusinessException(ErrorCode.AI_SERVICE_TIMEOUT)
         assert exc.error_code is ErrorCode.AI_SERVICE_TIMEOUT
         assert exc.message == ErrorCode.AI_SERVICE_TIMEOUT.message
+
+    def test_business_exception_custom_message_overrides_code_message(self) -> None:
+        exc = BusinessException(ErrorCode.NOT_FOUND, "用户不存在")
+        assert exc.message == "用户不存在"
+        assert exc.error_code is ErrorCode.NOT_FOUND
