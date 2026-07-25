@@ -23,11 +23,11 @@ const PROVIDER: ProviderItem = {
 function mockMountEndpoints(): void {
   const ok = (data: unknown) => HttpResponse.json({ code: 200, message: 'ok', data })
   server.use(
-    http.get('*/api/llm-provider/list', () => ok([PROVIDER])),
-    http.get('*/api/llm-provider/default-provider', () =>
+    http.get('/api/llm-provider/list', () => ok([PROVIDER])),
+    http.get('/api/llm-provider/default-provider', () =>
       ok({ defaultProvider: 'dashscope', defaultEmbeddingProvider: 'dashscope' }),
     ),
-    http.get('*/api/llm-provider/voice/asr', () =>
+    http.get('/api/llm-provider/voice/asr', () =>
       ok({
         url: '',
         model: '',
@@ -41,7 +41,7 @@ function mockMountEndpoints(): void {
         turnDetectionSilenceDurationMs: 800,
       }),
     ),
-    http.get('*/api/llm-provider/voice/tts', () =>
+    http.get('/api/llm-provider/voice/tts', () =>
       ok({
         model: '',
         maskedApiKey: '',

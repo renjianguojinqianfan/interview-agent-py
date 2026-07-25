@@ -24,7 +24,7 @@ describe('UploadPage 简历上传交互', () => {
   it('选文件并点“开始上传” -> POST /api/resumes/upload -> 回调 resumeId', async () => {
     let uploadCalled = false
     server.use(
-      http.post('*/api/resumes/upload', () => {
+      http.post('/api/resumes/upload', () => {
         uploadCalled = true
         return HttpResponse.json({
           code: 200,
@@ -47,7 +47,7 @@ describe('UploadPage 简历上传交互', () => {
   it('后端返回错误码 -> 渲染错误信息且不回调', async () => {
     server.use(
       // 后端统一 HTTP 200 + Result（ADR-0003）：失败经 code!=200 表达
-      http.post('*/api/resumes/upload', () =>
+      http.post('/api/resumes/upload', () =>
         HttpResponse.json({ code: 400, message: '不支持的文件类型', data: null }),
       ),
     )
