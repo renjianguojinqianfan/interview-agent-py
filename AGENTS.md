@@ -106,7 +106,8 @@ make verify
 
 Git hooks 位于 `.githooks/` 目录（通过 `core.hooksPath` 配置），自动执行质量门禁，无需手动维护：
 
-- `pre-commit` - 提交前运行 `pytest` + `ruff check` + `ruff format --check` + `mypy` + 前端 `eslint` + `tsc`（不含 vite build，保提交速度），失败阻止提交
+- `pre-commit` - 提交前快速绊线（~15s）：`pytest`（排除 integration/e2e 真库测试）+ `ruff check` + `ruff format --check` + `mypy` + 前端 `eslint` + `tsc`，失败阻止提交
+- `pre-push` - 推送前全量门禁（~90-120s）：后端全量 `pytest`（含 integration/e2e）+ 前端 lint + typecheck + vitest + build，失败阻止推送
 - `commit-msg` - 校验 commit message 格式（`<type>(<scope>): <subject>`），不符合阻止提交
 
 ## 8. Git 提交规范
