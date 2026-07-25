@@ -28,6 +28,7 @@ from app.api.routers.agent_rag import router as agent_rag_router
 from app.api.routers.interview import router as interview_router
 from app.api.routers.interview_schedule import router as interview_schedule_router
 from app.api.routers.knowledgebase import router as knowledgebase_router
+from app.api.routers.knowledgebase_interview import router as knowledgebase_interview_router
 from app.api.routers.llm_provider import router as llm_provider_router
 from app.api.routers.rag_chat import router as rag_chat_router
 from app.api.routers.resume import router as resume_router
@@ -93,6 +94,7 @@ app.include_router(skill_router)
 app.include_router(interview_router)
 app.include_router(interview_schedule_router)
 app.include_router(knowledgebase_router)
+app.include_router(knowledgebase_interview_router)
 app.include_router(rag_chat_router)
 app.include_router(llm_provider_router)
 app.include_router(voice_interview_router)

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.application.knowledgebase.schemas import KnowledgeBaseStatsDTO
-from app.application.knowledgebase.service import KnowledgeBaseService
+from app.application.knowledgebase.service import KnowledgeBaseService, to_kb_list_item
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase
 
@@ -376,3 +376,34 @@ class TestRevectorize:
             await service.revectorize(999)
 
         assert exc.value.error_code is ErrorCode.KNOWLEDGE_BASE_NOT_FOUND
+
+
+class TestGetDetail:
+    async def test_returns_list_item_dto_with_question_gen_fields(self) -> None:
+        kb = _make_kb(question_gen_status="FAILED", question_gen_error="生成失败")
+        service, _ = _make_service(get_by_id=AsyncMock(return_value=kb))
+
+        dto = await service.get_detail(1)
+
+        assert dto.id == 1
+        assert dto.name == "知识库A"
+        assert dto.question_gen_status == "FAILED"
+        assert dto.question_gen_error == "生成失败"
+
+    async def test_not_found_raises(self) -> None:
+        service, _ = _make_service(get_by_id=AsyncMock(return_value=None))
+
+        with pytest.raises(BusinessException) as exc:
+            await service.get_detail(999)
+
+        assert exc.value.error_code is ErrorCode.KNOWLEDGE_BASE_NOT_FOUND
+
+
+class TestListItemQuestionGenFields:
+    def test_defaults_to_none_status_when_no_task(self) -> None:
+        kb = _make_kb()  # 未设 question_gen_*，未 flush 的实体属性为 None，应兑现为 NONE
+
+        dto = to_kb_list_item(kb)
+
+        assert dto.question_gen_status == "NONE"
+        assert dto.question_gen_error is None

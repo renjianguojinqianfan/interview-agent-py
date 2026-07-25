@@ -10,6 +10,7 @@ from app.application.interview.persistence_service import InterviewPersistenceSe
 from app.application.interview.question_service import QuestionService
 from app.application.interview.session_service import InterviewSessionService
 from app.application.interview_schedule.service import ScheduleParseService, ScheduleService
+from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService
 from app.application.knowledgebase.service import KnowledgeBaseService
 from app.application.llm_provider.service import LlmProviderService
 from app.application.rag.service import RagChatService, RagConfig
@@ -26,6 +27,7 @@ from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.db.repositories.interview_schedule_repository import InterviewScheduleRepository
+from app.infrastructure.db.repositories.knowledge_base_question_repository import KnowledgeBaseQuestionRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.db.repositories.llm_global_setting_repository import LlmGlobalSettingRepository
 from app.infrastructure.db.repositories.llm_provider_repository import LlmProviderRepository
@@ -230,6 +232,16 @@ def get_knowledge_base_service(
         vector_repository=VectorRepository(),
         allowed_types=settings.knowledge_base_allowed_content_types,
         max_file_size=settings.knowledge_base_max_file_size,
+    )
+
+
+def get_knowledge_base_question_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> KnowledgeBaseQuestionService:
+    return KnowledgeBaseQuestionService(
+        session=session,
+        question_repository=KnowledgeBaseQuestionRepository(),
+        kb_repository=KnowledgeBaseRepository(),
     )
 
 

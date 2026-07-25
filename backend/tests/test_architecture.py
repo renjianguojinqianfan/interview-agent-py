@@ -246,7 +246,6 @@ FRONTEND_DEAD_ENDPOINTS_ALLOWLIST = frozenset(
         "GET /api/interview/sessions/{}/report",  # interview.ts getReport
         "GET /api/resumes/health",  # resume.ts healthCheck
         "PUT /api/rag-chat/sessions/{}/knowledge-bases",  # ragChat.ts updateKnowledgeBases
-        "GET /api/knowledgebase/{}",  # knowledgebase.ts getKnowledgeBase
         "GET /api/knowledgebase/uncategorized",  # knowledgebase.ts getUncategorized
         "POST /api/knowledgebase/query",  # knowledgebase.ts queryKnowledgeBase
         "POST /api/knowledgebase/query/stream",  # knowledgebase.ts queryKnowledgeBaseStream
@@ -425,6 +424,11 @@ VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
         "DELETE /api/knowledgebase/{}",  # 删除知识库（CRUD + 向量清理）
         "POST /api/knowledgebase/{}/revectorize",  # 重新向量化（重入队）
         "PUT /api/knowledgebase/{}/category",  # 改分类（CRUD）
+        # —— 知识库题库（#42 CRUD；#44 组卷竖切将经 API 插题覆盖 POST，届时收紧）——
+        "POST /api/knowledgebase/{}/questions",  # 手动新增题目（CRUD）
+        "PUT /api/knowledgebase/questions/{}",  # 编辑题目（CRUD）
+        "PUT /api/knowledgebase/questions/{}/status",  # 题目上下架（CRUD）
+        "DELETE /api/knowledgebase/questions/{}",  # 删除题目（CRUD）
         # —— RAG（建会话 + 发消息流式已由 test_rag_chat_flow 竖切覆盖）——
         "DELETE /api/rag-chat/sessions/{}",  # 删除会话（CRUD）
         "PUT /api/rag-chat/sessions/{}/pin",  # 置顶（CRUD）

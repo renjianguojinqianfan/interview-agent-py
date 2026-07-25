@@ -268,3 +268,32 @@ class TestRevectorize:
 
         assert codes[:2] == [200, 200]
         assert codes[2] == ErrorCode.RATE_LIMIT_EXCEEDED.code
+
+
+class TestGetDetail:
+    def test_returns_item_with_question_gen_fields(self, mock_service: MagicMock) -> None:
+        mock_service.get_detail = AsyncMock(return_value=_list_item(kb_id=3))
+
+        response = client.get("/api/knowledgebase/3")
+
+        body = response.json()
+        assert body["code"] == 200
+        assert body["data"]["id"] == 3
+        assert body["data"]["questionGenStatus"] == "NONE"
+        assert body["data"]["questionGenError"] is None
+
+    def test_not_found_returns_business_code(self, mock_service: MagicMock) -> None:
+        mock_service.get_detail = AsyncMock(side_effect=BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND))
+
+        response = client.get("/api/knowledgebase/999")
+
+        assert response.json()["code"] == 6001
+
+    def test_literal_paths_not_shadowed(self, mock_service: MagicMock) -> None:
+        """/{kb_id} 注册在末尾，不得遮蔽 /list 等字面路径。"""
+        mock_service.list_knowledge_bases.return_value = []
+
+        response = client.get("/api/knowledgebase/list")
+
+        assert response.json()["code"] == 200
+        mock_service.list_knowledge_bases.assert_awaited_once()

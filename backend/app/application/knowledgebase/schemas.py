@@ -33,6 +33,8 @@ class KnowledgeBaseListItemDTO(BaseSchema):
     vector_status: str
     vector_error: str | None = None
     chunk_count: int
+    question_gen_status: str = "NONE"
+    question_gen_error: str | None = None
 
 
 class KnowledgeBaseStatsDTO(BaseSchema):

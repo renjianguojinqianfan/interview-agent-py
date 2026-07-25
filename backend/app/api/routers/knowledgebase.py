@@ -121,3 +121,13 @@ async def revectorize_knowledge_base(
 ) -> Result[None]:
     await service.revectorize(kb_id)
     return Result.success(data=None)
+
+
+# 注册在末尾：避免 /{kb_id} 遮蔽 /list、/stats、/categories、/search 等字面路径（FastAPI 按注册顺序匹配）
+@router.get("/{kb_id}", response_model=Result[KnowledgeBaseListItemDTO])
+async def get_knowledge_base(
+    kb_id: int,
+    service: KnowledgeBaseService = Depends(get_knowledge_base_service),
+) -> Result[KnowledgeBaseListItemDTO]:
+    data = await service.get_detail(kb_id)
+    return Result.success(data=data)

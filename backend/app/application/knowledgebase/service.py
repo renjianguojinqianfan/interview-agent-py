@@ -49,6 +49,9 @@ def to_kb_list_item(kb: KnowledgeBase) -> KnowledgeBaseListItemDTO:
         vector_status=kb.vector_status,
         vector_error=kb.vector_error,
         chunk_count=kb.chunk_count,
+        # 未提交过生成任务的存量行（或未 flush 的新建实体）兑现为 NONE
+        question_gen_status=kb.question_gen_status or "NONE",
+        question_gen_error=kb.question_gen_error,
     )
 
 
@@ -167,6 +170,13 @@ class KnowledgeBaseService:
         await self._repository.update_category(self._session, kb, normalized)
         await self._session.commit()
         logger.info("更新知识库分类: knowledgeBaseId=%s, category=%s", kb_id, normalized)
+
+    async def get_detail(self, kb_id: int) -> KnowledgeBaseListItemDTO:
+        """单个知识库详情（题库管理页头部），形状同列表项（前端 KnowledgeBaseItem）。"""
+        kb = await self._repository.get_by_id(self._session, kb_id)
+        if kb is None:
+            raise BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
+        return self._to_list_item(kb)
 
     async def get_statistics(self) -> KnowledgeBaseStatsDTO:
         total_count = await self._repository.count_all(self._session)
