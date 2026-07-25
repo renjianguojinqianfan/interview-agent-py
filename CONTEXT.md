@@ -131,3 +131,13 @@ _Avoid_: 全局配置（用 LlmGlobalSetting 精确指代）
 **VoiceConfig**:
 语音服务配置（单例表 id=1），存储 ASR/TTS 全量参数（url、model、api_key、language 等），API Key 加密存储。替代 Java 中的 YAML 运行时配置（ADR-0004 去掉 YAML 中间层）。
 _Avoid_: 语音设置（用 VoiceConfig 精确指代）、Voice Setting
+
+### Agent 模块
+
+**AdaptiveInterviewSession**:
+自适应面试 Agent 会话，由 LangGraph ReAct 循环驱动，Agent 每轮自主决策出题/评估/调策略，与现有 InterviewSession（固定流程）独立。
+_Avoid_: 智能面试（过于宽泛）、Agent 面试
+
+**AgenticRag**:
+带质量评估循环的自主检索问答，检索质量不足时自动改写查询重试（Self-Correction），与现有 RagChatSession（固定检索）独立。
+_Avoid_: 智能 RAG、Agent RAG

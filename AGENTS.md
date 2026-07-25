@@ -52,7 +52,7 @@ make verify
   - `app/domain/` - 领域层（实体、值对象、领域服务、仓储接口）
   - `app/infrastructure/` - 基础设施层（仓储实现、外部服务适配器、数据库模型）
   - `app/config/` - 配置管理（环境变量、应用配置）
-  - `app/graphs/` - LangGraph 子图（仅统一评估子图 + 语音管线，D3 决策；可依赖 domain + infrastructure，不属于 DDD 分层）
+  - `app/graphs/` - LangGraph 子图（统一评估子图 + 自适应面试 Agent 图 + Agentic RAG 图 + tools/；可依赖 domain + infrastructure，不属于 DDD 分层）
   - `alembic/` - 数据库迁移；`tests/` - 测试代码（分层单测镜像 app/ 结构 + `integration/` 真库竖切 + `e2e/` 端到端 + `test_architecture.py` fitness/契约/覆盖守卫）
 - `frontend/` - 前端（React + TS + Vite，复用自 Java 版本；`src/` 下 pages/components/api/hooks/types + `test/` 测试基建，pnpm 管理；行为测试用 vitest + jsdom + MSW）
 - `docker/` - 基础设施初始化（PostgreSQL init.sql，供根 docker-compose 使用）

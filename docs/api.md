@@ -18,6 +18,8 @@
 - [10. LLM 供应商 `/api/llm-provider`](#10-llm-供应商-apillm-provider)
 - [11. 语音面试 `/api/voice-interview`](#11-语音面试-apivoice-interview)
 - [12. WebSocket 语音链路 `/ws/voice-interview/{sessionId}`](#12-websocket-语音链路-wsvoice-interviewsessionid)
+- [13. 自适应面试 Agent `/api/agent/interview`](#13-自适应面试-agent-apiagentinterview)
+- [14. Agentic RAG `/api/agent/rag`](#14-agentic-rag-apiagentrag)
 - [附录 A：核心数据结构](#附录-a核心数据结构)
 - [附录 B：已知契约差异（待修复）](#附录-b已知契约差异待修复)
 
@@ -287,6 +289,29 @@
 | `text` | `content`, `final?` | AI 文本回复 |
 | `control` | `action`, `message?`, `timestamp?` | 控制响应 |
 | `error` | `message` | 错误 |
+
+---
+
+## 13. 自适应面试 Agent `/api/agent/interview`
+
+> 独立于现有文字面试 API，展示 LangGraph ReAct 循环 + Tool Calling + Working Memory。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/sessions` | 创建自适应面试会话，Agent 自动生成第一题 |
+| GET | `/sessions/{sessionId}` | 获取会话当前状态 |
+| POST | `/sessions/{sessionId}/answer` | 提交答案，触发 Agent 评估 + 出下一题 |
+| GET | `/sessions/{sessionId}/result` | 获取最终报告 |
+
+---
+
+## 14. Agentic RAG `/api/agent/rag`
+
+> 独立于现有 RAG 问答 API，展示 Self-Correction 质量循环 + Query Planning。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/query` | 非流式查询，返回答案 + 检索过程追踪 |
 
 ---
 
