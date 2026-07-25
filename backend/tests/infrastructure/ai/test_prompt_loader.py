@@ -35,7 +35,7 @@ class TestLoadPromptAllTemplates:
     def test_total_template_count(self) -> None:
         prompts_dir = os.path.join(os.path.dirname(__file__), "..", "..", "..", "app", "prompts")
         st_files = [f for f in os.listdir(prompts_dir) if f.endswith(".st")]
-        assert len(st_files) == 17
+        assert len(st_files) == 22
 
 
 class TestLoadPromptInputVariables:
