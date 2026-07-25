@@ -452,6 +452,10 @@ VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
         "PUT /api/llm-provider/default-embedding-provider",  # 设默认 embedding 供应商（配置）
         "PUT /api/llm-provider/voice/asr",  # 配置 ASR（配置）
         "PUT /api/llm-provider/voice/tts",  # 配置 TTS（配置）
+        # —— Agent 模块（独立演示 API，不影响现有业务流程，待后续补端到端端切）——
+        "POST /api/agent/interview/sessions",  # 自适应面试 Agent 创建会话
+        "POST /api/agent/interview/sessions/{}/answer",  # 自适应面试提交答案
+        "POST /api/agent/rag/query",  # Agentic RAG 查询
     }
 )
 

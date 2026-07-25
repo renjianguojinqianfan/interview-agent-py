@@ -23,6 +23,8 @@ from app.api.deps import (
 from app.api.exception_handlers import register_exception_handlers
 from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
+from app.api.routers.agent_interview import router as agent_interview_router
+from app.api.routers.agent_rag import router as agent_rag_router
 from app.api.routers.interview import router as interview_router
 from app.api.routers.interview_schedule import router as interview_schedule_router
 from app.api.routers.knowledgebase import router as knowledgebase_router
@@ -95,6 +97,8 @@ app.include_router(rag_chat_router)
 app.include_router(llm_provider_router)
 app.include_router(voice_interview_router)
 app.include_router(voice_ws_router)
+app.include_router(agent_interview_router)
+app.include_router(agent_rag_router)
 
 
 @app.get("/health")

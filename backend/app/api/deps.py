@@ -1,5 +1,6 @@
 import logging
 from collections.abc import AsyncGenerator, Callable
+from typing import TYPE_CHECKING
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -493,8 +494,20 @@ def get_tts_config_loader() -> TtsConfigLoader:
 def get_voice_dialogue_llm() -> VoiceDialogueLlm:
     global _voice_dialogue_llm
     if _voice_dialogue_llm is None:
-        _voice_dialogue_llm = VoiceDialogueLlm(get_llm_registry())
+        if settings.voice_agent_enabled:
+            from app.application.voice.agent_dialogue_llm import AgentDialogueLlm
+
+            _voice_dialogue_llm = AgentDialogueLlm(get_llm_registry())  # type: ignore[assignment]
+            logger.info("VOICE_AGENT_ENABLED=true: 使用 AgentDialogueLlm（带 tool-calling）")
+        else:
+            _voice_dialogue_llm = VoiceDialogueLlm(get_llm_registry())
+    assert _voice_dialogue_llm is not None  # narrowing for mypy
     return _voice_dialogue_llm
+
+
+if TYPE_CHECKING:
+    from app.application.agent.adaptive_service import AdaptiveInterviewService
+    from app.application.agent.agentic_rag_service import AgenticRagService
 
 
 def get_opening_question_loader() -> OpeningQuestionLoader:
@@ -593,3 +606,43 @@ async def stop_scheduler() -> None:
     if _scheduler_manager is not None:
         _scheduler_manager.shutdown()
         _scheduler_manager = None
+
+
+# ==================== Agent 模块工厂 ====================
+
+_agent_interview_service: "AdaptiveInterviewService | None" = None
+
+
+def get_agent_interview_service() -> "AdaptiveInterviewService":
+    """自适应面试 Agent 服务工厂（单例）。"""
+    global _agent_interview_service
+    if _agent_interview_service is None:
+        from app.application.agent.adaptive_service import AdaptiveInterviewService
+        from app.graphs.adaptive_interview import AdaptiveInterviewGraph
+        from app.infrastructure.skills.reference_loader import ReferenceLoader
+
+        _agent_interview_service = AdaptiveInterviewService(
+            llm_registry=get_llm_registry(),
+            invoker=StructuredOutputInvoker(),
+            reference_loader=ReferenceLoader(),
+            graph=AdaptiveInterviewGraph(),
+        )
+    return _agent_interview_service
+
+
+_agentic_rag_service: "AgenticRagService | None" = None
+
+
+def get_agentic_rag_service() -> "AgenticRagService":
+    """Agentic RAG 服务工厂（单例）。"""
+    global _agentic_rag_service
+    if _agentic_rag_service is None:
+        from app.application.agent.agentic_rag_service import AgenticRagService
+        from app.graphs.rag_agent import RagAgentGraph
+
+        _agentic_rag_service = AgenticRagService(
+            llm_registry=get_llm_registry(),
+            vector_repository=VectorRepository(),
+            graph=RagAgentGraph(),
+        )
+    return _agentic_rag_service

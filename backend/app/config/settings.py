@@ -72,5 +72,9 @@ class Settings(BaseSettings):
     rag_max_context_chars: int = 6000
     rag_history_limit: int = 10
 
+    # Agent 模块配置
+    voice_agent_enabled: bool = False
+    """VOICE_AGENT_ENABLED: 启用语音面试 AgentDialogueLlm（带 tool-calling）。默认 false，不影响现有行为。"""
+
 
 settings = Settings()
