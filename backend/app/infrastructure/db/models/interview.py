@@ -36,6 +36,10 @@ class InterviewSession(Base):
     evaluate_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     evaluate_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     llm_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # 会话来源标注（migration 012）：NORMAL 普通面试 / KNOWLEDGE_BASE 知识库面试
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="NORMAL")
+    knowledge_base_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    interview_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
