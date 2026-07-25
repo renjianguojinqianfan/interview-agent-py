@@ -193,11 +193,26 @@
 | PUT | `/api/knowledgebase/{kbId}/category` | 更新分类 | `{ category }` | `null` | - |
 | DELETE | `/api/knowledgebase/{kbId}` | 删除知识库 | - | `null` | - |
 | POST | `/api/knowledgebase/{kbId}/revectorize` | 重新向量化（失败重试） | - | `null` | 2/s |
+| GET | `/api/knowledgebase/{kbId}` | 单个知识库详情（题库管理页头部，#42 转活） | - | [`KnowledgeBaseItem`](#knowledgebaseitem) | - |
 
 - `sortBy`：`time` / `size` / `access` / `question`；`vectorStatus`：`PENDING` / `PROCESSING` / `COMPLETED` / `FAILED`。
 - 向量化异步：上传后 `vectorStatus=PENDING`，前端轮询列表刷新状态。
+- `KnowledgeBaseItem` 携 `questionGenStatus`（`NONE`/`QUEUED`/`PROCESSING`/`COMPLETED`/`FAILED`，无任务时 `NONE`）与 `questionGenError`。
 
-> ⚠️ 前端 api 模块还声明 `GET /{id}`、`GET /uncategorized`、`POST /query`、`POST /query/stream`，当前 Python **未实现**（`/query`、`/query/stream` 属已文档化死端点；`/{id}`、`/uncategorized` 无页面调用），详见[附录 B](#附录-b已知契约差异待修复)。
+> ⚠️ 前端 api 模块还声明 `GET /uncategorized`、`POST /query`、`POST /query/stream`，当前 Python **未实现**（`/query`、`/query/stream` 属已文档化死端点；`/uncategorized` 无页面调用），详见[附录 B](#附录-b已知契约差异待修复)。
+
+### 知识库题库管理（#42）
+
+| 方法 | 路径 | 说明 | 请求 | 响应 data | 限流 |
+|------|------|------|------|-----------|------|
+| GET | `/api/knowledgebase/{kbId}/questions` | 题目列表（更新时间倒序） | query: `status`/`category`/`difficulty`/`keyword` 可选组合 | `KnowledgeBaseQuestion[]` | - |
+| GET | `/api/knowledgebase/{kbId}/questions/categories` | 方向及题目数（count 降序） | - | `{ category, count }[]` | - |
+| POST | `/api/knowledgebase/{kbId}/questions` | 手动新增题目（默认 DRAFT） | `SaveKnowledgeBaseQuestionRequest`（category/question 必填） | `KnowledgeBaseQuestion` | - |
+| PUT | `/api/knowledgebase/questions/{questionId}` | 部分更新题目（未提供字段跳过） | `SaveKnowledgeBaseQuestionRequest` 子集 | `KnowledgeBaseQuestion` | - |
+| PUT | `/api/knowledgebase/questions/{questionId}/status` | 题目上下架 | `{ status: DRAFT\|ACTIVE\|ARCHIVED\|STALE }` | `KnowledgeBaseQuestion` | - |
+| DELETE | `/api/knowledgebase/questions/{questionId}` | 删除题目 | - | `null` | - |
+
+- keyword 大小写不敏感，匹配题干/参考答案/评分规则/摘要/方向；题目不存在返回业务码 3003，知识库不存在 6001。
 
 ---
 
@@ -493,7 +508,7 @@
 | 级别 | 端点 / 字段 | 前端期望 | Python 现状 | 影响 |
 |---|---|---|---|---|
 | Low | `GET /api/interview/sessions/{id}/report` | 面试报告（`InterviewReport`） | 未实现（前端无页面调用，`/evaluation`+`/details` 已覆盖数据；已入 ADR-0015 死端点清单） | 死端点 |
-| Low | `GET /api/knowledgebase/{id}`、`/uncategorized` | 详情 / 未分类列表 | 未实现（前端无页面调用；已入 ADR-0015 死端点清单） | 死端点 |
+| Low | `GET /api/knowledgebase/uncategorized` | 未分类列表 | 未实现（前端无页面调用；已入 ADR-0015 死端点清单；`GET /{id}` 已于 #42 转活实现） | 死端点 |
 | Low | KB `/query`、`/query/stream`；RAG `/{id}/knowledge-bases`；简历 `/health` | — | 未实现（**已在 ADR-0015 记录为死端点**） | 无（前端无页面调用） |
 
 > 完整证据（file:line 三方比对）见终局迁移审查报告。

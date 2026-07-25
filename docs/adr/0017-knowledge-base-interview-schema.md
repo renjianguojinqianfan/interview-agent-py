@@ -47,7 +47,7 @@ Python 版沿用本仓库 `interview_answers` 的 CASCADE 惯例：删知识库�
 
 - try_mark_processing 消费者钩子（#43）
 - 生成任务恢复 job 与 xautoclaim 双保险（#43）
-- GET /api/knowledgebase/{id} 从 ADR-0015 死端点清单转活（#42）
+- ~~GET /api/knowledgebase/{id} 从 ADR-0015 死端点清单转活（#42）~~ 已落地（#42，2026-07-26）
 
 ## 影响
 

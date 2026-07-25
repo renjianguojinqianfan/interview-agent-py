@@ -449,7 +449,7 @@ app/
 | # | 任务 | issue | 说明 |
 |---|------|-------|------|
 | 9.1 | schema 基座 ✅ | #41 | 迁移 012（knowledge_base_questions 新表 + knowledge_bases 加 question_gen_* 8 列 + interview_sessions 加来源 3 列）+ ORM + 真库往返测试 |
-| 9.2 | 题库管理端点 | #42 | 题目 CRUD/筛选/方向统计 + GET /api/knowledgebase/{id} 转活 + 列表 DTO 扩展 |
+| 9.2 | 题库管理端点 ✅ | #42 | 题目 CRUD/筛选/方向统计 + GET /api/knowledgebase/{id} 转活 + 列表 DTO 扩展 |
 | 9.3 | 题库异步生成 | #43 | 状态机 + question_gen Stream 任务对 + try_mark_processing 原子领取 + 恢复调度双保险 + 2 个 .st 模板 |
 | 9.4 | 组卷面试 + 评估改造 | #44 | 容量预检/严格抽题（domain 纯函数）+ 会话契约扩展 + 评估题库参考优先 |
 | 9.5 | 前端搬运 + 双栈验收 | #45 | Java 646b23e 前端整文件搬入 + make verify 双栈 + 浏览器冒烟 |
