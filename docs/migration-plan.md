@@ -441,6 +441,20 @@ app/
 | 8.8 | Dockerfile | Python 应用容器化 |
 
 ---
+
+### 阶段 9：知识库面试功能域（Java 增量 8c80a19..646b23e，spec #40）
+
+**目标**：迁移 Java 新增的知识库面试功能域：异步生成题库 -> 题库管理 -> 组卷面试 -> 评估采用题库参考答案；既有文字面试契约扩展（sourceType/knowledgeBaseId/interviewCategory 等）。决策见 ADR-0017。
+
+| # | 任务 | issue | 说明 |
+|---|------|-------|------|
+| 9.1 | schema 基座 ✅ | #41 | 迁移 012（knowledge_base_questions 新表 + knowledge_bases 加 question_gen_* 8 列 + interview_sessions 加来源 3 列）+ ORM + 真库往返测试 |
+| 9.2 | 题库管理端点 | #42 | 题目 CRUD/筛选/方向统计 + GET /api/knowledgebase/{id} 转活 + 列表 DTO 扩展 |
+| 9.3 | 题库异步生成 | #43 | 状态机 + question_gen Stream 任务对 + try_mark_processing 原子领取 + 恢复调度双保险 + 2 个 .st 模板 |
+| 9.4 | 组卷面试 + 评估改造 | #44 | 容量预检/严格抽题（domain 纯函数）+ 会话契约扩展 + 评估题库参考优先 |
+| 9.5 | 前端搬运 + 双栈验收 | #45 | Java 646b23e 前端整文件搬入 + make verify 双栈 + 浏览器冒烟 |
+
+---
 ## 五、关键技术挑战与方案
 
 ### 挑战 1：语音面试 WebSocket 三路流式管线（复杂度最高）

@@ -78,6 +78,20 @@ _Avoid_: 聊天（过于宽泛）、Chat
 RAG 问答会话状态：ACTIVE（活跃）-> ARCHIVED（归档）。
 _Avoid_: 会话状态（用 RagSessionStatus 精确指代）
 
+### 知识库面试
+
+**KnowledgeBaseQuestion**:
+题库题目：AI 基于知识库内容生成或手动维护的面试题，含题干、方向（category）、难度、参考答案、评分要点、评分规则与追问池（follow_ups_json）。status DRAFT/ACTIVE 控制上下架（仅 ACTIVE 参与组卷）。
+_Avoid_: 题目（与 InterviewQuestion 混淆）、Question Bank Item
+
+**QuestionGenStatus**:
+题库异步生成状态机（挂在 KnowledgeBase 上）：NONE -> QUEUED -> PROCESSING -> COMPLETED / FAILED，附恢复快照（task_id/config/计数/updated_at）。与向量化的 AsyncTaskStatus 独立。
+_Avoid_: 生成状态（用 QuestionGenStatus 精确指代）
+
+**SourceType**:
+面试会话来源标注：NORMAL（简历/技能普通面试）/ KNOWLEDGE_BASE（知识库组卷面试，携 knowledge_base_id 与 interview_category）。
+_Avoid_: 面试类型（用 SourceType 精确指代）
+
 ### 语音面试
 
 **VoiceInterviewSession**:
