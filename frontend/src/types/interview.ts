@@ -9,6 +9,8 @@ export interface InterviewSession {
   currentQuestionIndex: number;
   questions: InterviewQuestion[];
   status: 'CREATED' | 'IN_PROGRESS' | 'COMPLETED' | 'EVALUATED';
+  knowledgeBaseId?: number | null;
+  interviewCategory?: string | null;
 }
 
 export interface InterviewQuestion {
@@ -16,9 +18,16 @@ export interface InterviewQuestion {
   question: string;
   type: string;
   category: string;
+  topicSummary?: string | null;
   userAnswer: string | null;
   score: number | null;
   feedback: string | null;
+  isFollowUp?: boolean;
+  parentQuestionIndex?: number | null;
+  referenceAnswer?: string | null;
+  keyPoints?: string[];
+  scoringRubric?: string | null;
+  sourceContext?: string | null;
 }
 
 export interface CreateInterviewRequest {

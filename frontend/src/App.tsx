@@ -17,6 +17,9 @@ const InterviewHistoryPage = lazy(() => import('./pages/InterviewHistoryPage'));
 const KnowledgeBaseQueryPage = lazy(() => import('./pages/KnowledgeBaseQueryPage'));
 const KnowledgeBaseUploadPage = lazy(() => import('./pages/KnowledgeBaseUploadPage'));
 const KnowledgeBaseManagePage = lazy(() => import('./pages/KnowledgeBaseManagePage'));
+const KnowledgeBaseInterviewPage = lazy(() => import('./pages/KnowledgeBaseInterviewLandingPage'));
+const KnowledgeBaseInterviewQuestionsPage = lazy(() => import('./pages/KnowledgeBaseInterviewQuestionsPage'));
+const KnowledgeBaseInterviewSessionPage = lazy(() => import('./pages/KnowledgeBaseInterviewSessionPage'));
 const VoiceInterviewPage = lazy(() => import('./pages/VoiceInterviewPage'));
 const VoiceInterviewEvaluationPage = lazy(() => import('./pages/VoiceInterviewEvaluationPage'));
 const InterviewSchedulePage = lazy(() => import('./pages/InterviewSchedulePage'));
@@ -205,6 +208,13 @@ function App() {
             {/* 知识库管理 */}
             <Route path="knowledgebase" element={<KnowledgeBaseManagePageWrapper />} />
 
+            {/* 知识库面试 */}
+            <Route path="knowledgebase-interview" element={<KnowledgeBaseInterviewPage />} />
+            <Route path="knowledgebase-interview/:knowledgeBaseId/questions" element={<KnowledgeBaseInterviewQuestionsPage />} />
+            <Route path="knowledgebase-interview/:knowledgeBaseId/interviews" element={<KnowledgeBaseInterviewHistoryWrapper />} />
+            <Route path="knowledgebase-interview/:knowledgeBaseId/interviews/:sessionId" element={<InterviewDetailPageWrapper />} />
+            <Route path="knowledgebase-interview/:sessionId" element={<KnowledgeBaseInterviewSessionPage />} />
+
             {/* 知识库上传 */}
             <Route path="knowledgebase/upload" element={<KnowledgeBaseUploadPageWrapper />} />
 
@@ -248,17 +258,53 @@ function InterviewHistoryWrapper() {
   return <InterviewHistoryPage onBack={handleBack} onViewInterview={handleViewInterview} onRestartInterview={handleRestartInterview} onContinueInterview={handleContinueInterview} />;
 }
 
+// 知识库面试记录页面包装器
+function KnowledgeBaseInterviewHistoryWrapper() {
+  const navigate = useNavigate();
+  const { knowledgeBaseId } = useParams<{ knowledgeBaseId: string }>();
+  const id = knowledgeBaseId ? Number(knowledgeBaseId) : NaN;
+
+  if (Number.isNaN(id)) {
+    return <Navigate to="/knowledgebase-interview" replace />;
+  }
+
+  const handleBack = () => {
+    navigate(`/knowledgebase-interview/${id}/questions`);
+  };
+
+  const handleViewInterview = (sessionId: string) => {
+    navigate(`/knowledgebase-interview/${id}/interviews/${sessionId}`);
+  };
+
+  const handleContinueInterview = (sessionId: string) => {
+    navigate(`/knowledgebase-interview/${sessionId}`, { state: { knowledgeBaseId: id } });
+  };
+
+  return (
+    <InterviewHistoryPage
+      knowledgeBaseId={id}
+      onBack={handleBack}
+      onViewInterview={handleViewInterview}
+      onContinueInterview={handleContinueInterview}
+    />
+  );
+}
+
 // 面试详情报告页面包装器
 function InterviewDetailPageWrapper() {
   const { sessionId } = useParams<{ sessionId: string }>();
+  const { knowledgeBaseId } = useParams<{ knowledgeBaseId?: string }>();
   const navigate = useNavigate();
   const [interview, setInterview] = useState<InterviewDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const backTarget = knowledgeBaseId
+    ? `/knowledgebase-interview/${knowledgeBaseId}/interviews`
+    : '/interviews';
 
   useEffect(() => {
     if (!sessionId) {
-      navigate('/interviews');
+      navigate(backTarget);
       return;
     }
     historyApi.getInterviewDetail(sessionId)
@@ -270,7 +316,7 @@ function InterviewDetailPageWrapper() {
         setError('加载面试详情失败');
         setLoading(false);
       });
-  }, [sessionId, navigate]);
+  }, [sessionId, navigate, backTarget]);
 
   if (loading) {
     return (
@@ -286,7 +332,7 @@ function InterviewDetailPageWrapper() {
         <div className="text-center">
           <p className="text-red-500 mb-4">{error || '面试记录不存在'}</p>
           <button
-            onClick={() => navigate('/interviews')}
+            onClick={() => navigate(backTarget)}
             className="px-5 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
           >
             返回面试记录
@@ -300,7 +346,7 @@ function InterviewDetailPageWrapper() {
     <div className="max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-6">
         <button
-          onClick={() => navigate('/interviews')}
+          onClick={() => navigate(backTarget)}
           className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

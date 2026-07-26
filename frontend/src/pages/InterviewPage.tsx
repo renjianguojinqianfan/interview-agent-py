@@ -28,6 +28,9 @@ interface InterviewProps {
     customCategories?: CategoryDTO[];
     jdText?: string;
   };
+  title?: string;
+  subtitle?: string;
+  loadingText?: string;
   onBack: () => void;
   onInterviewComplete: () => void;
 }
@@ -37,6 +40,9 @@ export default function Interview({
   resumeId,
   sessionIdToResume,
   initialConfig,
+  title = '模拟面试',
+  subtitle = '认真回答每个问题，展示您的实力',
+  loadingText = '正在生成面试题目...',
   onBack,
   onInterviewComplete,
 }: InterviewProps) {
@@ -207,7 +213,7 @@ export default function Interview({
       <div className="flex items-center justify-center min-h-[50vh]">
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-slate-200 border-t-primary-500 rounded-full mx-auto mb-4 animate-spin" />
-          <p className="text-slate-500 dark:text-slate-400">正在生成面试题目...</p>
+          <p className="text-slate-500 dark:text-slate-400">{loadingText}</p>
         </div>
       </div>
     );
@@ -221,7 +227,16 @@ export default function Interview({
           <p className="text-red-500 dark:text-red-400 mb-4">{error}</p>
           <div className="flex gap-3 justify-center">
             <button
-              onClick={startInterview}
+              onClick={() => {
+                // 重试应按入口类型走对应路径：恢复失败必须重试恢复，
+                // 否则会用 resumeText="" 创建一个新的默认 java-backend 普通面试，
+                // 知识库面试场景下会让用户从错误页面突然跳进无关会话
+                if (sessionIdToResume) {
+                  resumeExistingSession(sessionIdToResume);
+                } else {
+                  startInterview();
+                }
+              }}
               className="px-5 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600"
             >
               重试
@@ -243,8 +258,8 @@ export default function Interview({
   return (
     <div className="pb-10">
       <InterviewPageHeader
-        title="模拟面试"
-        subtitle="认真回答每个问题，展示您的实力"
+        title={title}
+        subtitle={subtitle}
         icon={(
           <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>

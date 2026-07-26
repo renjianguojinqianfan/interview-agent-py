@@ -23,6 +23,8 @@ export default defineConfig([
       // 迁移基线：对既有代码中的宽松写法降级为告警（不阻断门禁），保留信号后续收敛。
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/ban-ts-comment': 'warn',
+      // Java 原样搬运文件（#45 QuestionFormDrawer 等）组件与工具函数同文件导出；仅影响 HMR，为保持零自主改动降级告警。
+      'react-refresh/only-export-components': 'warn',
       // 未使用变量仍为错误，但遵循下划线约定并忽略 catch 绑定。
       '@typescript-eslint/no-unused-vars': ['error', {
         argsIgnorePattern: '^_',
