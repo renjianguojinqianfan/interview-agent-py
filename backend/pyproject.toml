@@ -27,7 +27,7 @@ dependencies = [
     "slowapi>=0.1.10",
     "sqlalchemy>=2.0.51",
     "tenacity>=9.1.4",
-    "unstructured>=0.21.5",
+    "unstructured[pdf,docx]>=0.21.5",
     "uvicorn[standard]>=0.51.0",
     "weasyprint>=69.0",
     "websockets>=15.0",
@@ -44,8 +44,8 @@ dev = [
 ]
 
 [tool.uv]
-index-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
-native-tls = true
+index-url = "https://mirrors.aliyun.com/pypi/simple/"
+system-certs = true
 
 [tool.ruff]
 target-version = "py313"
