@@ -22,7 +22,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from app.infrastructure.voice.realtime_ws import (
     RealtimeConnection,
@@ -78,6 +78,10 @@ class AsrError(RuntimeError):
 
 class AsrConnectionClosed(AsrError):
     """ASR WebSocket 连接已关闭（正常或异常）。"""
+
+
+class AsrAuthError(AsrError):
+    """ASR 出站连接鉴权失败（HTTP 401/403），不可通过重连恢复（#50）。"""
 
 
 def build_connect_uri(config: AsrConnectionConfig) -> str:
@@ -149,7 +153,16 @@ class QwenAsrClient:
     async def connect(self) -> None:
         uri = build_connect_uri(self._config)
         headers = {"Authorization": f"Bearer {self._config.api_key}"}
-        self._conn = await self._connector(uri, headers)
+        try:
+            self._conn = await self._connector(uri, headers)
+        except InvalidStatus as e:
+            # #50：鉴权失败属不可恢复错误，类型化后由上层直接提示用户，避免盲目重连
+            status = e.response.status_code
+            if status in (401, 403):
+                raise AsrAuthError(
+                    "asr_auth_failed", f"语音服务鉴权失败（HTTP {status}），请检查语音配置 api_key"
+                ) from e
+            raise AsrError("asr_connect_failed", f"语音服务连接失败（HTTP {status}）") from e
         await self._send(build_session_update(self._config))
 
     async def send_audio(self, base64_pcm: str) -> None:

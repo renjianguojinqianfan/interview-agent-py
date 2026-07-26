@@ -3,9 +3,12 @@
 import json
 
 import pytest
-from websockets.exceptions import ConnectionClosed
+from websockets.datastructures import Headers
+from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.http11 import Response
 
 from app.infrastructure.voice.asr import (
+    AsrAuthError,
     AsrConnectionClosed,
     AsrConnectionConfig,
     AsrError,
@@ -76,6 +79,32 @@ class TestBuildConnectUri:
     def test_uses_ampersand_when_query_present(self) -> None:
         uri = build_connect_uri(_config(url="wss://host/realtime?x=1"))
         assert uri == "wss://host/realtime?x=1&model=qwen3-asr-flash-realtime"
+
+
+class TestConnectAuthFailure:
+    """#50：出站连接被 DashScope 拒绝时按状态码类型化，鉴权失败不可重连。"""
+
+    @staticmethod
+    def _client_with_status(status_code: int) -> QwenAsrClient:
+        async def connector(uri: str, headers: dict[str, str]) -> _FakeConn:
+            raise InvalidStatus(Response(status_code, "rejected", Headers()))
+
+        return QwenAsrClient(_config(), connector=connector)
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    async def test_401_403_raises_auth_error(self, status_code: int) -> None:
+        client = self._client_with_status(status_code)
+        with pytest.raises(AsrAuthError) as exc_info:
+            await client.connect()
+        assert exc_info.value.code == "asr_auth_failed"
+        assert str(status_code) in exc_info.value.message
+
+    async def test_other_status_raises_plain_asr_error(self) -> None:
+        client = self._client_with_status(503)
+        with pytest.raises(AsrError) as exc_info:
+            await client.connect()
+        assert not isinstance(exc_info.value, AsrAuthError)
+        assert exc_info.value.code == "asr_connect_failed"
 
 
 class TestBuildSessionUpdate:

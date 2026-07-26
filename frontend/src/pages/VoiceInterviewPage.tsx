@@ -6,7 +6,7 @@ import AudioRecorder from '../components/AudioRecorder';
 import InterviewPageHeader from '../components/InterviewPageHeader';
 import RealtimeSubtitle from '../components/RealtimeSubtitle';
 import { skillApi, type SkillDTO } from '../api/skill';
-import { getTemplateName } from '../utils/voiceInterview';
+import { buildVoiceInterviewWsUrl, getTemplateName } from '../utils/voiceInterview';
 import {
   voiceInterviewApi,
   connectWebSocket,
@@ -442,7 +442,12 @@ export default function VoiceInterviewPage() {
       setConnectionStatus('disconnected');
       setIsAsrReady(false);
       clearPendingAiTextCommit();
-      if (event.code !== 1000) {
+      // #50：后端改为 accept 后以语义码关闭，这里按码区分提示
+      if (event.code === 4004) {
+        setError('面试会话不存在或已被删除');
+      } else if (event.code === 4003) {
+        setError('会话状态不允许连接（可能已结束或已暂停）');
+      } else if (event.code !== 1000) {
         setError('连接已断开，请刷新页面重试');
       }
     },
@@ -543,7 +548,7 @@ export default function VoiceInterviewPage() {
       setSessionId(session.sessionId);
       setCurrentPhase(session.currentPhase);
 
-      const wsUrl = session.webSocketUrl || `ws://localhost:8080/ws/voice-interview/${session.sessionId}`;
+      const wsUrl = session.webSocketUrl || buildVoiceInterviewWsUrl(session.sessionId);
       connectWithHandlers(session.sessionId, wsUrl);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '创建面试会话失败，请重试';
@@ -604,7 +609,7 @@ export default function VoiceInterviewPage() {
       }
       setMessages(restored);
 
-      const wsUrl = session.webSocketUrl || `ws://localhost:8080/ws/voice-interview/${session.sessionId}`;
+      const wsUrl = session.webSocketUrl || buildVoiceInterviewWsUrl(session.sessionId);
       connectWithHandlers(session.sessionId, wsUrl);
     } catch (error) {
       setError(error instanceof Error ? error.message : '恢复会话失败');

@@ -20,7 +20,7 @@ from app.application.voice.ws_handler import (
 )
 from app.domain.errors import ErrorCode
 from app.infrastructure.redis.voice_session_cache import CachedVoiceSession
-from app.infrastructure.voice.asr import AsrConnectionClosed, AsrTranscript
+from app.infrastructure.voice.asr import AsrAuthError, AsrConnectionClosed, AsrTranscript
 from app.infrastructure.voice.tts import TtsConnectionClosed, TtsEvent
 
 
@@ -230,13 +230,15 @@ class TestHandshake:
         ws = _FakeClientWs()
         await orch.run(ws)
         assert ws.closed_code == WS_CLOSE_SESSION_NOT_FOUND
-        assert ws.accepted is False
+        # #50：必须先 accept 再 close，否则 Starlette 以 HTTP 403 拒绝握手，客户端拿不到 4004
+        assert ws.accepted is True
 
     async def test_closes_when_status_not_in_progress(self) -> None:
         orch = _make_orchestrator(cached_status="PAUSED")
         ws = _FakeClientWs()
         await orch.run(ws)
         assert ws.closed_code == WS_CLOSE_INVALID_STATE
+        assert ws.accepted is True
 
     async def test_accepts_and_connects_when_in_progress(self) -> None:
         asr = _FakeAsr()
@@ -245,6 +247,28 @@ class TestHandshake:
         await orch.run(ws)
         assert ws.accepted is True
         assert asr.connected is True
+        assert asr.closed is True
+
+    async def test_asr_auth_error_sends_error_without_reconnect(self) -> None:
+        """#50：ASR 鉴权失败（如 DashScope 401）直接推送 error 消息并终止，不重连。"""
+
+        class _AuthFailAsr(_FakeAsr):
+            def __init__(self) -> None:
+                super().__init__()
+                self.connect_calls = 0
+
+            async def connect(self) -> None:
+                self.connect_calls += 1
+                raise AsrAuthError("asr_auth_failed", "语音服务鉴权失败")
+
+        asr = _AuthFailAsr()
+        orch = _make_orchestrator(cached_status="IN_PROGRESS", db_orm=_orm(), asr=asr)
+        ws = _FakeClientWs()
+        await orch.run(ws)
+        errors = ws.sent_of("error")
+        assert len(errors) == 1
+        assert errors[0]["code"] == "asr_auth_failed"
+        assert asr.connect_calls == 1  # 不重连
         assert asr.closed is True
 
 

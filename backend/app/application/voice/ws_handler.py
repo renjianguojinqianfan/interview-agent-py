@@ -67,7 +67,13 @@ from app.infrastructure.db.models.voice_interview import (
 from app.infrastructure.db.repositories.voice_interview_repository import VoiceInterviewRepository
 from app.infrastructure.redis.voice_session_cache import VoiceInterviewSessionCache
 from app.infrastructure.skills.opening_loader import OpeningQuestionLoader
-from app.infrastructure.voice.asr import AsrConnectionClosed, AsrConnectionConfig, AsrError, AsrTranscript
+from app.infrastructure.voice.asr import (
+    AsrAuthError,
+    AsrConnectionClosed,
+    AsrConnectionConfig,
+    AsrError,
+    AsrTranscript,
+)
 from app.infrastructure.voice.audio_utils import pcm_base64_to_wav_base64
 from app.infrastructure.voice.config import AsrConfigLoader, TtsConfigLoader
 from app.infrastructure.voice.tts import TtsConnectionClosed, TtsConnectionConfig, TtsError, TtsEvent
@@ -194,6 +200,9 @@ class VoiceWsOrchestrator:
 
     async def run(self, ws: ClientWebSocket) -> None:
         status = await self._load_session_status()
+        # #50：先 accept 再按校验结果 close——未 accept 即 close 会被 Starlette 以 HTTP 403 拒绝握手，
+        # 客户端拿不到 4003/4004 语义关闭码
+        await ws.accept()
         if status is None:
             await ws.close(WS_CLOSE_SESSION_NOT_FOUND)
             return
@@ -201,7 +210,6 @@ class VoiceWsOrchestrator:
             await ws.close(WS_CLOSE_INVALID_STATE)
             return
 
-        await ws.accept()
         orm = await self._load_session_orm()
         if orm is None:
             await self._safe_send(ws, ErrorMessage(code="session_gone", message="会话已删除"))
@@ -259,6 +267,11 @@ class VoiceWsOrchestrator:
             try:
                 await asr.connect()
                 reason = await self._pump(ws, asr)
+            except AsrAuthError as e:
+                # #50：鉴权失败不可恢复，直接告知客户端并终止，不浪费重连等待
+                logger.error("ASR 鉴权失败，不重连: sessionId=%s, error=%s", self._session_id, e)
+                await self._safe_send(ws, ErrorMessage(code=e.code, message=e.message))
+                return
             except AsrError as e:
                 logger.warning("ASR 连接异常: sessionId=%s, error=%s", self._session_id, e)
             finally:
