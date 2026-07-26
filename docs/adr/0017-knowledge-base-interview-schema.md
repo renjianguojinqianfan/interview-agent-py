@@ -72,12 +72,23 @@ Java 组卷候选不足报 3009，但本仓库 3009/3010 已被 SKILL_NOT_FOUND/
 消费者从未接入 Skill 评估参考，普通面试行为严格不变并有回归测试）。
 消费者基类以 `_build_reference_context` 可选钩子接入（默认 None，语音消费者零改动）。
 
+### 10. 前端搬运口径（#45）
+
+Java 646b23e 前端增量 24 文件（7 覆盖 + 17 新增）经 `git archive` 字节级搬运并逐一 hash
+核验（覆盖前已验证本仓 7 个既有文件与 Java 基线 8c80a19 逐字节一致）。仅两处最小偏离：
+① 4 个 `.test.ts` 的 `import test from 'node:test'` 改为 `import { test } from 'vitest'`
+（断言保留 `node:assert/strict`），并入本仓 vitest 统一入口，不照搬 Java 的 3 个
+`node --test` package.json 脚本；② eslint `react-refresh/only-export-components` 降为
+warn（Java 原样文件组件与工具函数同文件导出，仅影响 HMR，为保持零自主改动沿用
+「迁移基线降级」惯例）。无新增运行时依赖。
+
 ## 后续（随实现票追加）
 
 - ~~try_mark_processing 消费者钩子（#43）~~ 已落地（#43，2026-07-26，见决策 6）
 - ~~生成任务恢复 job 与 xautoclaim 双保险（#43）~~ 已落地（#43，2026-07-26，见决策 7）
 - ~~GET /api/knowledgebase/{id} 从 ADR-0015 死端点清单转活（#42）~~ 已落地（#42，2026-07-26）
 - ~~组卷面试与评估改造（#44）~~ 已落地（#44，2026-07-26，见决策 8/9）
+- ~~前端搬运与双栈验收（#45）~~ 已落地（#45，2026-07-26，见决策 10）。阶段 9 收官，本 ADR 定稿。
 
 ## 影响
 
