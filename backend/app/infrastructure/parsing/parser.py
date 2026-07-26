@@ -12,9 +12,13 @@ _MAX_TEXT_LENGTH = 5 * 1024 * 1024
 
 
 def _partition_pdf(data: bytes) -> list[Any]:
-    from unstructured.partition.pdf import partition_pdf
+    # #51：unstructured 0.21+ 的 partition.pdf 模块 import 即硬依赖 unstructured-inference
+    # （拉取 torch 约 2GB），而本项目仅需纯文本抽取。改用 pdfminer.six（unstructured[pdf]
+    # 既有传递依赖，与其 fast 策略同源）；扫描件无文本层时抽取为空，由上游空文本校验报错
+    from pdfminer.high_level import extract_text
 
-    return partition_pdf(file=BytesIO(data))
+    text = extract_text(BytesIO(data))
+    return [text] if text.strip() else []
 
 
 def _partition_docx(data: bytes) -> list[Any]:
