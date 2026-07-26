@@ -90,7 +90,7 @@ def dedupe_historical(raw_questions: list[HistoricalQuestion]) -> list[Historica
 def generate_fallback_questions(skill: Skill, count: int) -> list[InterviewQuestion]:
     """LLM 全失败时的兜底题生成。
 
-    persona 非空：第 0 题用 persona 定向题，其余用硬编码兜底。
+    persona 非空：第 0 题用技能名称定向题，其余用硬编码兜底。
     persona 为 None：全部用硬编码兜底循环复用。
     """
     if count <= 0:
@@ -98,7 +98,7 @@ def generate_fallback_questions(skill: Skill, count: int) -> list[InterviewQuest
     fallbacks = get_default_fallback_questions()
     texts: list[str] = []
     if skill.persona:
-        texts.append(f"请结合 {skill.persona} 方向，介绍你最有挑战的一次技术实践。")
+        texts.append(f"请结合 {skill.name} 方向，介绍你最有挑战的一次技术实践。")
     while len(texts) < count:
         texts.append(fallbacks[len(texts) % len(fallbacks)])
     texts = texts[:count]

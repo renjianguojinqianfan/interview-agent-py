@@ -150,6 +150,14 @@ class TestGenerateFallbackQuestions:
         assert all(q.question for q in questions)
         assert all(not q.is_follow_up for q in questions)
 
+    def test_persona_not_leaked_into_question(self) -> None:
+        """兜底题不得把 persona 全文拼进题目（防回归：曾把 SKILL.md 整段当题目返回）。"""
+        long_persona = "# Overview\n你是一位面试官。\n# Instructions\n多行指令。"
+        skill = _skill(persona=long_persona)
+        questions = generate_fallback_questions(skill, 1)
+        assert long_persona not in questions[0].question
+        assert skill.name in questions[0].question
+
     def test_without_persona(self) -> None:
         skill = _skill(persona=None)
         questions = generate_fallback_questions(skill, 3)
