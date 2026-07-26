@@ -9,6 +9,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -46,6 +47,41 @@ class KnowledgeBase(Base):
     question_gen_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    vectorized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class KnowledgeBaseDocument(Base):
+    """知识库文档 ORM。对应 knowledge_base_documents 表（migration 013，ADR-0018）。
+
+    一库多文档：文件级字段从 knowledge_bases 拆出，(knowledge_base_id, file_hash)
+    复合唯一（同库去重、跨库允许）；文档级 vector_status 落本表，KB 级为聚合视图。
+    """
+
+    __tablename__ = "knowledge_base_documents"
+    __table_args__ = (
+        UniqueConstraint("knowledge_base_id", "file_hash", name="uq_kb_document_kb_file_hash"),
+        Index("idx_kb_document_kb", "knowledge_base_id"),
+        {"comment": "知识库文档（一库多文档，ADR-0018）"},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    knowledge_base_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    storage_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    vector_status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    vector_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    vector_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     vectorized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 

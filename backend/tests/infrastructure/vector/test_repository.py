@@ -109,6 +109,27 @@ class TestDeleteByVectorJobId:
         assert exc_info.value.error_code == ErrorCode.KNOWLEDGE_BASE_VECTORIZATION_FAILED
 
 
+class TestDeleteByDocumentId:
+    """ADR-0018：按文档删除正式向量，且不得误删 pending 行。"""
+
+    async def test_returns_deleted_rows(self, repo: VectorRepository, session: AsyncMock) -> None:
+        mock_result = MagicMock()
+        mock_result.rowcount = 3
+        session.execute.return_value = mock_result
+
+        count = await repo.delete_by_document_id(session, 42)
+        assert count == 3
+        sql_text = str(session.execute.call_args.args[0])
+        assert "document_id = :document_id" in sql_text
+        assert "kb_vector_job_id" in sql_text  # 排除 pending 行
+
+    async def test_failure_raises(self, repo: VectorRepository, session: AsyncMock) -> None:
+        session.execute.side_effect = RuntimeError("DB error")
+        with pytest.raises(BusinessException) as exc_info:
+            await repo.delete_by_document_id(session, 42)
+        assert exc_info.value.error_code == ErrorCode.KNOWLEDGE_BASE_DELETE_FAILED
+
+
 class TestSearch:
     async def test_empty_kb_ids_returns_empty_without_query(self, repo: VectorRepository, session: AsyncMock) -> None:
         results = await repo.search(session, [0.1, 0.2], [], top_k=5)
@@ -134,9 +155,22 @@ class TestSearch:
             SearchResult(content="chunk1", score=0.9, kb_id=1),
             SearchResult(content="chunk2", score=0.7, kb_id=2),
         ]
+        # ADR-0018：实体列预过滤，kb_ids 以 int 传参（不再转 str 做 JSONB 文本比较）
         params = session.execute.call_args.args[1]
-        assert params["kb_ids"] == ["1", "2"]
+        assert params["kb_ids"] == [1, 2]
         assert params["top_k"] == 5
+
+    async def test_search_filters_by_entity_column(self, repo: VectorRepository, session: AsyncMock) -> None:
+        """ADR-0018：检索 SQL 必须走 knowledge_base_id 实体列预过滤而非 JSONB 后过滤。"""
+        mock_result = MagicMock()
+        mock_result.mappings.return_value.all.return_value = []
+        session.execute.return_value = mock_result
+
+        await repo.search(session, [0.1], [1], top_k=3)
+
+        sql_text = str(session.execute.call_args.args[0])
+        assert "knowledge_base_id = ANY" in sql_text
+        assert "metadata->>'kb_id' = ANY" not in sql_text
 
     async def test_failure_raises_query_failed(self, repo: VectorRepository, session: AsyncMock) -> None:
         session.execute.side_effect = RuntimeError("DB error")

@@ -38,11 +38,12 @@ class VectorRepository:
             return []
 
         vec = "[" + ",".join(str(v) for v in query_embedding) + "]"
+        # ADR-0018：实体列 btree 预过滤替代 JSONB 文本比较（列已由迁移 013 回填）
         sql = text(
-            "SELECT content, (metadata->>'kb_id') AS kb_id, "
+            "SELECT content, knowledge_base_id AS kb_id, "
             "1 - (embedding <=> CAST(:vec AS vector)) AS score "
             "FROM vector_store "
-            "WHERE metadata->>'kb_id' = ANY(:kb_ids) "
+            "WHERE knowledge_base_id = ANY(:kb_ids) "
             "ORDER BY embedding <=> CAST(:vec AS vector) ASC "
             "LIMIT :top_k"
         )
@@ -50,7 +51,7 @@ class VectorRepository:
         try:
             result = await session.execute(
                 sql,
-                {"vec": vec, "kb_ids": [str(k) for k in kb_ids], "top_k": top_k},
+                {"vec": vec, "kb_ids": list(kb_ids), "top_k": top_k},
             )
             rows = result.mappings().all()
             return [
@@ -74,13 +75,14 @@ class VectorRepository:
         job_id: str,
         kb_id: int,
         items: list[VectorItem],
+        document_id: int | None = None,
     ) -> int:
         if not items:
             return 0
 
         sql = text(
-            "INSERT INTO vector_store (content, metadata, embedding) "
-            "VALUES (:content, CAST(:metadata AS jsonb), CAST(:embedding AS vector))"
+            "INSERT INTO vector_store (content, metadata, embedding, knowledge_base_id, document_id) "
+            "VALUES (:content, CAST(:metadata AS jsonb), CAST(:embedding AS vector), :kb_id, :document_id)"
         )
 
         try:
@@ -99,6 +101,8 @@ class VectorRepository:
                         "content": item.content,
                         "metadata": json.dumps(metadata),
                         "embedding": embedding_str,
+                        "kb_id": kb_id,
+                        "document_id": document_id,
                     },
                 )
             logger.info("插入待定向量: jobId=%s, kbId=%s, count=%d", job_id, kb_id, len(items))
@@ -145,10 +149,11 @@ class VectorRepository:
         session: AsyncSession,
         kb_id: int,
     ) -> int:
-        sql = text("DELETE FROM vector_store WHERE metadata->>'kb_id' = :kb_id")
+        # 仅删正式行：pending 行（仍带 kb_vector_job_id 标记）由两阶段提交流程自行管理
+        sql = text("DELETE FROM vector_store WHERE knowledge_base_id = :kb_id AND NOT (metadata ? 'kb_vector_job_id')")
 
         try:
-            result = await session.execute(sql, {"kb_id": str(kb_id)})
+            result = await session.execute(sql, {"kb_id": kb_id})
             deleted = getattr(result, "rowcount", 0) or 0
             logger.info("删除知识库向量: kbId=%s, 删除行数=%d", kb_id, deleted)
             return deleted
@@ -157,6 +162,26 @@ class VectorRepository:
             raise BusinessException(
                 ErrorCode.KNOWLEDGE_BASE_DELETE_FAILED,
                 "删除向量数据失败",
+            ) from e
+
+    async def delete_by_document_id(
+        self,
+        session: AsyncSession,
+        document_id: int,
+    ) -> int:
+        """按文档删除正式向量（ADR-0018，走 (knowledge_base_id, document_id) 复合索引）。"""
+        sql = text("DELETE FROM vector_store WHERE document_id = :document_id AND NOT (metadata ? 'kb_vector_job_id')")
+
+        try:
+            result = await session.execute(sql, {"document_id": document_id})
+            deleted = getattr(result, "rowcount", 0) or 0
+            logger.info("删除文档向量: documentId=%s, 删除行数=%d", document_id, deleted)
+            return deleted
+        except Exception as e:
+            logger.error("删除文档向量失败: documentId=%s, error=%s", document_id, e)
+            raise BusinessException(
+                ErrorCode.KNOWLEDGE_BASE_DELETE_FAILED,
+                "删除文档向量数据失败",
             ) from e
 
     async def delete_by_vector_job_id(
