@@ -20,3 +20,11 @@ class TestLooksLikeChatModel:
     )
     def test_false_for_embedding_models(self, model: str) -> None:
         assert looks_like_chat_model(model) is False
+
+    @pytest.mark.parametrize(
+        "model",
+        ["qwen3.7-text-embedding", "qwen-text-embedding-v4", "Qwen3.7-Text-Embedding"],
+    )
+    def test_false_for_embedding_models_with_chat_prefix(self, model: str) -> None:
+        """防回归：命中聊天前缀但含 embedding 特征的向量模型不得被误判（曾致知识库向量化 FAILED）。"""
+        assert looks_like_chat_model(model) is False

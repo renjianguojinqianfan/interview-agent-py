@@ -26,4 +26,6 @@ _CHAT_MODEL_PREFIXES = (
 def looks_like_chat_model(model: str) -> bool:
     """规格外增强：防止用户将聊天模型名误填到 embedding_model 字段。"""
     lower = model.lower()
+    if "embed" in lower:
+        return False
     return any(lower.startswith(prefix) for prefix in _CHAT_MODEL_PREFIXES)
