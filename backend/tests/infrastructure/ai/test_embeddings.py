@@ -98,6 +98,13 @@ class TestCreateEmbeddings:
         embeddings = create_embeddings(config)
         assert "dashscope" in embeddings.openai_api_base
 
+    def test_sends_plain_text_instead_of_token_arrays(self) -> None:
+        """#48：必须关闭 ctx length 预检，否则 langchain 会把文本 tokenize 成 int 数组发送，
+        DashScope 兼容接口拒绝（400 contents is neither str nor list of str）。"""
+        config = _make_snapshot()
+        embeddings = create_embeddings(config)
+        assert embeddings.check_embedding_ctx_length is False
+
     def test_raises_when_no_embedding_support(self) -> None:
         config = _make_snapshot(supports_embedding=False, embedding_model=None)
         with pytest.raises(BusinessException) as exc_info:
