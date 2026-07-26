@@ -289,6 +289,28 @@ class TestFollowUpAttachment:
         assert result[2].parent_question_index == 0
 
 
+class TestCategoryOptional:
+    """#49 LLM 返回缺 category 不得整批作废落入兜底；空 category 归一为「通用」。"""
+
+    def test_question_list_accepts_missing_category(self) -> None:
+        result = QuestionList.model_validate({"questions": [{"question": "q1", "type": "JAVA"}]})
+        assert result.questions[0].category == ""
+
+    def test_question_list_keeps_present_category(self) -> None:
+        result = QuestionList.model_validate({"questions": [{"question": "q1", "type": "JAVA", "category": "Java"}]})
+        assert result.questions[0].category == "Java"
+
+    def test_convert_normalizes_empty_category(self, service: QuestionService) -> None:
+        q_list = QuestionList(questions=[QuestionItem(question="q1", type="JAVA")])
+        converted = service._convert_to_questions(q_list, 1)
+        assert converted[0][0].category == "通用"
+
+    def test_convert_keeps_non_empty_category(self, service: QuestionService) -> None:
+        q_list = QuestionList(questions=[QuestionItem(question="q1", type="JAVA", category="Java")])
+        converted = service._convert_to_questions(q_list, 1)
+        assert converted[0][0].category == "Java"
+
+
 class TestGenerateProviderResolution:
     """#29 llmProvider 按名解析：字符串供应商名 → int id → get_chat_client。"""
 

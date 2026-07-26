@@ -253,7 +253,8 @@ class QuestionService:
                     question_index=i,
                     question=item.question,
                     type=item.type,
-                    category=item.category,
+                    # #49：空 category 归一为「通用」，对齐兜底题惯例，避免前端空标签与评估分组异常
+                    category=item.category or "通用",
                     topic_summary=item.topicSummary,
                 ),
                 item.followUps,

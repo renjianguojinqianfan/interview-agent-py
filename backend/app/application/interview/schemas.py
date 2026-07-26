@@ -8,11 +8,14 @@ from app.domain.entities.interview import MAX_QUESTION_COUNT, MIN_QUESTION_COUNT
 
 
 class QuestionItem(BaseModel):
-    """LLM 出题输出单项，字段对应 interview-question-*-system.st 的输出结构。"""
+    """LLM 出题输出单项，字段对应 interview-question-*-system.st 的输出结构。
+
+    category 可选（#49）：部分模型返回缺该字段，必填会致整批校验失败落入兜底题。
+    """
 
     question: str
     type: str
-    category: str
+    category: str = ""
     topicSummary: str | None = None
     followUps: list[str] = Field(default_factory=list)
 
