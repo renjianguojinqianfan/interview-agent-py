@@ -52,6 +52,13 @@ def _make_consumer() -> tuple[VectorizeStreamConsumer, dict[str, MagicMock]]:
     llm_registry.get_default_embeddings = AsyncMock(return_value=embeddings)
 
     redis_mock = AsyncMock()
+    document_repository = MagicMock()
+    document_repository.get_by_id = AsyncMock(return_value=None)
+    document_repository.list_by_kb = AsyncMock(return_value=[])
+    document_repository.list_statuses_by_kb = AsyncMock(return_value=[])
+    document_repository.sum_chunk_count_by_kb = AsyncMock(return_value=0)
+    document_repository.update_vector_status = AsyncMock()
+    document_repository.mark_vectorized = AsyncMock()
     consumer = VectorizeStreamConsumer(
         redis_client=RedisClient(redis_mock),
         config=KB_VECTORIZE,
@@ -60,6 +67,7 @@ def _make_consumer() -> tuple[VectorizeStreamConsumer, dict[str, MagicMock]]:
         vector_repository=vector_repository,
         chunker=chunker,
         llm_registry=llm_registry,
+        document_repository=document_repository,
     )
     return consumer, {
         "repository": repository,
@@ -67,6 +75,7 @@ def _make_consumer() -> tuple[VectorizeStreamConsumer, dict[str, MagicMock]]:
         "chunker": chunker,
         "embeddings": embeddings,
         "llm_registry": llm_registry,
+        "document_repository": document_repository,
         "redis": redis_mock,
     }
 
@@ -196,3 +205,32 @@ class TestRetryMessage:
         sent = redis.xadd.call_args.args[1]
         assert sent["knowledgeBaseId"] == "9"
         assert sent["retryCount"] == "2"
+
+
+class TestLegacyKbMessageForwardsToDocuments:
+    """#52：整库粒度旧消息在存在文档行时逐文档处理，
+    不再产生 document_id 为空的正式行，也不按首文档重建误删其他文档向量。"""
+
+    async def test_kb_scope_message_processes_per_document(self) -> None:
+        consumer, mocks = _make_consumer()
+        doc = MagicMock(id=11, vector_status="PENDING", content_text="正文")
+        mocks["document_repository"].list_by_kb = AsyncMock(return_value=[doc])
+        mocks["document_repository"].get_by_id = AsyncMock(return_value=doc)
+        mocks["vector_repository"].delete_by_document_id = AsyncMock(return_value=0)
+
+        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
+
+        # 逐文档路径：insert_pending 带 document_id，删除按文档而非整库
+        assert mocks["vector_repository"].insert_pending.await_args.kwargs.get("document_id") == 11
+        mocks["vector_repository"].delete_by_document_id.assert_awaited()
+        mocks["vector_repository"].delete_by_knowledge_base_id.assert_not_awaited()
+
+    async def test_kb_scope_message_without_documents_falls_back(self) -> None:
+        consumer, mocks = _make_consumer()
+        mocks["document_repository"].list_by_kb = AsyncMock(return_value=[])
+        mocks["repository"].get_by_id.return_value = _make_kb(content_text="正文")
+
+        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
+
+        # 无文档行的存量异常数据：保留整库遗留路径
+        mocks["vector_repository"].delete_by_knowledge_base_id.assert_awaited()

@@ -38,12 +38,13 @@ class VectorRepository:
             return []
 
         vec = "[" + ",".join(str(v) for v in query_embedding) + "]"
-        # ADR-0018：实体列 btree 预过滤替代 JSONB 文本比较（列已由迁移 013 回填）
+        # ADR-0018：实体列 btree 预过滤替代 JSONB 文本比较（列已由迁移 013 回填）；
+        # 排除 pending 行（仍带 kb_vector_job_id 标记），维持两阶段提交的不可见性不变量
         sql = text(
             "SELECT content, knowledge_base_id AS kb_id, "
             "1 - (embedding <=> CAST(:vec AS vector)) AS score "
             "FROM vector_store "
-            "WHERE knowledge_base_id = ANY(:kb_ids) "
+            "WHERE knowledge_base_id = ANY(:kb_ids) AND NOT (metadata ? 'kb_vector_job_id') "
             "ORDER BY embedding <=> CAST(:vec AS vector) ASC "
             "LIMIT :top_k"
         )
@@ -128,12 +129,14 @@ class VectorRepository:
             # 注意：不可写 :kb_id::text —— SQLAlchemy 参数正则要求 :param 后非冒号，紧跟 :: 会使参数不被识别
             "    to_jsonb(CAST(:kb_id AS text)), "
             "    true"
-            ") - 'kb_vector_job_id' - 'kb_target_id' "
+            ") - 'kb_vector_job_id' - 'kb_target_id', "
+            # ADR-0018：提升时同步回填归属实体列，覆盖迁移时刻在途的无列值 pending 行
+            "knowledge_base_id = CAST(:kb_id_int AS bigint) "
             "WHERE metadata->>'kb_vector_job_id' = :job_id"
         )
 
         try:
-            result = await session.execute(sql, {"kb_id": str(kb_id), "job_id": job_id})
+            result = await session.execute(sql, {"kb_id": str(kb_id), "kb_id_int": kb_id, "job_id": job_id})
             updated = getattr(result, "rowcount", 0) or 0
             logger.info("提升临时向量为正式数据: kbId=%s, jobId=%s, 更新行数=%d", kb_id, job_id, updated)
             return updated

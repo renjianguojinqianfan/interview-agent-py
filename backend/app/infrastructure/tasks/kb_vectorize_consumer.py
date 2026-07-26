@@ -113,6 +113,14 @@ class VectorizeStreamConsumer(BaseStreamConsumer[KbVectorizePayload]):
         if payload.document_id is not None:
             await self._process_document(payload.knowledge_base_id, payload.document_id)
             return
+        # 兼容整库粒度旧消息（ADR-0018）：有文档行则逐文档处理，避免产生 document_id 为空的
+        # 正式行，也避免按 KB 首文档重建时误删其他文档的向量
+        async with self._session_factory() as session:
+            docs = await self._document_repository.list_by_kb(session, payload.knowledge_base_id)
+        if docs:
+            for doc in docs:
+                await self._process_document(payload.knowledge_base_id, doc.id)
+            return
         kb_id = payload.knowledge_base_id
         async with self._session_factory() as session:
             kb = await self._repository.get_by_id(session, kb_id)

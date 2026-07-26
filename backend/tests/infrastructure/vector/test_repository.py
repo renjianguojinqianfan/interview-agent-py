@@ -161,7 +161,8 @@ class TestSearch:
         assert params["top_k"] == 5
 
     async def test_search_filters_by_entity_column(self, repo: VectorRepository, session: AsyncMock) -> None:
-        """ADR-0018：检索 SQL 必须走 knowledge_base_id 实体列预过滤而非 JSONB 后过滤。"""
+        """ADR-0018：检索 SQL 走 knowledge_base_id 实体列预过滤，且必须排除 pending 行
+        （两阶段提交的不可见性不变量：pending 行提升前不得被检索命中）。"""
         mock_result = MagicMock()
         mock_result.mappings.return_value.all.return_value = []
         session.execute.return_value = mock_result
@@ -171,6 +172,19 @@ class TestSearch:
         sql_text = str(session.execute.call_args.args[0])
         assert "knowledge_base_id = ANY" in sql_text
         assert "metadata->>'kb_id' = ANY" not in sql_text
+        assert "NOT (metadata ? 'kb_vector_job_id')" in sql_text
+
+    async def test_promote_backfills_ownership_column(self, repo: VectorRepository, session: AsyncMock) -> None:
+        """ADR-0018：promote 时回填 knowledge_base_id 实体列，覆盖迁移时刻在途的无列值 pending 行。"""
+        mock_result = MagicMock()
+        mock_result.rowcount = 2
+        session.execute.return_value = mock_result
+
+        await repo.promote_vector_job(session, 7, "job-1")
+
+        sql_text = str(session.execute.call_args.args[0])
+        assert "knowledge_base_id = CAST(:kb_id_int AS bigint)" in sql_text
+        assert session.execute.call_args.args[1]["kb_id_int"] == 7
 
     async def test_failure_raises_query_failed(self, repo: VectorRepository, session: AsyncMock) -> None:
         session.execute.side_effect = RuntimeError("DB error")
