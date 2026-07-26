@@ -57,3 +57,19 @@ export function formatDateOnly(dateStr: string | null | undefined): string {
   });
 }
 
+/**
+ * 将 datetime-local 值（YYYY-MM-DDTHH:mm）的分钟归整到指定档位（默认 15 分钟）。
+ * 浏览器对 input step 的支持不一，提交前用此函数做归整兜底；无法解析的值原样返回。
+ */
+export function snapDateTimeToStep(value: string, stepMinutes = 15): string {
+  if (!value) return value;
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return value;
+
+  const snapped = Math.round(date.getMinutes() / stepMinutes) * stepMinutes;
+  date.setMinutes(snapped, 0, 0);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+

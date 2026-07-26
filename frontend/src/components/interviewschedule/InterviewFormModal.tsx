@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { X, ChevronRight, ChevronLeft, AlertCircle, CheckCircle, Trash2 } from 'lucide-react';
 import type { InterviewFormData, ParseResponse, InterviewType } from '../../types/interviewSchedule';
 import { interviewScheduleApi } from '../../api/interviewSchedule';
+import { snapDateTimeToStep } from '../../utils/date';
 import dayjs from 'dayjs';
 
 interface InterviewFormModalProps {
@@ -354,8 +355,9 @@ export const InterviewFormModal: React.FC<InterviewFormModalProps> = ({
         </label>
         <input
           type="datetime-local"
+          step={900}
           value={formData.interviewTime ? dayjs(formData.interviewTime).format('YYYY-MM-DDTHH:mm') : ''}
-          onChange={(e) => handleFormChange('interviewTime', e.target.value)}
+          onChange={(e) => handleFormChange('interviewTime', snapDateTimeToStep(e.target.value))}
           required
           className="w-full px-4 py-3 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 dark:focus:ring-primary-400 dark:focus:border-primary-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 transition-all"
         />
