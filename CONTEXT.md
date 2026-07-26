@@ -92,6 +92,10 @@ _Avoid_: 生成状态（用 QuestionGenStatus 精确指代）
 面试会话来源标注：NORMAL（简历/技能普通面试）/ KNOWLEDGE_BASE（知识库组卷面试，携 knowledge_base_id 与 interview_category）。
 _Avoid_: 面试类型（用 SourceType 精确指代）
 
+**组卷（Assemble）**:
+从 ACTIVE 题库随机拼卷：主题洗牌取 mainQuestionCount + 每题 Fisher-Yates 严格抽 followUpCount 个追问；候选（追问池容量达标）不足拒绝（3012）。容量预检（capacity）返回方向计数 + 0~5 追问档位可行性矩阵。domain 纯函数，随机源注入可复现。
+_Avoid_: 抽题（与 LLM 出题混淆）
+
 ### 语音面试
 
 **VoiceInterviewSession**:

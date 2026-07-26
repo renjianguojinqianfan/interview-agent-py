@@ -57,11 +57,27 @@ Python 版沿用本仓库 `interview_answers` 的 CASCADE 惯例：删知识库�
 QUEUED 再重投。重投携原 taskId，由消费侧原子领取去重；LLM 调用始终在事务外，
 替换旧题 + 置 COMPLETED 在同一小事务。
 
+### 8. INTERVIEW_QUESTION_INSUFFICIENT 用 3012（偏离 Java 3009）
+
+Java 组卷候选不足报 3009，但本仓库 3009/3010 已被 SKILL_NOT_FOUND/JD_PARSE_FAILED
+占用（先于 Java 新增），改用 3012。前端对该错误不按码分支、仅展示 message，属安全偏离；
+不足明细消息（方向/难度/追问约束）与 Java 逐字对齐。
+
+### 9. 组卷/评估参考的 domain 纯函数与回落口径（#44）
+
+组卷（主题洗牌 + Fisher-Yates 追问抽取）、容量矩阵与评估参考构建均为
+`domain/services/question_bank` 纯函数，随机源（`random.Random`）注入、固定种子可复现。
+评估时题库参考优先（拼入评估上下文 + 报告 referenceAnswers 用题库标准答案覆盖）；
+无题库参考时回落维持 Python 现状空参考（偏离 Java 的 Skill 参考回落——Python 评估
+消费者从未接入 Skill 评估参考，普通面试行为严格不变并有回归测试）。
+消费者基类以 `_build_reference_context` 可选钩子接入（默认 None，语音消费者零改动）。
+
 ## 后续（随实现票追加）
 
 - ~~try_mark_processing 消费者钩子（#43）~~ 已落地（#43，2026-07-26，见决策 6）
 - ~~生成任务恢复 job 与 xautoclaim 双保险（#43）~~ 已落地（#43，2026-07-26，见决策 7）
 - ~~GET /api/knowledgebase/{id} 从 ADR-0015 死端点清单转活（#42）~~ 已落地（#42，2026-07-26）
+- ~~组卷面试与评估改造（#44）~~ 已落地（#44，2026-07-26，见决策 8/9）
 
 ## 影响
 

@@ -101,7 +101,8 @@
 | 3009 | 技能不存在 | 11008 | 模块不存在 |
 | 3010 | JD 解析失败 | 11009 | 读取语音服务配置失败 |
 | 3011 | 面试评估结果不存在 | 11010 | 写入语音服务配置失败 |
-| 4001~4003 | 文件上传/下载/删除失败 | 11011 | 语音服务连通性测试失败 |
+| 3012 | 符合条件的面试问题不足（组卷候选不足，#44） | 11011 | 语音服务连通性测试失败 |
+| 4001~4003 | 文件上传/下载/删除失败 | | |
 | 5001 | PDF 导出失败 | | |
 
 ---
@@ -213,8 +214,11 @@
 | DELETE | `/api/knowledgebase/questions/{questionId}` | 删除题目 | - | `null` | - |
 | POST | `/api/knowledgebase/{kbId}/questions/generate` | 提交异步生成题库（#43） | `{ difficulty?, questionCount(1-30), followUpCount?(0-5), categoryLimit(1-5), llmProvider? }` | `QuestionGenStatusResponse` | 2/s |
 | GET | `/api/knowledgebase/{kbId}/questions/generation-status` | 生成状态轮询（#43） | - | `QuestionGenStatusResponse` | - |
+| GET | `/api/knowledgebase/{kbId}/interview-capacity` | 组卷容量预检（#44） | query：`category?`、`difficulty=mid`、`mainQuestionCount=5(1-20)` | `{ knowledgeBaseId, category?, difficulty, mainQuestionCount, categories[], followUpOptions[] }` | - |
+| POST | `/api/knowledgebase-interviews/sessions` | 从 ACTIVE 题库随机组卷建会（#44） | `{ knowledgeBaseId, category?, difficulty?, mainQuestionCount(1-20), followUpCount(0-5), llmProvider? }` | [`InterviewSession`](#interviewsession) | - |
 
 - keyword 大小写不敏感，匹配题干/参考答案/评分规则/摘要/方向；题目不存在返回业务码 3003，知识库不存在 6001。
+- 组卷（#44）：仅 ACTIVE 题参与；候选（追问池 ≥ followUpCount）不足返回 3012 含方向/难度/追问约束明细；成功时会话 `sourceType=KNOWLEDGE_BASE`、skillId 固定 `knowledge-base`，题目随题下发 `referenceAnswer/keyPoints/scoringRubric/sourceContext`；评估报告 referenceAnswers 以题库标准答案为准（ADR-0017）。
 - 生成为异步任务（Redis Stream）：未向量化/进行中重复提交返回 400；`QuestionGenStatusResponse` 含状态机全字段（`questionGenStatus`/`questionGenTaskId`/`questionGenConfig`/`savedCount`/`skippedCount`/`message`/`error`/`updatedAt`）；失败对外统一文案「题目生成失败，请稍后重试」；崩溃恢复由每 60s 调度 job 兜底（ADR-0017）。
 
 ---
@@ -373,12 +377,14 @@
 ### InterviewSession
 ```ts
 { sessionId, resumeText, totalQuestions, currentQuestionIndex,
-  questions: InterviewQuestion[], status /* CREATED|IN_PROGRESS|COMPLETED|EVALUATED */ }
+  questions: InterviewQuestion[], status /* CREATED|IN_PROGRESS|COMPLETED|EVALUATED */,
+  knowledgeBaseId?, interviewCategory? /* 知识库组卷会话才有值（#44） */ }
 ```
 ### InterviewQuestion
 ```ts
 { questionIndex, question, type, category, topicSummary?, userAnswer?, score?, feedback?,
-  isFollowUp, parentQuestionIndex? }
+  isFollowUp, parentQuestionIndex?,
+  referenceAnswer?, keyPoints?, scoringRubric?, sourceContext? /* 题库组卷随题下发（#44） */ }
 ```
 ### SubmitAnswerResponse
 ```ts
@@ -387,7 +393,9 @@
 ### SessionListItem
 ```ts
 { sessionId, skillId, difficulty, resumeId?, totalQuestions, status,
-  evaluateStatus?, evaluateError?, overallScore?, createdAt, completedAt? }
+  evaluateStatus?, evaluateError?, overallScore?,
+  sourceType /* NORMAL|KNOWLEDGE_BASE */, knowledgeBaseId?, interviewCategory?,
+  createdAt, completedAt? }
 ```
 ### EvaluationResult
 ```ts
@@ -402,7 +410,8 @@
 ### InterviewDetail
 ```ts
 { id, sessionId, totalQuestions, status, evaluateStatus?, evaluateError?,
-  overallScore?, overallFeedback?, createdAt, completedAt?,
+  overallScore?, sourceType /* NORMAL|KNOWLEDGE_BASE */, knowledgeBaseId?,
+  overallFeedback?, createdAt, completedAt?,
   strengths: string[], improvements: string[],
   referenceAnswers: { questionIndex, question, referenceAnswer, keyPoints[] }[],
   answers: { questionIndex, question, category, userAnswer?, score, feedback,
