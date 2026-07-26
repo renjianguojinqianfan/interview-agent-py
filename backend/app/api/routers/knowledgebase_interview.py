@@ -7,14 +7,17 @@ GET /api/knowledgebase/{id} 详情补进现有 knowledgebase 路由。
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.deps import get_knowledge_base_question_service
+from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.knowledgebase.question_schemas import (
     CategoryCountDTO,
     CreateKnowledgeBaseQuestionRequest,
+    GenerateKnowledgeBaseQuestionsRequest,
     KnowledgeBaseQuestionDTO,
+    QuestionGenStatusResponse,
     UpdateKnowledgeBaseQuestionRequest,
     UpdateKnowledgeBaseQuestionStatusRequest,
 )
@@ -44,6 +47,31 @@ async def list_question_categories(
     service: KnowledgeBaseQuestionService = Depends(get_knowledge_base_question_service),
 ) -> Result[list[CategoryCountDTO]]:
     data = await service.list_categories(kb_id)
+    return Result.success(data=data)
+
+
+@router.post("/api/knowledgebase/{kb_id}/questions/generate", response_model=Result[QuestionGenStatusResponse])
+@limiter.limit("2/second", key_func=global_key)
+@limiter.limit("2/second")
+async def generate_questions(
+    request: Request,  # noqa: ARG001  slowapi 限流必需
+    kb_id: int,
+    body: GenerateKnowledgeBaseQuestionsRequest,
+    service: KnowledgeBaseQuestionService = Depends(get_knowledge_base_question_service),
+) -> Result[QuestionGenStatusResponse]:
+    data = await service.submit_generation_task(kb_id, body)
+    return Result.success(data=data)
+
+
+@router.get(
+    "/api/knowledgebase/{kb_id}/questions/generation-status",
+    response_model=Result[QuestionGenStatusResponse],
+)
+async def get_question_generation_status(
+    kb_id: int,
+    service: KnowledgeBaseQuestionService = Depends(get_knowledge_base_question_service),
+) -> Result[QuestionGenStatusResponse]:
+    data = await service.get_generation_status(kb_id)
     return Result.success(data=data)
 
 

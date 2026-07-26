@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 FIELD_RETRY_COUNT = "retryCount"
 FIELD_CONTENT = "content"
+FIELD_TASK_ID = "taskId"
 
 MAX_RETRY_COUNT = 3
 BATCH_SIZE = 10
@@ -50,4 +51,12 @@ VOICE_EVALUATE = StreamConfig(
     group_name="voice-evaluate-group",
     consumer_prefix="voice-evaluate-consumer-",
     id_field="sessionId",
+)
+
+KB_QUESTION_GEN = StreamConfig(
+    # Used by issue #43 (knowledge base question bank async generation)
+    stream_key="knowledgebase:question-gen:stream",
+    group_name="question-gen-group",
+    consumer_prefix="question-gen-consumer-",
+    id_field="knowledgeBaseId",
 )

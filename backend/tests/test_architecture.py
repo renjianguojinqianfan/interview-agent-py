@@ -193,6 +193,8 @@ INFRA_DIR = APP_DIR / "infrastructure"
 INFRA_TO_APPLICATION_ALLOWLIST = frozenset(
     {
         "app.application.resume.analysis",  # ResumeAnalysisService/Result：宿主消费者调用应用服务
+        "app.application.knowledgebase.generation_service",  # 题库生成消费者调用生成服务（#43 宿主消费者）
+        "app.application.knowledgebase.generation_state_service",  # 题库生成任务对/恢复 job 调用状态机（#43）
     }
 )
 

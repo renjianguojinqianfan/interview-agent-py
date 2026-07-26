@@ -6,37 +6,38 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.knowledgebase.generation_state_service import QuestionGenerationStateService
 from app.application.knowledgebase.question_schemas import (
     CategoryCountDTO,
     CreateKnowledgeBaseQuestionRequest,
+    GenerateKnowledgeBaseQuestionsRequest,
     KnowledgeBaseQuestionDTO,
     KnowledgeBaseQuestionFollowUpDTO,
+    QuestionGenerationConfigDTO,
+    QuestionGenStatusResponse,
     UpdateKnowledgeBaseQuestionRequest,
 )
 from app.domain.errors import BusinessException, ErrorCode
+from app.domain.services.question_bank import trim_to_none
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase, KnowledgeBaseQuestion
 from app.infrastructure.db.repositories.knowledge_base_question_repository import KnowledgeBaseQuestionRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.json_utils import json_loads_dict_list, json_loads_list
+from app.infrastructure.tasks.question_gen_producer import QuestionGenPayload, QuestionGenProducer
 
 logger = logging.getLogger(__name__)
 
 # 知识库题目固定 skill_id：兼容既有面试会话表的非空约束（对齐 Java DEFAULT_SKILL_ID）
 DEFAULT_SKILL_ID = "knowledge-base"
 _DEFAULT_DIFFICULTY = "mid"
+_DEFAULT_FOLLOW_UP_COUNT = 2
 # keyword 匹配的字段集合（对齐 Java containsKeyword）
 _KEYWORD_FIELDS = ("question", "reference_answer", "scoring_rubric", "topic_summary", "category")
 
 
-def _trim_to_none(value: str | None) -> str | None:
-    if value is None or not value.strip():
-        return None
-    return value.strip()
-
-
 def _require_non_blank(value: str | None, message: str) -> str:
     """必填文本校验：空白拒绝（对齐 Java @NotBlank / isBlank 检查），返回 trim 后的值。"""
-    trimmed = _trim_to_none(value)
+    trimmed = trim_to_none(value)
     if trimmed is None:
         raise BusinessException(ErrorCode.BAD_REQUEST, message)
     return trimmed
@@ -57,9 +58,9 @@ def _write_follow_ups(values: list[KnowledgeBaseQuestionFollowUpDTO] | None) -> 
     sanitized = [
         KnowledgeBaseQuestionFollowUpDTO(
             question=item.question.strip(),
-            reference_answer=_trim_to_none(item.reference_answer),
+            reference_answer=trim_to_none(item.reference_answer),
             key_points=[point.strip() for point in item.key_points if point and point.strip()],
-            scoring_rubric=_trim_to_none(item.scoring_rubric),
+            scoring_rubric=trim_to_none(item.scoring_rubric),
         )
         for item in (values or [])
         if item.question and item.question.strip()
@@ -75,10 +76,14 @@ class KnowledgeBaseQuestionService:
         session: AsyncSession,
         question_repository: KnowledgeBaseQuestionRepository,
         kb_repository: KnowledgeBaseRepository,
+        state_service: QuestionGenerationStateService,
+        producer: QuestionGenProducer,
     ) -> None:
         self._session = session
         self._question_repository = question_repository
         self._kb_repository = kb_repository
+        self._state_service = state_service
+        self._producer = producer
 
     async def list_questions(
         self,
@@ -89,9 +94,9 @@ class KnowledgeBaseQuestionService:
         keyword: str | None,
     ) -> list[KnowledgeBaseQuestionDTO]:
         questions = await self._question_repository.list_by_knowledge_base(self._session, kb_id, status=status)
-        category_filter = _trim_to_none(category)
-        difficulty_filter = _trim_to_none(difficulty)
-        keyword_filter = _trim_to_none(keyword)
+        category_filter = trim_to_none(category)
+        difficulty_filter = trim_to_none(difficulty)
+        keyword_filter = trim_to_none(keyword)
         kb = await self._kb_repository.get_by_id(self._session, kb_id)
         kb_name = self._kb_name(kb)
         return [
@@ -105,6 +110,29 @@ class KnowledgeBaseQuestionService:
     async def list_categories(self, kb_id: int) -> list[CategoryCountDTO]:
         counts = await self._question_repository.category_counts(self._session, kb_id)
         return [CategoryCountDTO(category=category, count=count) for category, count in counts]
+
+    async def submit_generation_task(
+        self, kb_id: int, request: GenerateKnowledgeBaseQuestionsRequest
+    ) -> QuestionGenStatusResponse:
+        """提交异步生成任务：归一化配置 -> 写 QUEUED 快照 -> 投递 Stream（入队失败回读最新状态）。"""
+        config = QuestionGenerationConfigDTO(
+            difficulty=_normalize_difficulty(request.difficulty),
+            question_count=max(1, request.question_count),
+            follow_up_count=(
+                _DEFAULT_FOLLOW_UP_COUNT if request.follow_up_count is None else max(0, min(request.follow_up_count, 5))
+            ),
+            category_limit=max(1, min(request.category_limit, 5)),
+            llm_provider=trim_to_none(request.llm_provider),
+        )
+        response = await self._state_service.create_task(kb_id, config)
+        task_id = response.question_gen_task_id or ""
+        sent = await self._producer.send_task(QuestionGenPayload(kb_id=kb_id, task_id=task_id))
+        if not sent:
+            return await self._state_service.get_status(kb_id)
+        return response
+
+    async def get_generation_status(self, kb_id: int) -> QuestionGenStatusResponse:
+        return await self._state_service.get_status(kb_id)
 
     async def create_question(
         self, kb_id: int, request: CreateKnowledgeBaseQuestionRequest
@@ -120,15 +148,15 @@ class KnowledgeBaseQuestionService:
             knowledge_base_id=kb.id,
             skill_id=DEFAULT_SKILL_ID,
             difficulty=_normalize_difficulty(request.difficulty),
-            type=_trim_to_none(request.type),
+            type=trim_to_none(request.type),
             category=category,
             question=question_text,
-            topic_summary=_trim_to_none(request.topic_summary),
-            reference_answer=_trim_to_none(request.reference_answer),
+            topic_summary=trim_to_none(request.topic_summary),
+            reference_answer=trim_to_none(request.reference_answer),
             key_points_json=_write_string_list(request.key_points),
-            scoring_rubric=_trim_to_none(request.scoring_rubric),
+            scoring_rubric=trim_to_none(request.scoring_rubric),
             follow_ups_json=_write_follow_ups(request.follow_ups),
-            source_context=_trim_to_none(request.source_context),
+            source_context=trim_to_none(request.source_context),
             kb_content_hash=kb.file_hash,
             status=request.status or "DRAFT",
             created_at=now,
@@ -146,23 +174,23 @@ class KnowledgeBaseQuestionService:
         if request.difficulty is not None:
             question.difficulty = _normalize_difficulty(request.difficulty)
         if request.type is not None:
-            question.type = _trim_to_none(request.type)
+            question.type = trim_to_none(request.type)
         if request.category is not None:
             question.category = _require_non_blank(request.category, "面试方向不能为空")
         if request.question is not None:
             question.question = _require_non_blank(request.question, "题干不能为空")
         if request.topic_summary is not None:
-            question.topic_summary = _trim_to_none(request.topic_summary)
+            question.topic_summary = trim_to_none(request.topic_summary)
         if request.reference_answer is not None:
-            question.reference_answer = _trim_to_none(request.reference_answer)
+            question.reference_answer = trim_to_none(request.reference_answer)
         if request.key_points is not None:
             question.key_points_json = _write_string_list(request.key_points)
         if request.scoring_rubric is not None:
-            question.scoring_rubric = _trim_to_none(request.scoring_rubric)
+            question.scoring_rubric = trim_to_none(request.scoring_rubric)
         if request.follow_ups is not None:
             question.follow_ups_json = _write_follow_ups(request.follow_ups)
         if request.source_context is not None:
-            question.source_context = _trim_to_none(request.source_context)
+            question.source_context = trim_to_none(request.source_context)
         if request.status is not None:
             question.status = request.status
         question.updated_at = datetime.now(UTC)

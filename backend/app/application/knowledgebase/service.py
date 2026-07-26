@@ -49,7 +49,7 @@ def to_kb_list_item(kb: KnowledgeBase) -> KnowledgeBaseListItemDTO:
         vector_status=kb.vector_status,
         vector_error=kb.vector_error,
         chunk_count=kb.chunk_count,
-        # 未提交过生成任务的存量行（或未 flush 的新建实体）兑现为 NONE
+        # 未提交过生成任务的存量行（或未 flush 的新建实体）兜底为 NONE
         question_gen_status=kb.question_gen_status or "NONE",
         question_gen_error=kb.question_gen_error,
     )

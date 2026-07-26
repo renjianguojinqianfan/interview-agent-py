@@ -11,11 +11,13 @@ from slowapi.middleware import SlowAPIASGIMiddleware
 from app.api.deps import (
     start_interview_evaluate_consumer,
     start_kb_vectorize_consumer,
+    start_question_gen_consumer,
     start_resume_analyze_consumer,
     start_scheduler,
     start_voice_evaluate_consumer,
     stop_interview_evaluate_consumer,
     stop_kb_vectorize_consumer,
+    stop_question_gen_consumer,
     stop_resume_analyze_consumer,
     stop_scheduler,
     stop_voice_evaluate_consumer,
@@ -58,6 +60,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await start_interview_evaluate_consumer()
         await start_kb_vectorize_consumer()
         await start_voice_evaluate_consumer()
+        await start_question_gen_consumer()
         await start_scheduler()
 
     yield
@@ -68,6 +71,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await stop_resume_analyze_consumer()
         await stop_interview_evaluate_consumer()
         await stop_kb_vectorize_consumer()
+        await stop_question_gen_consumer()
 
 
 app = FastAPI(

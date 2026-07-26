@@ -97,7 +97,10 @@ class BaseStreamConsumer[T](ABC):
                 await self._ack(msg_id)
                 return
 
-            await self.mark_processing(payload)
+            if not await self.try_mark_processing(payload):
+                logger.info("%s task was not claimed: %s", self.task_display_name(), self.payload_identifier(payload))
+                await self._ack(msg_id)
+                return
             await self.process_business(payload)
             await self.mark_completed(payload)
             await self._ack(msg_id)
@@ -136,6 +139,16 @@ class BaseStreamConsumer[T](ABC):
 
     @abstractmethod
     async def mark_processing(self, payload: T) -> None: ...
+
+    async def try_mark_processing(self, payload: T) -> bool:
+        """尝试领取任务（可选钩子，对齐 Java tryMarkProcessing）。
+
+        默认保持存量消费者语义：执行 mark_processing 并返回 True。
+        需要原子领取（如题库生成的行锁 + taskId 匹配）的消费者覆写此方法；
+        返回 False 时消息被静默 ACK 丢弃（不执行业务、不重试、不标失败）。
+        """
+        await self.mark_processing(payload)
+        return True
 
     @abstractmethod
     async def process_business(self, payload: T) -> None: ...

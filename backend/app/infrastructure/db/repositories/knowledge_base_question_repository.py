@@ -1,4 +1,4 @@
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.models.knowledge_base import KnowledgeBaseQuestion
@@ -35,10 +35,32 @@ class KnowledgeBaseQuestionRepository:
         result = await session.execute(select(KnowledgeBaseQuestion).where(KnowledgeBaseQuestion.id == question_id))
         return result.scalar_one_or_none()
 
+    async def find_recent_questions(
+        self, session: AsyncSession, kb_id: int, difficulty: str, limit: int
+    ) -> list[KnowledgeBaseQuestion]:
+        """同知识库 + 难度的最近题目（updated_at 倒序），供生成提示词注入去重参照。"""
+        result = await session.execute(
+            select(KnowledgeBaseQuestion)
+            .where(
+                KnowledgeBaseQuestion.knowledge_base_id == kb_id,
+                KnowledgeBaseQuestion.difficulty == difficulty,
+            )
+            .order_by(KnowledgeBaseQuestion.updated_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def save(self, session: AsyncSession, question: KnowledgeBaseQuestion) -> KnowledgeBaseQuestion:
         session.add(question)
         await session.flush()
         return question
+
+    async def save_all(self, session: AsyncSession, questions: list[KnowledgeBaseQuestion]) -> None:
+        session.add_all(questions)
+        await session.flush()
+
+    async def delete_by_knowledge_base_id(self, session: AsyncSession, kb_id: int) -> None:
+        await session.execute(delete(KnowledgeBaseQuestion).where(KnowledgeBaseQuestion.knowledge_base_id == kb_id))
 
     async def delete(self, session: AsyncSession, question: KnowledgeBaseQuestion) -> None:
         await session.delete(question)

@@ -17,6 +17,26 @@ class KnowledgeBaseRepository:
         result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))
         return result.scalar_one_or_none()
 
+    async def get_by_id_for_update(self, session: AsyncSession, kb_id: int) -> KnowledgeBase | None:
+        """行锁读取（SELECT FOR UPDATE）：题库生成状态机的原子领取/转换依赖（对齐 Java findByIdForUpdate）。"""
+        result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id).with_for_update())
+        return result.scalar_one_or_none()
+
+    async def find_stale_question_gen_tasks(
+        self, session: AsyncSession, status: str, threshold: datetime
+    ) -> list[KnowledgeBase]:
+        """查找卡滞的生成任务：指定状态且 updated_at 早于阈值（或为空），供恢复 job 重投。"""
+        result = await session.execute(
+            select(KnowledgeBase).where(
+                KnowledgeBase.question_gen_status == status,
+                or_(
+                    KnowledgeBase.question_gen_updated_at.is_(None),
+                    KnowledgeBase.question_gen_updated_at < threshold,
+                ),
+            )
+        )
+        return list(result.scalars().all())
+
     async def save(self, session: AsyncSession, kb: KnowledgeBase) -> KnowledgeBase:
         session.add(kb)
         await session.flush()

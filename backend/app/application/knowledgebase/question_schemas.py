@@ -2,6 +2,8 @@
 
 from typing import Literal
 
+from pydantic import Field
+
 from app.api.responses import BaseSchema, NaiveIsoDatetime
 
 KnowledgeBaseQuestionStatusLiteral = Literal["DRAFT", "ACTIVE", "ARCHIVED", "STALE"]
@@ -71,3 +73,35 @@ class UpdateKnowledgeBaseQuestionStatusRequest(BaseSchema):
 class CategoryCountDTO(BaseSchema):
     category: str
     count: int
+
+
+class GenerateKnowledgeBaseQuestionsRequest(BaseSchema):
+    """题库生成提交请求（校验对齐 Java GenerateKnowledgeBaseQuestionsRequest）。"""
+
+    difficulty: Literal["junior", "mid", "senior"] | None = None
+    question_count: int = Field(ge=1, le=30)
+    follow_up_count: int | None = Field(default=None, ge=0, le=5)
+    category_limit: int = Field(ge=1, le=5)
+    llm_provider: str | None = Field(default=None, max_length=64)
+
+
+class QuestionGenerationConfigDTO(BaseSchema):
+    """生成任务配置快照（存于 knowledge_bases.question_gen_config，camelCase JSON）。"""
+
+    difficulty: str
+    question_count: int
+    follow_up_count: int
+    category_limit: int
+    llm_provider: str | None = None
+
+
+class QuestionGenStatusResponse(BaseSchema):
+    knowledge_base_id: int
+    question_gen_status: str
+    question_gen_task_id: str | None = None
+    question_gen_config: QuestionGenerationConfigDTO | None = None
+    saved_count: int = 0
+    skipped_count: int = 0
+    message: str | None = None
+    error: str | None = None
+    updated_at: NaiveIsoDatetime | None = None

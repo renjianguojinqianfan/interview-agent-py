@@ -1,5 +1,6 @@
 """知识库题库管理端点契约测试（mock 服务，镜像 tests/api/test_knowledgebase.py 风格）。"""
 
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -8,10 +9,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_knowledge_base_question_service
+from app.api.rate_limit import limiter
 from app.application.knowledgebase.question_schemas import (
     CategoryCountDTO,
     KnowledgeBaseQuestionDTO,
     KnowledgeBaseQuestionFollowUpDTO,
+    QuestionGenStatusResponse,
 )
 from app.domain.errors import BusinessException, ErrorCode
 from app.main import app
@@ -51,7 +54,16 @@ def _mock_service() -> MagicMock:
     service.update_question = AsyncMock()
     service.update_status = AsyncMock()
     service.delete_question = AsyncMock()
+    service.submit_generation_task = AsyncMock()
+    service.get_generation_status = AsyncMock()
     return service
+
+
+@pytest.fixture(autouse=True)
+def _reset_limiter() -> Iterator[None]:
+    limiter.reset()
+    yield
+    limiter.reset()
 
 
 @pytest.fixture
@@ -179,3 +191,97 @@ class TestDeleteQuestion:
         resp = client.delete("/api/knowledgebase/questions/999")
 
         assert resp.json()["code"] == 3003
+
+
+def _gen_status(**overrides: Any) -> QuestionGenStatusResponse:
+    defaults: dict[str, Any] = {
+        "knowledge_base_id": 1,
+        "question_gen_status": "QUEUED",
+        "question_gen_task_id": "task-1",
+    }
+    defaults.update(overrides)
+    return QuestionGenStatusResponse(**defaults)
+
+
+class TestGenerateQuestions:
+    def test_success_returns_queued_status(self, mock_service: MagicMock) -> None:
+        mock_service.submit_generation_task.return_value = _gen_status()
+
+        resp = client.post(
+            "/api/knowledgebase/1/questions/generate",
+            json={"questionCount": 10, "followUpCount": 2, "categoryLimit": 3},
+        )
+
+        body = resp.json()
+        assert body["code"] == 200
+        assert body["data"]["questionGenStatus"] == "QUEUED"
+        assert body["data"]["questionGenTaskId"] == "task-1"
+
+    def test_validation_rejects_out_of_range(self, mock_service: MagicMock) -> None:
+        cases = [
+            {"questionCount": 0, "categoryLimit": 3},  # 题量越界
+            {"questionCount": 31, "categoryLimit": 3},
+            {"questionCount": 10, "categoryLimit": 6},  # 方向数越界
+            {"questionCount": 10},  # 方向数缺失
+            {"questionCount": 10, "categoryLimit": 3, "difficulty": "expert"},  # 非法难度
+            {"questionCount": 10, "categoryLimit": 3, "followUpCount": 6},  # 追问越界
+        ]
+        for body in cases:
+            limiter.reset()
+            resp = client.post("/api/knowledgebase/1/questions/generate", json=body)
+            assert resp.json()["code"] == 400, body
+        mock_service.submit_generation_task.assert_not_awaited()
+
+    def test_duplicate_submission_maps_business_error(self, mock_service: MagicMock) -> None:
+        mock_service.submit_generation_task.side_effect = BusinessException(
+            ErrorCode.BAD_REQUEST, "知识库问题正在生成中，请勿重复提交"
+        )
+
+        resp = client.post(
+            "/api/knowledgebase/1/questions/generate",
+            json={"questionCount": 10, "categoryLimit": 3},
+        )
+
+        assert resp.json()["code"] == 400
+        assert "请勿重复提交" in resp.json()["message"]
+
+    def test_rate_limit_blocks_third_request(self, mock_service: MagicMock) -> None:
+        mock_service.submit_generation_task.return_value = _gen_status()
+
+        codes: list[int] = []
+        for _ in range(3):
+            resp = client.post(
+                "/api/knowledgebase/1/questions/generate",
+                json={"questionCount": 10, "categoryLimit": 3},
+            )
+            codes.append(resp.json()["code"])
+
+        assert codes[:2] == [200, 200]
+        assert codes[2] == ErrorCode.RATE_LIMIT_EXCEEDED.code
+
+
+class TestGenerationStatus:
+    def test_returns_full_state_machine_fields(self, mock_service: MagicMock) -> None:
+        mock_service.get_generation_status.return_value = _gen_status(
+            question_gen_status="COMPLETED",
+            saved_count=8,
+            skipped_count=2,
+            message="已生成 8 道题，跳过 2 道重复题",
+            updated_at=datetime(2026, 7, 26, 12, 0, 0),
+        )
+
+        resp = client.get("/api/knowledgebase/1/questions/generation-status")
+
+        data = resp.json()["data"]
+        assert data["questionGenStatus"] == "COMPLETED"
+        assert data["savedCount"] == 8
+        assert data["skippedCount"] == 2
+        assert data["message"] == "已生成 8 道题，跳过 2 道重复题"
+        assert data["updatedAt"] == "2026-07-26T12:00:00"
+
+    def test_kb_not_found(self, mock_service: MagicMock) -> None:
+        mock_service.get_generation_status.side_effect = BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
+
+        resp = client.get("/api/knowledgebase/999/questions/generation-status")
+
+        assert resp.json()["code"] == 6001

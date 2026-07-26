@@ -123,6 +123,54 @@ class TestParseFailure:
         mock_redis.xack.assert_called_once()
 
 
+class ClaimingConsumer(FakeConsumer):
+    """覆写 try_mark_processing 的消费者（原子领取语义，对齐 Java tryMarkProcessing 钩子）。"""
+
+    def __init__(self, redis_client: RedisClient, claim_result: bool) -> None:
+        super().__init__(redis_client)
+        self._claim_result = claim_result
+
+    async def try_mark_processing(self, payload: dict[str, Any]) -> bool:
+        self.calls.append(f"try_mark_processing:{payload['id']}")
+        return self._claim_result
+
+
+class TestTryMarkProcessingHook:
+    async def test_default_hook_delegates_to_mark_processing(
+        self, consumer: FakeConsumer, mock_redis: AsyncMock
+    ) -> None:
+        """默认钩子保持存量消费者语义：mark_processing 照常执行后继续业务。"""
+        msg = _make_msg("100-0", 1)
+        await consumer._process_message(msg[0], msg[1])
+
+        assert consumer.calls == [
+            "mark_processing:1",
+            "process_business:1",
+            "mark_completed:1",
+        ]
+
+    async def test_claim_rejected_acks_silently_without_business(self, mock_redis: AsyncMock) -> None:
+        """领取失败（旧 taskId 串扰/已被他人领取）：静默 ACK 丢弃，不执行业务、不重试、不标失败。"""
+        consumer = ClaimingConsumer(RedisClient(mock_redis), claim_result=False)
+        msg = _make_msg("100-0", 7)
+        await consumer._process_message(msg[0], msg[1])
+
+        assert consumer.calls == ["try_mark_processing:7"]
+        mock_redis.xack.assert_called_once()
+
+    async def test_claim_accepted_runs_business_and_completes(self, mock_redis: AsyncMock) -> None:
+        consumer = ClaimingConsumer(RedisClient(mock_redis), claim_result=True)
+        msg = _make_msg("100-0", 7)
+        await consumer._process_message(msg[0], msg[1])
+
+        assert consumer.calls == [
+            "try_mark_processing:7",
+            "process_business:7",
+            "mark_completed:7",
+        ]
+        mock_redis.xack.assert_called_once()
+
+
 class TestRetryBoundary:
     async def test_first_failure_retries_with_count_1(self, consumer: FakeConsumer, mock_redis: AsyncMock) -> None:
         consumer._fail_ids = {1}

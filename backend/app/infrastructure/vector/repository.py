@@ -121,7 +121,8 @@ class VectorRepository:
             "SET metadata = jsonb_set("
             "    metadata::jsonb, "
             "    '{kb_id}', "
-            "    to_jsonb(:kb_id::text), "
+            # 注意：不可写 :kb_id::text —— SQLAlchemy 参数正则要求 :param 后非冒号，紧跟 :: 会使参数不被识别
+            "    to_jsonb(CAST(:kb_id AS text)), "
             "    true"
             ") - 'kb_vector_job_id' - 'kb_target_id' "
             "WHERE metadata->>'kb_vector_job_id' = :job_id"

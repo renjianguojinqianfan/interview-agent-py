@@ -10,6 +10,8 @@ from app.application.interview.persistence_service import InterviewPersistenceSe
 from app.application.interview.question_service import QuestionService
 from app.application.interview.session_service import InterviewSessionService
 from app.application.interview_schedule.service import ScheduleParseService, ScheduleService
+from app.application.knowledgebase.generation_service import QuestionGenerationService
+from app.application.knowledgebase.generation_state_service import QuestionGenerationStateService
 from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService
 from app.application.knowledgebase.service import KnowledgeBaseService
 from app.application.llm_provider.service import LlmProviderService
@@ -48,6 +50,7 @@ from app.infrastructure.scheduler.jobs import (
     cancel_expired_schedules,
     cleanup_voice_zombie_sessions,
     pause_idle_voice_sessions,
+    recover_stale_question_gen_tasks,
 )
 from app.infrastructure.scheduler.manager import SchedulerManager
 from app.infrastructure.skills.loader import SkillLoader
@@ -57,6 +60,7 @@ from app.infrastructure.storage.hash import FileHashService
 from app.infrastructure.storage.s3 import S3StorageService, create_s3_storage_service
 from app.infrastructure.tasks.constants import (
     INTERVIEW_EVALUATE,
+    KB_QUESTION_GEN,
     KB_VECTORIZE,
     RESUME_ANALYZE,
     VOICE_EVALUATE,
@@ -65,6 +69,8 @@ from app.infrastructure.tasks.interview_evaluate_consumer import EvaluateStreamC
 from app.infrastructure.tasks.interview_evaluate_producer import EvaluateStreamProducer
 from app.infrastructure.tasks.kb_vectorize_consumer import VectorizeStreamConsumer
 from app.infrastructure.tasks.kb_vectorize_producer import VectorizeStreamProducer
+from app.infrastructure.tasks.question_gen_consumer import QuestionGenConsumer
+from app.infrastructure.tasks.question_gen_producer import QuestionGenProducer
 from app.infrastructure.tasks.resume_analyze_consumer import AnalyzeStreamConsumer
 from app.infrastructure.tasks.resume_analyze_producer import AnalyzeStreamProducer
 from app.infrastructure.tasks.voice_evaluate_consumer import VoiceEvaluateStreamConsumer
@@ -90,6 +96,9 @@ _evaluation_graph: EvaluationGraph | None = None
 _interview_evaluate_consumer: EvaluateStreamConsumer | None = None
 _kb_vectorize_producer: VectorizeStreamProducer | None = None
 _kb_vectorize_consumer: VectorizeStreamConsumer | None = None
+_question_gen_state_service: QuestionGenerationStateService | None = None
+_question_gen_producer: QuestionGenProducer | None = None
+_question_gen_consumer: QuestionGenConsumer | None = None
 _token_chunker: TokenChunker | None = None
 _scheduler_manager: SchedulerManager | None = None
 _schedule_parse_service: ScheduleParseService | None = None
@@ -242,7 +251,65 @@ def get_knowledge_base_question_service(
         session=session,
         question_repository=KnowledgeBaseQuestionRepository(),
         kb_repository=KnowledgeBaseRepository(),
+        state_service=get_question_gen_state_service(),
+        producer=get_question_gen_producer(),
     )
+
+
+def get_question_gen_state_service() -> QuestionGenerationStateService:
+    global _question_gen_state_service
+    if _question_gen_state_service is None:
+        _question_gen_state_service = QuestionGenerationStateService(
+            session_factory=async_session_factory,
+            kb_repository=KnowledgeBaseRepository(),
+            question_repository=KnowledgeBaseQuestionRepository(),
+        )
+    return _question_gen_state_service
+
+
+def get_question_gen_producer() -> QuestionGenProducer:
+    global _question_gen_producer
+    if _question_gen_producer is None:
+        _question_gen_producer = QuestionGenProducer(
+            get_redis_client(), KB_QUESTION_GEN, get_question_gen_state_service()
+        )
+    return _question_gen_producer
+
+
+def get_question_generation_service() -> QuestionGenerationService:
+    return QuestionGenerationService(
+        session_factory=async_session_factory,
+        kb_repository=KnowledgeBaseRepository(),
+        question_repository=KnowledgeBaseQuestionRepository(),
+        vector_repository=VectorRepository(),
+        llm_registry=get_llm_registry(),
+        invoker=StructuredOutputInvoker(),
+        state_service=get_question_gen_state_service(),
+    )
+
+
+async def start_question_gen_consumer() -> QuestionGenConsumer | None:
+    global _question_gen_consumer
+    try:
+        _question_gen_consumer = QuestionGenConsumer(
+            redis_client=get_redis_client(),
+            config=KB_QUESTION_GEN,
+            state_service=get_question_gen_state_service(),
+            generation_service=get_question_generation_service(),
+            producer=get_question_gen_producer(),
+        )
+        await _question_gen_consumer.start()
+        return _question_gen_consumer
+    except Exception:
+        logger.warning("启动题目生成消费者失败，跳过")
+        return None
+
+
+async def stop_question_gen_consumer() -> None:
+    global _question_gen_consumer
+    if _question_gen_consumer is not None:
+        await _question_gen_consumer.stop()
+        _question_gen_consumer = None
 
 
 def get_rag_chat_service(
@@ -605,6 +672,13 @@ async def start_scheduler() -> SchedulerManager | None:
             id="cleanup_voice_zombie_sessions",
             minutes=5,
             args=[async_session_factory],
+        )
+        manager.register_job(
+            recover_stale_question_gen_tasks,
+            "interval",
+            id="recover_stale_question_gen_tasks",
+            seconds=60,
+            args=[async_session_factory, get_question_gen_state_service(), get_question_gen_producer()],
         )
         manager.start()
         return manager

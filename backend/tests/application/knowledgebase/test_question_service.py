@@ -9,7 +9,10 @@ import pytest
 
 from app.application.knowledgebase.question_schemas import (
     CreateKnowledgeBaseQuestionRequest,
+    GenerateKnowledgeBaseQuestionsRequest,
     KnowledgeBaseQuestionFollowUpDTO,
+    QuestionGenerationConfigDTO,
+    QuestionGenStatusResponse,
     UpdateKnowledgeBaseQuestionRequest,
 )
 from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService
@@ -74,15 +77,26 @@ def _make_service(**mocks: Any) -> tuple[KnowledgeBaseQuestionService, dict[str,
     kb_repository = MagicMock()
     kb_repository.get_by_id = AsyncMock(return_value=mocks.get("kb"))
 
+    state_service = MagicMock()
+    state_service.create_task = AsyncMock(return_value=mocks.get("task_response"))
+    state_service.get_status = AsyncMock(return_value=mocks.get("status_response"))
+
+    producer = MagicMock()
+    producer.send_task = AsyncMock(return_value="100-0")
+
     service = KnowledgeBaseQuestionService(
         session=session,
         question_repository=question_repository,
         kb_repository=kb_repository,
+        state_service=state_service,
+        producer=producer,
     )
     return service, {
         "session": session,
         "question_repository": question_repository,
         "kb_repository": kb_repository,
+        "state_service": state_service,
+        "producer": producer,
     }
 
 
@@ -313,3 +327,61 @@ class TestDeleteQuestion:
         with pytest.raises(BusinessException) as exc:
             await service.delete_question(999)
         assert exc.value.error_code == ErrorCode.INTERVIEW_QUESTION_NOT_FOUND
+
+
+def _task_response(**overrides: Any) -> QuestionGenStatusResponse:
+    defaults: dict[str, Any] = {
+        "knowledge_base_id": 1,
+        "question_gen_status": "QUEUED",
+        "question_gen_task_id": "task-1",
+    }
+    defaults.update(overrides)
+    return QuestionGenStatusResponse(**defaults)
+
+
+class TestSubmitGenerationTask:
+    async def test_normalizes_config_defaults(self) -> None:
+        service, mocks = _make_service(task_response=_task_response())
+
+        await service.submit_generation_task(
+            1, GenerateKnowledgeBaseQuestionsRequest(question_count=10, category_limit=3)
+        )
+
+        config: QuestionGenerationConfigDTO = mocks["state_service"].create_task.await_args.args[1]
+        assert config.difficulty == "mid"  # 缺省难度
+        assert config.follow_up_count == 2  # 缺省追问数
+        assert config.category_limit == 3
+        assert config.llm_provider is None
+
+    async def test_sends_task_with_created_task_id(self) -> None:
+        service, mocks = _make_service(task_response=_task_response(question_gen_task_id="task-9"))
+
+        response = await service.submit_generation_task(
+            1, GenerateKnowledgeBaseQuestionsRequest(question_count=5, category_limit=2)
+        )
+
+        payload = mocks["producer"].send_task.await_args.args[0]
+        assert payload.kb_id == 1
+        assert payload.task_id == "task-9"
+        assert response.question_gen_task_id == "task-9"
+
+    async def test_send_failure_returns_fresh_status(self) -> None:
+        service, mocks = _make_service(
+            task_response=_task_response(),
+            status_response=_task_response(question_gen_status="FAILED"),
+        )
+        mocks["producer"].send_task.return_value = ""  # 入队失败（base producer 返回空 id）
+
+        response = await service.submit_generation_task(
+            1, GenerateKnowledgeBaseQuestionsRequest(question_count=5, category_limit=2)
+        )
+
+        assert response.question_gen_status == "FAILED"
+
+    async def test_get_generation_status_delegates(self) -> None:
+        service, mocks = _make_service(status_response=_task_response(question_gen_status="PROCESSING"))
+
+        response = await service.get_generation_status(1)
+
+        assert response.question_gen_status == "PROCESSING"
+        mocks["state_service"].get_status.assert_awaited_once_with(1)
