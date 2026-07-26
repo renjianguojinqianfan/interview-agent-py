@@ -47,3 +47,17 @@ class KnowledgeBaseStatsDTO(BaseSchema):
 
 class UpdateCategoryRequest(BaseSchema):
     category: str | None = None
+
+
+class KnowledgeBaseDocumentDTO(BaseSchema):
+    """知识库文档列表项（ADR-0018，一库多文档）。"""
+
+    id: int
+    knowledge_base_id: int
+    original_filename: str
+    file_size: int | None = None
+    content_type: str | None = None
+    vector_status: str
+    vector_error: str | None = None
+    chunk_count: int
+    uploaded_at: NaiveIsoDatetime

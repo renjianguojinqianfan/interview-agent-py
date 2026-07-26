@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_knowledge_base_service
 from app.api.rate_limit import limiter
 from app.application.knowledgebase.schemas import (
+    KnowledgeBaseDocumentDTO,
     KnowledgeBaseInfoDTO,
     KnowledgeBaseListItemDTO,
     KnowledgeBaseStatsDTO,
@@ -72,7 +73,24 @@ def _mock_service() -> MagicMock:
     service.download = AsyncMock()
     service.delete = AsyncMock()
     service.revectorize = AsyncMock()
+    service.add_document = AsyncMock()
+    service.list_documents = AsyncMock()
+    service.delete_document = AsyncMock()
     return service
+
+
+def _document_dto(doc_id: int = 11, kb_id: int = 1) -> KnowledgeBaseDocumentDTO:
+    return KnowledgeBaseDocumentDTO(
+        id=doc_id,
+        knowledge_base_id=kb_id,
+        original_filename="more.md",
+        file_size=128,
+        content_type="text/markdown",
+        vector_status="PENDING",
+        vector_error=None,
+        chunk_count=0,
+        uploaded_at=datetime(2026, 7, 26, 12, 0, 0),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -268,6 +286,62 @@ class TestRevectorize:
 
         assert codes[:2] == [200, 200]
         assert codes[2] == ErrorCode.RATE_LIMIT_EXCEEDED.code
+
+
+class TestDocuments:
+    """#52 一库多文档端点（ADR-0018）：追加/列表/删除。"""
+
+    def test_add_document_returns_dto(self, mock_service: MagicMock) -> None:
+        mock_service.add_document.return_value = _document_dto(doc_id=11)
+
+        response = client.post(
+            "/api/knowledgebase/1/documents",
+            files={"file": ("more.md", b"# second file", "text/markdown")},
+        )
+
+        body = response.json()
+        assert body["code"] == 200
+        assert body["data"]["id"] == 11
+        assert body["data"]["knowledgeBaseId"] == 1
+        assert body["data"]["vectorStatus"] == "PENDING"
+        args = mock_service.add_document.await_args.args
+        assert args[0] == 1
+        assert args[1] == "more.md"
+
+    def test_add_document_kb_not_found_returns_error(self, mock_service: MagicMock) -> None:
+        mock_service.add_document.side_effect = BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
+
+        response = client.post(
+            "/api/knowledgebase/999/documents",
+            files={"file": ("more.md", b"x", "text/markdown")},
+        )
+
+        assert response.json()["code"] == ErrorCode.KNOWLEDGE_BASE_NOT_FOUND.code
+
+    def test_list_documents_returns_items(self, mock_service: MagicMock) -> None:
+        mock_service.list_documents.return_value = [_document_dto(doc_id=11), _document_dto(doc_id=12)]
+
+        response = client.get("/api/knowledgebase/1/documents")
+
+        body = response.json()
+        assert body["code"] == 200
+        assert [d["id"] for d in body["data"]] == [11, 12]
+        mock_service.list_documents.assert_awaited_once_with(1)
+
+    def test_delete_document_success(self, mock_service: MagicMock) -> None:
+        mock_service.delete_document.return_value = None
+
+        response = client.delete("/api/knowledgebase/1/documents/11")
+
+        assert response.json()["code"] == 200
+        mock_service.delete_document.assert_awaited_once_with(1, 11)
+
+    def test_delete_document_not_found_returns_error(self, mock_service: MagicMock) -> None:
+        mock_service.delete_document.side_effect = BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
+
+        response = client.delete("/api/knowledgebase/1/documents/999")
+
+        assert response.json()["code"] == ErrorCode.KNOWLEDGE_BASE_NOT_FOUND.code
 
 
 class TestGetDetail:

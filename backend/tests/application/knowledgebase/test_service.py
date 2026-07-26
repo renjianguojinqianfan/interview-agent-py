@@ -7,10 +7,30 @@ import pytest
 from app.application.knowledgebase.schemas import KnowledgeBaseStatsDTO
 from app.application.knowledgebase.service import KnowledgeBaseService, to_kb_list_item
 from app.domain.errors import BusinessException, ErrorCode
-from app.infrastructure.db.models.knowledge_base import KnowledgeBase
+from app.infrastructure.db.models.knowledge_base import KnowledgeBase, KnowledgeBaseDocument
 
 _ALLOWED = ["application/pdf", "text/plain", "text/markdown"]
 _MAX_SIZE = 10 * 1024 * 1024
+
+
+def _make_document(**overrides: Any) -> KnowledgeBaseDocument:
+    defaults: dict[str, Any] = {
+        "id": 11,
+        "knowledge_base_id": 1,
+        "file_hash": "h",
+        "original_filename": "doc.pdf",
+        "file_size": 2048,
+        "content_type": "application/pdf",
+        "storage_key": "doc-k",
+        "storage_url": "doc-u",
+        "content_text": "正文",
+        "chunk_count": 3,
+        "vector_status": "COMPLETED",
+        "vector_error": None,
+        "uploaded_at": datetime(2026, 7, 20, 10, 0, 0),
+    }
+    defaults.update(overrides)
+    return KnowledgeBaseDocument(**defaults)
 
 
 def _make_kb(**overrides: Any) -> KnowledgeBase:
@@ -83,6 +103,23 @@ def _make_service(**mocks: Any) -> tuple[KnowledgeBaseService, dict[str, Any]]:
 
     vector_repository = MagicMock()
     vector_repository.delete_by_knowledge_base_id = AsyncMock(return_value=0)
+    vector_repository.delete_by_document_id = AsyncMock(return_value=0)
+
+    document_repository = mocks.get("document_repository") or MagicMock()
+    if "document_repository" not in mocks:
+        document_repository.find_by_kb_and_hash = AsyncMock(return_value=None)
+        document_repository.get_by_id = AsyncMock(return_value=None)
+        document_repository.list_by_kb = AsyncMock(return_value=[])
+        document_repository.list_statuses_by_kb = AsyncMock(return_value=[])
+        document_repository.sum_chunk_count_by_kb = AsyncMock(return_value=0)
+        document_repository.update_vector_status = AsyncMock()
+        document_repository.delete = AsyncMock()
+
+        async def _save_doc(_session: Any, doc: KnowledgeBaseDocument) -> KnowledgeBaseDocument:
+            doc.id = 11
+            return doc
+
+        document_repository.save = AsyncMock(side_effect=_save_doc)
 
     service = KnowledgeBaseService(
         session=session,
@@ -96,6 +133,7 @@ def _make_service(**mocks: Any) -> tuple[KnowledgeBaseService, dict[str, Any]]:
         vector_repository=vector_repository,
         allowed_types=_ALLOWED,
         max_file_size=_MAX_SIZE,
+        document_repository=document_repository,
     )
     return service, {
         "session": session,
@@ -104,6 +142,7 @@ def _make_service(**mocks: Any) -> tuple[KnowledgeBaseService, dict[str, Any]]:
         "storage": storage,
         "producer": producer,
         "vector_repository": vector_repository,
+        "document_repository": document_repository,
     }
 
 
@@ -369,6 +408,18 @@ class TestRevectorize:
         assert m["repository"].update_vector_status.call_args.args[2] == "PENDING"
         m["producer"].send_task.assert_awaited_once()
 
+    async def test_multi_document_enqueues_per_document(self) -> None:
+        """#52：整库重向量化逐文档置 PENDING 并按文档粒度入队。"""
+        service, m = _make_service(get_by_id=AsyncMock(return_value=_make_kb()))
+        docs = [_make_document(id=11), _make_document(id=12, file_hash="h2")]
+        m["document_repository"].list_by_kb = AsyncMock(return_value=docs)
+
+        await service.revectorize(1)
+
+        assert m["document_repository"].update_vector_status.await_count == 2
+        payloads = [c.args[0] for c in m["producer"].send_task.await_args_list]
+        assert [p.document_id for p in payloads] == [11, 12]
+
     async def test_not_found_raises(self) -> None:
         service, _ = _make_service(get_by_id=AsyncMock(return_value=None))
 
@@ -376,6 +427,85 @@ class TestRevectorize:
             await service.revectorize(999)
 
         assert exc.value.error_code is ErrorCode.KNOWLEDGE_BASE_NOT_FOUND
+
+
+class TestMultiDocument:
+    """#52 一库多文档（ADR-0018）：上传双写文档行、追加/去重、列表、删除清向量。"""
+
+    async def test_upload_creates_first_document_and_enqueues_document_payload(self) -> None:
+        service, m = _make_service()
+
+        await service.upload("doc.pdf", "application/pdf", b"data")
+
+        m["document_repository"].save.assert_awaited_once()
+        payload = m["producer"].send_task.await_args.args[0]
+        assert payload.knowledge_base_id == 1
+        assert payload.document_id == 11
+
+    async def test_add_document_appends_without_overwrite(self) -> None:
+        service, m = _make_service(get_by_id=AsyncMock(return_value=_make_kb()))
+
+        dto = await service.add_document(1, "more.md", "text/markdown", b"second file")
+
+        assert dto.id == 11
+        assert dto.knowledge_base_id == 1
+        m["document_repository"].save.assert_awaited_once()
+        m["repository"].save.assert_not_awaited()  # 不新建 KB，不覆盖既有文件
+        payload = m["producer"].send_task.await_args.args[0]
+        assert payload.document_id == 11
+
+    async def test_add_document_duplicate_hash_in_same_kb_rejected(self) -> None:
+        service, m = _make_service(get_by_id=AsyncMock(return_value=_make_kb()))
+        m["document_repository"].find_by_kb_and_hash = AsyncMock(return_value=_make_document())
+
+        with pytest.raises(BusinessException) as exc:
+            await service.add_document(1, "doc.pdf", "application/pdf", b"data")
+
+        assert exc.value.error_code is ErrorCode.KNOWLEDGE_BASE_UPLOAD_FAILED
+        m["document_repository"].save.assert_not_awaited()
+
+    async def test_add_document_kb_not_found_raises(self) -> None:
+        service, _ = _make_service(get_by_id=AsyncMock(return_value=None))
+
+        with pytest.raises(BusinessException) as exc:
+            await service.add_document(999, "doc.pdf", "application/pdf", b"data")
+
+        assert exc.value.error_code is ErrorCode.KNOWLEDGE_BASE_NOT_FOUND
+
+    async def test_list_documents_returns_dtos(self) -> None:
+        service, m = _make_service(get_by_id=AsyncMock(return_value=_make_kb()))
+        m["document_repository"].list_by_kb = AsyncMock(
+            return_value=[_make_document(id=11), _make_document(id=12, file_hash="h2", original_filename="b.md")]
+        )
+
+        docs = await service.list_documents(1)
+
+        assert [d.id for d in docs] == [11, 12]
+        assert docs[1].original_filename == "b.md"
+
+    async def test_delete_document_clears_vectors_and_refreshes_aggregate(self) -> None:
+        service, m = _make_service(get_by_id=AsyncMock(return_value=_make_kb(storage_key="kb-key")))
+        doc = _make_document(id=11, storage_key="doc-key")
+        m["document_repository"].get_by_id = AsyncMock(return_value=doc)
+        m["document_repository"].list_statuses_by_kb = AsyncMock(return_value=["COMPLETED"])
+        m["document_repository"].sum_chunk_count_by_kb = AsyncMock(return_value=3)
+
+        await service.delete_document(1, 11)
+
+        m["vector_repository"].delete_by_document_id.assert_awaited_once_with(m["session"], 11)
+        m["document_repository"].delete.assert_awaited_once()
+        m["storage"].delete_file.assert_awaited_once_with("doc-key")
+        m["session"].commit.assert_awaited()
+
+    async def test_delete_document_wrong_kb_raises(self) -> None:
+        service, m = _make_service(get_by_id=AsyncMock(return_value=_make_kb()))
+        m["document_repository"].get_by_id = AsyncMock(return_value=_make_document(knowledge_base_id=2))
+
+        with pytest.raises(BusinessException) as exc:
+            await service.delete_document(1, 11)
+
+        assert exc.value.error_code is ErrorCode.KNOWLEDGE_BASE_NOT_FOUND
+        m["document_repository"].delete.assert_not_awaited()
 
 
 class TestGetDetail:

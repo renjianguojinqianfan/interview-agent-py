@@ -7,6 +7,7 @@ from app.api.deps import get_knowledge_base_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.knowledgebase.schemas import (
+    KnowledgeBaseDocumentDTO,
     KnowledgeBaseListItemDTO,
     KnowledgeBaseStatsDTO,
     KnowledgeBaseUploadResponse,
@@ -120,6 +121,42 @@ async def revectorize_knowledge_base(
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[None]:
     await service.revectorize(kb_id)
+    return Result.success(data=None)
+
+
+@router.post("/{kb_id}/documents", response_model=Result[KnowledgeBaseDocumentDTO])
+@limiter.limit("3/second", key_func=global_key)
+@limiter.limit("3/second")
+async def add_knowledge_base_document(
+    request: Request,  # noqa: ARG001  slowapi 限流必需
+    kb_id: int,
+    file: UploadFile = File(...),
+    service: KnowledgeBaseService = Depends(get_knowledge_base_service),
+) -> Result[KnowledgeBaseDocumentDTO]:
+    """向既有知识库追加文档（ADR-0018，一库多文档）。"""
+    data = await file.read()
+    filename = file.filename or "unknown"
+    content_type = file.content_type or ""
+    result = await service.add_document(kb_id, filename, content_type, data)
+    return Result.success(data=result)
+
+
+@router.get("/{kb_id}/documents", response_model=Result[list[KnowledgeBaseDocumentDTO]])
+async def list_knowledge_base_documents(
+    kb_id: int,
+    service: KnowledgeBaseService = Depends(get_knowledge_base_service),
+) -> Result[list[KnowledgeBaseDocumentDTO]]:
+    data = await service.list_documents(kb_id)
+    return Result.success(data=data)
+
+
+@router.delete("/{kb_id}/documents/{document_id}")
+async def delete_knowledge_base_document(
+    kb_id: int,
+    document_id: int,
+    service: KnowledgeBaseService = Depends(get_knowledge_base_service),
+) -> Result[None]:
+    await service.delete_document(kb_id, document_id)
     return Result.success(data=None)
 
 

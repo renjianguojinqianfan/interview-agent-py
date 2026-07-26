@@ -12,10 +12,15 @@ from app.infrastructure.tasks.utils import truncate_error
 
 logger = logging.getLogger(__name__)
 
+# ADR-0018：文档粒度向量化消息的可选字段
+FIELD_DOCUMENT_ID = "documentId"
+
 
 @dataclass(frozen=True)
 class KbVectorizePayload:
     knowledge_base_id: int
+    # ADR-0018：文档粒度向量化； None 表示整库粒度（兼容存量队列消息）
+    document_id: int | None = None
 
 
 class VectorizeStreamProducer(BaseStreamProducer[KbVectorizePayload]):
@@ -36,12 +41,17 @@ class VectorizeStreamProducer(BaseStreamProducer[KbVectorizePayload]):
         return "知识库向量化"
 
     def build_message(self, payload: KbVectorizePayload) -> dict[str, str]:
-        return {
+        message = {
             self._config.id_field: str(payload.knowledge_base_id),
             FIELD_RETRY_COUNT: "0",
         }
+        if payload.document_id is not None:
+            message[FIELD_DOCUMENT_ID] = str(payload.document_id)
+        return message
 
     def payload_identifier(self, payload: KbVectorizePayload) -> str:
+        if payload.document_id is not None:
+            return f"knowledgeBaseId={payload.knowledge_base_id}, documentId={payload.document_id}"
         return f"knowledgeBaseId={payload.knowledge_base_id}"
 
     async def on_send_failed(self, payload: KbVectorizePayload, error: str) -> None:
