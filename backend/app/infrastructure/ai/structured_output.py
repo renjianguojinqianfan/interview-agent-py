@@ -43,7 +43,7 @@ class StructuredOutputInvoker:
         error_prefix: str,
         log_context: str,
     ) -> T:
-        secured_system_prompt = system_prompt + ANTI_INJECTION_INSTRUCTION
+        secured_system_prompt = system_prompt + ANTI_INJECTION_INSTRUCTION + _STRICT_JSON_INSTRUCTION
         structured_llm = llm.with_structured_output(output_model, include_raw=True)
 
         last_error: Exception | None = None

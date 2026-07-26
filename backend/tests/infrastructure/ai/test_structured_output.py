@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.prompt_constants import ANTI_INJECTION_INSTRUCTION
-from app.infrastructure.ai.structured_output import StructuredOutputInvoker
+from app.infrastructure.ai.structured_output import _STRICT_JSON_INSTRUCTION, StructuredOutputInvoker
 
 
 class SampleOutput(BaseModel):
@@ -75,6 +75,24 @@ class TestStructuredOutputInvokerSuccess:
         system_content = messages[0].content
         assert ANTI_INJECTION_INSTRUCTION in system_content
         assert "You are a tester." in system_content
+
+    async def test_first_attempt_system_prompt_contains_strict_json_instruction(
+        self, invoker: StructuredOutputInvoker
+    ) -> None:
+        """首次调用即需含严格 JSON 指令（防回归：百炼 json_object 要求 messages 含 "json"，否则 400）。"""
+        llm = _make_mock_llm()
+        await invoker.invoke(
+            llm=llm,
+            system_prompt="You are a tester.",
+            user_prompt="test",
+            output_model=SampleOutput,
+            error_code=ErrorCode.AI_SERVICE_ERROR,
+            error_prefix="err: ",
+            log_context="test",
+        )
+        call_args = llm.with_structured_output.return_value.ainvoke.call_args
+        first_system_content = call_args.args[0][0].content
+        assert _STRICT_JSON_INSTRUCTION in first_system_content
 
 
 class TestStructuredOutputInvokerRetry:
