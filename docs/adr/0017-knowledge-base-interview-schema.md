@@ -43,10 +43,24 @@ Python 版沿用本仓库 `interview_answers` 的 CASCADE 惯例：删知识库�
 （`tests/integration/test_migration_roundtrip.py`）：`upgrade head -> downgrade 011 -> upgrade head`
 并断言 schema 事实，与集成竖切同惯例（CI 必跑、本地无 docker 优雅 skip）。
 
+### 6. try_mark_processing 可选钩子（#43）
+
+`BaseStreamConsumer` 新增 `try_mark_processing(payload) -> bool` 可选钩子：默认实现调用
+既有 `mark_processing` 并返回 True（存量 4 消费者零改动）；题库生成消费者覆写为
+行锁（SELECT FOR UPDATE）+ taskId 匹配的原子领取（QUEUED -> PROCESSING），
+领取失败静默 ACK 丢弃——旧任务消息不串扰、不重试、不标失败。
+
+### 7. 生成任务恢复 job 与 xautoclaim 双保险（#43）
+
+除 Stream 自带的 xautoclaim pending 回收外，新增每 60s 调度 job：QUEUED 逾 2 分钟
+（消息丢失/入队未达）刷新时间戳后重投；PROCESSING 逾 20 分钟（执行节点崩溃）重置回
+QUEUED 再重投。重投携原 taskId，由消费侧原子领取去重；LLM 调用始终在事务外，
+替换旧题 + 置 COMPLETED 在同一小事务。
+
 ## 后续（随实现票追加）
 
-- try_mark_processing 消费者钩子（#43）
-- 生成任务恢复 job 与 xautoclaim 双保险（#43）
+- ~~try_mark_processing 消费者钩子（#43）~~ 已落地（#43，2026-07-26，见决策 6）
+- ~~生成任务恢复 job 与 xautoclaim 双保险（#43）~~ 已落地（#43，2026-07-26，见决策 7）
 - ~~GET /api/knowledgebase/{id} 从 ADR-0015 死端点清单转活（#42）~~ 已落地（#42，2026-07-26）
 
 ## 影响

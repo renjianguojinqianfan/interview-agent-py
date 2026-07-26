@@ -211,8 +211,11 @@
 | PUT | `/api/knowledgebase/questions/{questionId}` | 部分更新题目（未提供字段跳过） | `SaveKnowledgeBaseQuestionRequest` 子集 | `KnowledgeBaseQuestion` | - |
 | PUT | `/api/knowledgebase/questions/{questionId}/status` | 题目上下架 | `{ status: DRAFT\|ACTIVE\|ARCHIVED\|STALE }` | `KnowledgeBaseQuestion` | - |
 | DELETE | `/api/knowledgebase/questions/{questionId}` | 删除题目 | - | `null` | - |
+| POST | `/api/knowledgebase/{kbId}/questions/generate` | 提交异步生成题库（#43） | `{ difficulty?, questionCount(1-30), followUpCount?(0-5), categoryLimit(1-5), llmProvider? }` | `QuestionGenStatusResponse` | 2/s |
+| GET | `/api/knowledgebase/{kbId}/questions/generation-status` | 生成状态轮询（#43） | - | `QuestionGenStatusResponse` | - |
 
 - keyword 大小写不敏感，匹配题干/参考答案/评分规则/摘要/方向；题目不存在返回业务码 3003，知识库不存在 6001。
+- 生成为异步任务（Redis Stream）：未向量化/进行中重复提交返回 400；`QuestionGenStatusResponse` 含状态机全字段（`questionGenStatus`/`questionGenTaskId`/`questionGenConfig`/`savedCount`/`skippedCount`/`message`/`error`/`updatedAt`）；失败对外统一文案「题目生成失败，请稍后重试」；崩溃恢复由每 60s 调度 job 兜底（ADR-0017）。
 
 ---
 
