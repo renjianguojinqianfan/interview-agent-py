@@ -55,4 +55,7 @@ export const llmProviderApi = {
 
   testAsr: () =>
     request.post<ProviderTestResult>('/api/llm-provider/voice/asr/test'),
+
+  testTts: () =>
+    request.post<ProviderTestResult>('/api/llm-provider/voice/tts/test'),
 };

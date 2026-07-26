@@ -190,6 +190,8 @@ export default function SettingsPage() {
   const [showVoiceModal, setShowVoiceModal] = useState<'asr' | 'tts' | null>(null);
   const [testingAsr, setTestingAsr] = useState(false);
   const [asrTestResult, setAsrTestResult] = useState<ProviderTestResult | null>(null);
+  const [testingTts, setTestingTts] = useState(false);
+  const [ttsTestResult, setTtsTestResult] = useState<ProviderTestResult | null>(null);
   const [voiceSaving, setVoiceSaving] = useState(false);
 
   // ASR/TTS form fields
@@ -539,6 +541,23 @@ export default function SettingsPage() {
     }
   };
 
+  const handleTestTts = async () => {
+    setTestingTts(true);
+    setTtsTestResult(null);
+    try {
+      const result = await llmProviderApi.testTts();
+      setTtsTestResult(result);
+    } catch (err) {
+      setTtsTestResult({
+        success: false,
+        message: err instanceof Error ? err.message : '连接测试失败',
+        model: '',
+      });
+    } finally {
+      setTestingTts(false);
+    }
+  };
+
   // --- Render ---
   return (
     <div className="max-w-4xl mx-auto">
@@ -851,6 +870,22 @@ export default function SettingsPage() {
                         />
                       </dl>
 
+                      {ttsTestResult && (
+                        <div className={`mb-3 px-3 py-2 rounded-lg text-xs font-medium ${
+                          ttsTestResult.success
+                            ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+                        }`}>
+                          <div className="flex items-center gap-1.5">
+                            {ttsTestResult.success
+                              ? <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                              : <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                            }
+                            <span>{ttsTestResult.message}</span>
+                          </div>
+                        </div>
+                      )}
+
                       <div className={ACTION_BAR_CLASS}>
                         <button
                           onClick={openTtsModal}
@@ -858,6 +893,17 @@ export default function SettingsPage() {
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                           编辑
+                        </button>
+                        <button
+                          onClick={handleTestTts}
+                          disabled={testingTts}
+                          className={`${ACTION_BUTTON_CLASS} text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20`}
+                        >
+                          {testingTts
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <RefreshCw className="w-3.5 h-3.5" />
+                          }
+                          测试
                         </button>
                       </div>
                     </motion.div>
