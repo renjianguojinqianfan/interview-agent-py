@@ -1,15 +1,17 @@
-import {useCallback, useEffect, useRef, useState} from 'react';
+import {Fragment, useCallback, useEffect, useRef, useState} from 'react';
 import {AnimatePresence, motion} from 'framer-motion';
 import {
   AlertCircle,
   Check,
   CheckCircle,
   ChevronDown,
+  ChevronUp,
   Clock,
   Database,
   Download,
   Edit3,
   Eye,
+  FilePlus2,
   FileText,
   HardDrive,
   Loader2,
@@ -20,7 +22,14 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import {knowledgeBaseApi, KnowledgeBaseItem, KnowledgeBaseStats, SortOption, VectorStatus,} from '../api/knowledgebase';
+import {
+  knowledgeBaseApi,
+  KnowledgeBaseDocumentItem,
+  KnowledgeBaseItem,
+  KnowledgeBaseStats,
+  SortOption,
+  VectorStatus,
+} from '../api/knowledgebase';
 import DeleteConfirmDialog from '../components/DeleteConfirmDialog';
 
 interface KnowledgeBaseManagePageProps {
@@ -131,6 +140,14 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
 
   // 重新向量化状态
   const [revectorizing, setRevectorizing] = useState<number | null>(null);
+
+  // 多文档面板状态（ADR-0018）
+  const [expandedKbId, setExpandedKbId] = useState<number | null>(null);
+  const [documents, setDocuments] = useState<KnowledgeBaseDocumentItem[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [addingDocument, setAddingDocument] = useState(false);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<number | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
 
   // 加载数据（不显示loading状态，用于轮询）
   const loadDataSilent = useCallback(async () => {
@@ -284,6 +301,59 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     loadData();
+  };
+
+  // —— 多文档面板（ADR-0018） ——
+  const loadDocuments = useCallback(async (kbId: number) => {
+    try {
+      setDocsLoading(true);
+      setDocuments(await knowledgeBaseApi.listDocuments(kbId));
+    } catch (error) {
+      console.error('加载文档列表失败:', error);
+    } finally {
+      setDocsLoading(false);
+    }
+  }, []);
+
+  const handleToggleDocuments = (kbId: number) => {
+    if (expandedKbId === kbId) {
+      setExpandedKbId(null);
+      setDocuments([]);
+      return;
+    }
+    setExpandedKbId(kbId);
+    loadDocuments(kbId);
+  };
+
+  const handleAddDocument = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || expandedKbId === null) return;
+    try {
+      setAddingDocument(true);
+      await knowledgeBaseApi.addDocument(expandedKbId, file);
+      await loadDocuments(expandedKbId);
+      await loadDataSilent();
+    } catch (error) {
+      console.error('追加文档失败:', error);
+      alert(error instanceof Error ? error.message : '追加文档失败');
+    } finally {
+      setAddingDocument(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: number) => {
+    if (expandedKbId === null) return;
+    try {
+      setDeletingDocumentId(documentId);
+      await knowledgeBaseApi.deleteDocument(expandedKbId, documentId);
+      await loadDocuments(expandedKbId);
+      await loadDataSilent();
+    } catch (error) {
+      console.error('删除文档失败:', error);
+    } finally {
+      setDeletingDocumentId(null);
+    }
   };
 
   return (
@@ -444,8 +514,8 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
             </thead>
             <tbody>
               {knowledgeBases.map((kb, index) => (
+                <Fragment key={kb.id}>
                 <motion.tr
-                  key={kb.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
@@ -553,6 +623,18 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      {/* 文档列表展开按钮（ADR-0018 一库多文档） */}
+                      <button
+                        onClick={() => handleToggleDocuments(kb.id)}
+                        className="p-2 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors"
+                        title="文档列表"
+                      >
+                        {expandedKbId === kb.id ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
                       {/* 下载按钮 */}
                       <button
                         onClick={() => handleDownload(kb)}
@@ -583,11 +665,89 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
                     </div>
                   </td>
                 </motion.tr>
+                {/* 文档面板（ADR-0018）：列表 + 追加 + 删除 */}
+                {expandedKbId === kb.id && (
+                  <tr className="border-b border-slate-50 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-700/30">
+                    <td colSpan={7} className="px-6 py-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                          文档列表（{documents.length}）
+                        </p>
+                        <button
+                          onClick={() => docFileInputRef.current?.click()}
+                          disabled={addingDocument}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary-600 dark:text-primary-400 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {addingDocument ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <FilePlus2 className="w-4 h-4" />
+                          )}
+                          追加文件
+                        </button>
+                      </div>
+                      {docsLoading ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="w-5 h-5 text-primary-500 animate-spin" />
+                        </div>
+                      ) : documents.length === 0 ? (
+                        <p className="text-sm text-slate-400 dark:text-slate-500 py-2">暂无文档</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {documents.map((doc) => (
+                            <div
+                              key={doc.id}
+                              className="flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+                                <span className="text-sm text-slate-700 dark:text-slate-200 truncate">
+                                  {doc.originalFilename}
+                                </span>
+                                <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">
+                                  {formatFileSize(doc.fileSize ?? 0)}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <StatusIcon status={doc.vectorStatus} />
+                                <span className="text-xs text-slate-500 dark:text-slate-400">
+                                  {getStatusText(doc.vectorStatus)}
+                                </span>
+                                <button
+                                  onClick={() => handleDeleteDocument(doc.id)}
+                                  disabled={deletingDocumentId === doc.id}
+                                  className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors disabled:opacity-50"
+                                  title="删除文档"
+                                >
+                                  {deletingDocumentId === doc.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* 追加文档的隐藏文件选择器（ADR-0018） */}
+      <input
+        ref={docFileInputRef}
+        type="file"
+        accept=".txt,.md,.pdf,.docx"
+        className="hidden"
+        onChange={handleAddDocument}
+      />
 
       {/* 删除确认对话框 */}
       <DeleteConfirmDialog

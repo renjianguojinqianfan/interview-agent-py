@@ -33,6 +33,19 @@ export interface KnowledgeBaseStats {
   processingCount: number;
 }
 
+// 知识库文档（一库多文档，ADR-0018）
+export interface KnowledgeBaseDocumentItem {
+  id: number;
+  knowledgeBaseId: number;
+  originalFilename: string;
+  fileSize: number | null;
+  contentType: string | null;
+  vectorStatus: VectorStatus;
+  vectorError: string | null;
+  chunkCount: number;
+  uploadedAt: string;
+}
+
 export type SortOption = 'time' | 'size' | 'access' | 'question';
 
 export interface UploadKnowledgeBaseResponse {
@@ -286,6 +299,31 @@ export const knowledgeBaseApi = {
    */
   async revectorize(id: number): Promise<void> {
     return request.post(`/api/knowledgebase/${id}/revectorize`);
+  },
+
+  // ========== 多文档管理（ADR-0018） ==========
+
+  /**
+   * 获取知识库文档列表
+   */
+  async listDocuments(id: number): Promise<KnowledgeBaseDocumentItem[]> {
+    return request.get<KnowledgeBaseDocumentItem[]>(`/api/knowledgebase/${id}/documents`);
+  },
+
+  /**
+   * 向既有知识库追加文档（不覆盖既有文件）
+   */
+  async addDocument(id: number, file: File): Promise<KnowledgeBaseDocumentItem> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return request.upload<KnowledgeBaseDocumentItem>(`/api/knowledgebase/${id}/documents`, formData);
+  },
+
+  /**
+   * 删除单个文档（同步清理其向量）
+   */
+  async deleteDocument(id: number, documentId: number): Promise<void> {
+    return request.delete(`/api/knowledgebase/${id}/documents/${documentId}`);
   },
 
   // ========== 知识库面试题库 ==========
