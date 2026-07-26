@@ -12,6 +12,7 @@ from app.application.interview.session_service import InterviewSessionService
 from app.application.interview_schedule.service import ScheduleParseService, ScheduleService
 from app.application.knowledgebase.generation_service import QuestionGenerationService
 from app.application.knowledgebase.generation_state_service import QuestionGenerationStateService
+from app.application.knowledgebase.interview_service import KnowledgeBaseInterviewService
 from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService
 from app.application.knowledgebase.service import KnowledgeBaseService
 from app.application.llm_provider.service import LlmProviderService
@@ -453,9 +454,8 @@ def get_question_service() -> QuestionService:
     return _question_service
 
 
-def get_interview_session_service(
-    session: AsyncSession = Depends(get_db_session),
-) -> InterviewSessionService:
+def _build_interview_session_service(session: AsyncSession) -> InterviewSessionService:
+    """会话服务装配（普通面试 provider 与知识库组卷 provider 共用，同一请求 session）。"""
     return InterviewSessionService(
         session=session,
         question_service=get_question_service(),
@@ -463,6 +463,23 @@ def get_interview_session_service(
         session_cache=get_interview_session_cache(),
         evaluate_producer=get_evaluate_producer(),
         resume_repository=ResumeRepository(),
+    )
+
+
+def get_interview_session_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> InterviewSessionService:
+    return _build_interview_session_service(session)
+
+
+def get_knowledge_base_interview_service(
+    session: AsyncSession = Depends(get_db_session),
+) -> KnowledgeBaseInterviewService:
+    return KnowledgeBaseInterviewService(
+        session=session,
+        question_repository=KnowledgeBaseQuestionRepository(),
+        kb_repository=KnowledgeBaseRepository(),
+        interview_session_service=_build_interview_session_service(session),
     )
 
 

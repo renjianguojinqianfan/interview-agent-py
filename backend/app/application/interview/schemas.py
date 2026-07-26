@@ -34,6 +34,11 @@ class InterviewQuestionDTO(BaseSchema):
     feedback: str | None = None
     is_follow_up: bool = False
     parent_question_index: int | None = None
+    # 题库组卷面试随题下发的评分参考（#44）；普通面试恒为空
+    reference_answer: str | None = None
+    key_points: list[str] = Field(default_factory=list)
+    scoring_rubric: str | None = None
+    source_context: str | None = None
 
 
 class SubmitAnswerRequest(BaseSchema):
@@ -55,6 +60,9 @@ class InterviewSessionDTO(BaseSchema):
     current_question_index: int
     questions: list[InterviewQuestionDTO]
     status: str
+    # 知识库面试会话标注（#44）；普通面试恒为 None
+    knowledge_base_id: int | None = None
+    interview_category: str | None = None
 
 
 class SessionListItemDTO(BaseSchema):
@@ -67,6 +75,9 @@ class SessionListItemDTO(BaseSchema):
     evaluate_status: str | None = None
     evaluate_error: str | None = None
     overall_score: int | None = None
+    source_type: str = "NORMAL"
+    knowledge_base_id: int | None = None
+    interview_category: str | None = None
     created_at: NaiveIsoDatetime
     completed_at: NaiveIsoDatetime | None = None
 
@@ -151,6 +162,8 @@ class InterviewDetailDTO(BaseSchema):
     evaluate_status: str | None = None
     evaluate_error: str | None = None
     overall_score: int | None = None
+    source_type: str = "NORMAL"
+    knowledge_base_id: int | None = None
     overall_feedback: str | None = None
     created_at: NaiveIsoDatetime
     completed_at: NaiveIsoDatetime | None = None

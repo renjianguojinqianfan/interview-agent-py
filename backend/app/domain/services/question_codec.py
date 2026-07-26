@@ -27,6 +27,10 @@ def serialize_questions(questions: list[InterviewQuestion]) -> str:
                 "feedback": q.feedback,
                 "isFollowUp": q.is_follow_up,
                 "parentQuestionIndex": q.parent_question_index,
+                "referenceAnswer": q.reference_answer,
+                "keyPoints": q.key_points,
+                "scoringRubric": q.scoring_rubric,
+                "sourceContext": q.source_context,
             }
             for q in questions
         ],
@@ -48,6 +52,11 @@ def deserialize_questions(questions_json: str) -> list[InterviewQuestion]:
             feedback=item.get("feedback"),
             is_follow_up=item.get("isFollowUp", False),
             parent_question_index=item.get("parentQuestionIndex"),
+            # 题库参考字段（#44）：旧 JSON 无此键，回落默认空值保持向后兼容
+            reference_answer=item.get("referenceAnswer"),
+            key_points=list(item.get("keyPoints") or []),
+            scoring_rubric=item.get("scoringRubric"),
+            source_context=item.get("sourceContext"),
         )
         for item in items
     ]

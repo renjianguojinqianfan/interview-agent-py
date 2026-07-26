@@ -93,6 +93,7 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
                 session_id=self._session_id_text(payload),
                 qa_records=qa_records,
                 resume_text=resume_text,
+                reference_context=await self._build_reference_context(session, orm),
             )
 
             await self._persist_result(session, orm, report)
@@ -153,6 +154,13 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
                 llm_provider,
             )
             return None
+
+    async def _build_reference_context(self, session: AsyncSession, orm: S) -> str | None:
+        """评估参考上下文可选钩子（#44）：默认无参考，存量消费者行为不变。
+
+        文字面试消费者覆写为题库参考拼接（题库组卷会话才有值）。
+        """
+        return None
 
     # ==================== 领域差异钩子 ====================
 

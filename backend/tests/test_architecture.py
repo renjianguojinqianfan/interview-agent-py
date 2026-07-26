@@ -414,8 +414,7 @@ _SIDE_EFFECT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # 补上对应竖切后应从此表移除，使守卫收紧。
 VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
     {
-        # —— 面试（核心 create/answer/交卷链已由 test_interview_flow 竖切覆盖）——
-        "POST /api/interview/sessions/{}/complete",  # 显式交卷（末题作答已隐式触发并被竖切覆盖）
+        # —— 面试（核心 create/answer/交卷链已由 test_interview_flow 竖切覆盖；显式交卷由 #44 组卷竖切覆盖）——
         "PUT /api/interview/sessions/{}/answers",  # 作答 PUT 变体（POST 变体已被竖切覆盖）
         "DELETE /api/interview/sessions/{}",  # 删除会话（CRUD）
         "POST /api/interview/skills/parse-jd",  # JD 解析（含 LLM，AI 行为靠评估集/人工）
@@ -426,10 +425,8 @@ VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
         "DELETE /api/knowledgebase/{}",  # 删除知识库（CRUD + 向量清理）
         "POST /api/knowledgebase/{}/revectorize",  # 重新向量化（重入队）
         "PUT /api/knowledgebase/{}/category",  # 改分类（CRUD）
-        # —— 知识库题库（#42 CRUD；#44 组卷竖切将经 API 插题覆盖 POST，届时收紧）——
-        "POST /api/knowledgebase/{}/questions",  # 手动新增题目（CRUD）
+        # —— 知识库题库（#42 CRUD；插题/上架/组卷建会已由 #44 组卷竖切覆盖）——
         "PUT /api/knowledgebase/questions/{}",  # 编辑题目（CRUD）
-        "PUT /api/knowledgebase/questions/{}/status",  # 题目上下架（CRUD）
         "DELETE /api/knowledgebase/questions/{}",  # 删除题目（CRUD）
         # —— RAG（建会话 + 发消息流式已由 test_rag_chat_flow 竖切覆盖）——
         "DELETE /api/rag-chat/sessions/{}",  # 删除会话（CRUD）

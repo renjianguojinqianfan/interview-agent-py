@@ -169,7 +169,11 @@ class TestProcessBusiness:
 
         consumer._llm_registry.get_chat_client.assert_awaited_once_with(7)
         consumer._evaluation_graph.evaluate.assert_awaited_once_with(
-            chat_client=chat_client, session_id="sess1", qa_records=[qa], resume_text="RT"
+            chat_client=chat_client,
+            session_id="sess1",
+            qa_records=[qa],
+            resume_text="RT",
+            reference_context=None,  # 基类默认钩子无参考（#44）
         )
         assert consumer.persist_calls == [report]
         session.commit.assert_awaited_once()

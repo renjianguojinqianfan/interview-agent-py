@@ -196,6 +196,8 @@ class InterviewEvaluationService:
             evaluate_status=orm.evaluate_status,
             evaluate_error=orm.evaluate_error,
             overall_score=orm.overall_score,
+            source_type=orm.source_type or "NORMAL",
+            knowledge_base_id=orm.knowledge_base_id,
             overall_feedback=orm.overall_feedback,
             created_at=orm.created_at,
             completed_at=orm.completed_at,

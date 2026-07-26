@@ -36,6 +36,9 @@ class InterviewPersistenceService:
         llm_provider: str | None,
         skill_id: str,
         difficulty: str,
+        source_type: str = "NORMAL",
+        knowledge_base_id: int | None = None,
+        interview_category: str | None = None,
     ) -> InterviewSessionORM:
         orm = InterviewSessionORM(
             session_id=session_id,
@@ -47,6 +50,10 @@ class InterviewPersistenceService:
             status=SessionStatus.CREATED.value,
             questions_json=serialize_questions(questions),
             llm_provider=llm_provider,
+            # 会话来源标注（#44）：普通面试 NORMAL，知识库组卷 KNOWLEDGE_BASE
+            source_type=source_type,
+            knowledge_base_id=knowledge_base_id,
+            interview_category=interview_category,
         )
         return await self._repository.save_session(self._session, orm)
 

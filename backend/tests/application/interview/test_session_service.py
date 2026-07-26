@@ -495,3 +495,104 @@ class TestDeleteSession:
 
         mock_persistence.delete_session.assert_not_awaited()
         mock_session.commit.assert_not_awaited()
+
+
+class TestCreateSessionFromQuestions:
+    """知识库组卷建会（#44）：对齐 Java createSessionFromQuestions。"""
+
+    async def test_persists_kb_source_and_caches(
+        self,
+        service: InterviewSessionService,
+        mock_persistence: MagicMock,
+        mock_cache: MagicMock,
+        mock_session: MagicMock,
+    ) -> None:
+        questions = [_question(0), _question(1)]
+
+        dto = await service.create_session_from_questions(
+            questions=questions,
+            llm_provider=None,
+            skill_id="knowledge-base",
+            difficulty="mid",
+            knowledge_base_id=7,
+            interview_category="Redis",
+        )
+
+        save_kwargs = mock_persistence.save_session.call_args.kwargs
+        assert save_kwargs["source_type"] == "KNOWLEDGE_BASE"
+        assert save_kwargs["knowledge_base_id"] == 7
+        assert save_kwargs["interview_category"] == "Redis"
+        assert save_kwargs["skill_id"] == "knowledge-base"
+        assert save_kwargs["resume_id"] is None
+        mock_session.commit.assert_awaited_once()
+        cache_kwargs = mock_cache.save_session.call_args.kwargs
+        assert cache_kwargs["knowledge_base_id"] == 7
+        assert cache_kwargs["interview_category"] == "Redis"
+        assert dto.knowledge_base_id == 7
+        assert dto.interview_category == "Redis"
+        assert dto.status == "CREATED"
+        assert dto.resume_text == ""
+        assert dto.total_questions == 2
+
+    async def test_empty_questions_rejected(self, service: InterviewSessionService) -> None:
+        with pytest.raises(BusinessException) as exc:
+            await service.create_session_from_questions(
+                questions=[],
+                llm_provider=None,
+                skill_id="knowledge-base",
+                difficulty="mid",
+                knowledge_base_id=7,
+                interview_category=None,
+            )
+
+        assert exc.value.error_code is ErrorCode.INTERVIEW_QUESTION_NOT_FOUND
+
+
+class TestKnowledgeBaseSourceFields:
+    """会话/列表 DTO 的来源字段下发（#44）。"""
+
+    async def test_get_session_restores_kb_fields_from_db(
+        self,
+        service: InterviewSessionService,
+        mock_persistence: MagicMock,
+        mock_cache: MagicMock,
+    ) -> None:
+        orm = _make_orm(knowledge_base_id=7, interview_category="Redis")
+        mock_persistence.find_by_session_id_optional = AsyncMock(return_value=orm)
+        mock_persistence.find_answers_by_session_id = AsyncMock(return_value=[])
+
+        dto = await service.get_session("sess123")
+
+        assert dto.knowledge_base_id == 7
+        assert dto.interview_category == "Redis"
+        cache_kwargs = mock_cache.save_session.call_args.kwargs
+        assert cache_kwargs["knowledge_base_id"] == 7
+        assert cache_kwargs["interview_category"] == "Redis"
+
+    async def test_list_sessions_maps_source_fields_with_normal_fallback(
+        self,
+        service: InterviewSessionService,
+        mock_persistence: MagicMock,
+    ) -> None:
+        mock_persistence.find_all = AsyncMock(
+            return_value=[
+                # 未 flush 的实体 source_type 为 None，映射时回落 NORMAL
+                _make_orm(session_id="s1", created_at=datetime(2026, 7, 26, 10, 0, 0)),
+                _make_orm(
+                    session_id="s2",
+                    source_type="KNOWLEDGE_BASE",
+                    knowledge_base_id=7,
+                    interview_category="Redis",
+                    created_at=datetime(2026, 7, 26, 11, 0, 0),
+                ),
+            ]
+        )
+
+        result = await service.list_sessions()
+
+        assert result[0].source_type == "NORMAL"
+        assert result[0].knowledge_base_id is None
+        assert result[0].interview_category is None
+        assert result[1].source_type == "KNOWLEDGE_BASE"
+        assert result[1].knowledge_base_id == 7
+        assert result[1].interview_category == "Redis"

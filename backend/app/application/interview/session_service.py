@@ -49,6 +49,8 @@ class _SessionView:
     current_question_index: int
     status: str
     questions_json: str
+    knowledge_base_id: int | None = None
+    interview_category: str | None = None
 
 
 class InterviewSessionService:
@@ -110,6 +112,62 @@ class InterviewSessionService:
         logger.info("创建面试会话: sessionId=%s, questions=%d", session_id, len(questions))
         return self._build_session_dto(
             session_id, resume_text or "", len(questions), 0, questions, SessionStatus.CREATED
+        )
+
+    async def create_session_from_questions(
+        self,
+        questions: list[InterviewQuestion],
+        llm_provider: str | None,
+        skill_id: str,
+        difficulty: str,
+        knowledge_base_id: int | None,
+        interview_category: str | None,
+    ) -> InterviewSessionDTO:
+        """从预组题目建会（知识库组卷面试 #44）：sourceType=KNOWLEDGE_BASE，无简历关联。"""
+        if not questions:
+            raise BusinessException(ErrorCode.INTERVIEW_QUESTION_NOT_FOUND, "面试题目不能为空")
+
+        session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
+        await self._persistence.save_session(
+            session_id=session_id,
+            resume_id=None,
+            total_questions=len(questions),
+            questions=questions,
+            llm_provider=llm_provider,
+            skill_id=skill_id,
+            difficulty=difficulty,
+            source_type="KNOWLEDGE_BASE",
+            knowledge_base_id=knowledge_base_id,
+            interview_category=interview_category,
+        )
+        await self._session.commit()
+
+        await self._write_cache(
+            session_id,
+            "",
+            None,
+            questions,
+            0,
+            SessionStatus.CREATED,
+            knowledge_base_id=knowledge_base_id,
+            interview_category=interview_category,
+        )
+
+        logger.info(
+            "创建知识库面试会话: sessionId=%s, kbId=%s, questions=%d",
+            session_id,
+            knowledge_base_id,
+            len(questions),
+        )
+        return self._build_session_dto(
+            session_id,
+            "",
+            len(questions),
+            0,
+            questions,
+            SessionStatus.CREATED,
+            knowledge_base_id=knowledge_base_id,
+            interview_category=interview_category,
         )
 
     async def get_session(self, session_id: str) -> InterviewSessionDTO:
@@ -238,6 +296,7 @@ class InterviewSessionService:
         logger.info("删除面试会话: sessionId=%s", session_id)
 
     async def _find_unfinished_session(self, resume_id: int) -> InterviewSessionDTO | None:
+        # 知识库组卷会话 resume_id 恒为 None，不进 unfinished 映射；此路径仅服务普通面试
         cached_id = await self._cache.find_unfinished_session_id(resume_id)
         if cached_id is not None:
             cached = await self._cache.get_session(cached_id)
@@ -271,6 +330,8 @@ class InterviewSessionService:
                 current_question_index=cached.current_index,
                 status=cached.status,
                 questions_json=cached.questions_json,
+                knowledge_base_id=cached.knowledge_base_id,
+                interview_category=cached.interview_category,
             )
 
         orm = await self._persistence.find_by_session_id_optional(session_id)
@@ -285,7 +346,14 @@ class InterviewSessionService:
         questions_json = serialize_questions(questions)
         resume_text = await self._load_resume_text(orm.resume_id) or ""
         await self._write_cache_str(
-            session_id, resume_text, orm.resume_id, questions_json, orm.current_question_index, orm.status
+            session_id,
+            resume_text,
+            orm.resume_id,
+            questions_json,
+            orm.current_question_index,
+            orm.status,
+            knowledge_base_id=orm.knowledge_base_id,
+            interview_category=orm.interview_category,
         )
         return _SessionView(
             session_id=session_id,
@@ -294,6 +362,8 @@ class InterviewSessionService:
             current_question_index=orm.current_question_index,
             status=orm.status,
             questions_json=questions_json,
+            knowledge_base_id=orm.knowledge_base_id,
+            interview_category=orm.interview_category,
         )
 
     async def _restore_from_orm(self, orm: InterviewSessionORM) -> InterviewSessionDTO:
@@ -304,7 +374,14 @@ class InterviewSessionService:
                 questions[ans.question_index] = questions[ans.question_index].with_answer(ans.user_answer or "")
         resume_text = await self._load_resume_text(orm.resume_id) or ""
         await self._write_cache(
-            orm.session_id, resume_text, orm.resume_id, questions, orm.current_question_index, SessionStatus(orm.status)
+            orm.session_id,
+            resume_text,
+            orm.resume_id,
+            questions,
+            orm.current_question_index,
+            SessionStatus(orm.status),
+            knowledge_base_id=orm.knowledge_base_id,
+            interview_category=orm.interview_category,
         )
         return self._build_session_dto(
             orm.session_id,
@@ -313,6 +390,8 @@ class InterviewSessionService:
             orm.current_question_index,
             questions,
             SessionStatus(orm.status),
+            knowledge_base_id=orm.knowledge_base_id,
+            interview_category=orm.interview_category,
         )
 
     async def _load_resume_text(self, resume_id: int | None) -> str | None:
@@ -332,9 +411,20 @@ class InterviewSessionService:
         questions: list[InterviewQuestion],
         current_index: int,
         status: SessionStatus,
+        knowledge_base_id: int | None = None,
+        interview_category: str | None = None,
     ) -> None:
         questions_json = serialize_questions(questions)
-        await self._write_cache_str(session_id, resume_text, resume_id, questions_json, current_index, status.value)
+        await self._write_cache_str(
+            session_id,
+            resume_text,
+            resume_id,
+            questions_json,
+            current_index,
+            status.value,
+            knowledge_base_id=knowledge_base_id,
+            interview_category=interview_category,
+        )
 
     async def _write_cache_str(
         self,
@@ -344,6 +434,8 @@ class InterviewSessionService:
         questions_json: str,
         current_index: int,
         status: str,
+        knowledge_base_id: int | None = None,
+        interview_category: str | None = None,
     ) -> None:
         try:
             await self._cache.save_session(
@@ -353,6 +445,8 @@ class InterviewSessionService:
                 questions_json=questions_json,
                 current_index=current_index,
                 status=status,
+                knowledge_base_id=knowledge_base_id,
+                interview_category=interview_category,
             )
         except Exception as e:
             logger.warning("Redis 缓存写入失败，不影响主流程: sessionId=%s, error=%s", session_id, e)
@@ -366,6 +460,8 @@ class InterviewSessionService:
             view.current_question_index,
             questions,
             SessionStatus(view.status),
+            knowledge_base_id=view.knowledge_base_id,
+            interview_category=view.interview_category,
         )
 
     def _build_session_dto(
@@ -376,6 +472,8 @@ class InterviewSessionService:
         current_index: int,
         questions: list[InterviewQuestion],
         status: SessionStatus,
+        knowledge_base_id: int | None = None,
+        interview_category: str | None = None,
     ) -> InterviewSessionDTO:
         return InterviewSessionDTO(
             session_id=session_id,
@@ -384,6 +482,8 @@ class InterviewSessionService:
             current_question_index=current_index,
             questions=[self._question_to_dto(q) for q in questions],
             status=status.value,
+            knowledge_base_id=knowledge_base_id,
+            interview_category=interview_category,
         )
 
     def _question_to_dto(self, q: InterviewQuestion) -> InterviewQuestionDTO:
@@ -398,6 +498,10 @@ class InterviewSessionService:
             feedback=q.feedback,
             is_follow_up=q.is_follow_up,
             parent_question_index=q.parent_question_index,
+            reference_answer=q.reference_answer,
+            key_points=list(q.key_points),
+            scoring_rubric=q.scoring_rubric,
+            source_context=q.source_context,
         )
 
     def _orm_to_list_item(self, orm: InterviewSessionORM) -> SessionListItemDTO:
@@ -411,6 +515,10 @@ class InterviewSessionService:
             evaluate_status=orm.evaluate_status,
             evaluate_error=orm.evaluate_error,
             overall_score=orm.overall_score,
+            # 未 flush 实体/存量行的 source_type 可能为 None，回落 NORMAL
+            source_type=orm.source_type or "NORMAL",
+            knowledge_base_id=orm.knowledge_base_id,
+            interview_category=orm.interview_category,
             created_at=orm.created_at,
             completed_at=orm.completed_at,
         )

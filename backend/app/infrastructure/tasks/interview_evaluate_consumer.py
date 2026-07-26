@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.entities.evaluation import EvaluationReport, QaRecord
 from app.domain.services.evaluation import build_qa_records, overlay_answers
+from app.domain.services.question_bank import apply_question_references, build_question_reference_context
 from app.domain.services.question_codec import deserialize_questions
 from app.graphs.evaluation import EvaluationGraph
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
@@ -85,7 +86,14 @@ class EvaluateStreamConsumer(BaseEvaluateStreamConsumer[EvaluatePayload, Intervi
         merged = overlay_answers(questions, answer_map)
         return build_qa_records(merged)
 
+    async def _build_reference_context(self, session: AsyncSession, orm: InterviewSessionORM) -> str | None:
+        """题库参考优先（#44）：无任何随题参考时回落 None（普通面试行为不变）。"""
+        context = build_question_reference_context(deserialize_questions(orm.questions_json or "[]"))
+        return context or None
+
     async def _persist_result(self, session: AsyncSession, orm: InterviewSessionORM, report: EvaluationReport) -> None:
+        # 题库组卷会话：报告参考答案以题库标准答案为准（#44，对齐 Java withQuestionReferences）
+        report = apply_question_references(report, deserialize_questions(orm.questions_json or "[]"))
         answers = await self._repository.find_answers_by_session_id(session, orm.id)
         detail_map = {d.question_index: d for d in report.question_details}
         ref_map = {r.question_index: r for r in report.reference_answers}

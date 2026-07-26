@@ -5,6 +5,8 @@ from typing import Literal
 from pydantic import Field
 
 from app.api.responses import BaseSchema, NaiveIsoDatetime
+from app.domain.entities.interview import MAX_QUESTION_COUNT
+from app.domain.services.question_bank import MAX_FOLLOW_UP_COUNT
 
 KnowledgeBaseQuestionStatusLiteral = Literal["DRAFT", "ACTIVE", "ARCHIVED", "STALE"]
 
@@ -105,3 +107,37 @@ class QuestionGenStatusResponse(BaseSchema):
     message: str | None = None
     error: str | None = None
     updated_at: NaiveIsoDatetime | None = None
+
+
+class CreateKnowledgeBaseInterviewRequest(BaseSchema):
+    """组卷面试创建请求（校验对齐 Java CreateKnowledgeBaseInterviewRequest，issue #44）。"""
+
+    knowledge_base_id: int
+    # 面试方向可空：空表示覆盖知识库内所有方向的已启用题目
+    category: str | None = None
+    difficulty: str | None = None
+    main_question_count: int = Field(ge=1, le=MAX_QUESTION_COUNT)
+    follow_up_count: int = Field(ge=0, le=MAX_FOLLOW_UP_COUNT)
+    llm_provider: str | None = Field(default=None, max_length=64)
+
+
+class InterviewCategoryOptionDTO(BaseSchema):
+    category: str
+    available_question_count: int
+
+
+class InterviewFollowUpOptionDTO(BaseSchema):
+    follow_up_count: int
+    available_question_count: int
+    selectable: bool
+
+
+class KnowledgeBaseInterviewCapacityResponse(BaseSchema):
+    """容量预检：指定方向/难度/主问题数下的可用容量矩阵（对齐 Java 同名 response）。"""
+
+    knowledge_base_id: int
+    category: str | None = None
+    difficulty: str
+    main_question_count: int
+    categories: list[InterviewCategoryOptionDTO]
+    follow_up_options: list[InterviewFollowUpOptionDTO]

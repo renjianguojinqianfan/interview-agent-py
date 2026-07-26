@@ -297,3 +297,59 @@ class TestOverlayAnswersIntegration:
         records = build_qa_records(merged)
         assert records[0].user_answer == "答0"
         assert records[1].user_answer == "答1"
+
+
+def _bank_questions_json() -> str:
+    """知识库组卷会话的 questions_json：题 0 携题库参考，题 1 无参考。"""
+    items = [
+        {
+            "questionIndex": 0,
+            "question": "题0",
+            "type": "KNOWLEDGE_BASE",
+            "category": "Redis",
+            "referenceAnswer": "题库答案0",
+            "keyPoints": ["题库要点0"],
+            "scoringRubric": "10分制",
+        },
+        {"questionIndex": 1, "question": "题1", "type": "KNOWLEDGE_BASE", "category": "Redis"},
+    ]
+    return json.dumps(items, ensure_ascii=False)
+
+
+class TestQuestionBankReference:
+    """题库参考接入评估（#44）：上下文注入 + 报告参考答案覆盖。"""
+
+    async def test_passes_bank_reference_context_to_graph(self) -> None:
+        orm = _make_session_orm(questions_json=_bank_questions_json())
+        consumer, mocks = _make_consumer(session_orm=orm)
+
+        await consumer.process_business(EvaluatePayload(session_id="sess123"))
+
+        kwargs = mocks["evaluation_graph"].evaluate.call_args.kwargs
+        assert "题库答案0" in kwargs["reference_context"]
+        assert "题库要点0" in kwargs["reference_context"]
+
+    async def test_normal_interview_passes_no_reference_context(self) -> None:
+        """普通面试无题库参考：行为不变（reference_context 为 None）。"""
+        consumer, mocks = _make_consumer(session_orm=_make_session_orm())
+
+        await consumer.process_business(EvaluatePayload(session_id="sess123"))
+
+        kwargs = mocks["evaluation_graph"].evaluate.call_args.kwargs
+        assert kwargs["reference_context"] is None
+
+    async def test_report_reference_answers_overridden_by_bank(self) -> None:
+        orm = _make_session_orm(questions_json=_bank_questions_json())
+        answers = [_make_answer_orm(0, "答0"), _make_answer_orm(1, "答1")]
+        consumer, mocks = _make_consumer(session_orm=orm, answers=answers)
+
+        await consumer.process_business(EvaluatePayload(session_id="sess123"))
+
+        saved_report = mocks["repository"].save_evaluation_result.call_args.kwargs["report"]
+        by_index = {r.question_index: r for r in saved_report.reference_answers}
+        assert by_index[0].reference_answer == "题库答案0"  # 题库覆盖
+        assert by_index[0].key_points == ["题库要点0"]
+        assert by_index[1].reference_answer == "参考1"  # 无题库参考保留 LLM 产出
+        # answers 回写同样采用覆盖后的参考
+        first_update = mocks["repository"].update_answer_evaluation.call_args_list[0]
+        assert first_update.kwargs["reference_answer"] == "题库答案0"

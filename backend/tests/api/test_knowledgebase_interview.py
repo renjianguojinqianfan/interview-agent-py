@@ -8,10 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import get_knowledge_base_question_service
+from app.api.deps import get_knowledge_base_interview_service, get_knowledge_base_question_service
 from app.api.rate_limit import limiter
+from app.application.interview.schemas import InterviewSessionDTO
 from app.application.knowledgebase.question_schemas import (
     CategoryCountDTO,
+    InterviewCategoryOptionDTO,
+    InterviewFollowUpOptionDTO,
+    KnowledgeBaseInterviewCapacityResponse,
     KnowledgeBaseQuestionDTO,
     KnowledgeBaseQuestionFollowUpDTO,
     QuestionGenStatusResponse,
@@ -285,3 +289,124 @@ class TestGenerationStatus:
         resp = client.get("/api/knowledgebase/999/questions/generation-status")
 
         assert resp.json()["code"] == 6001
+
+
+@pytest.fixture
+def mock_interview_service() -> MagicMock:
+    service = MagicMock()
+    service.create_session = AsyncMock()
+    service.get_capacity = AsyncMock()
+    app.dependency_overrides[get_knowledge_base_interview_service] = lambda: service
+    yield service
+    app.dependency_overrides.clear()
+
+
+def _session_dto(**overrides: Any) -> InterviewSessionDTO:
+    defaults: dict[str, Any] = {
+        "session_id": "kb-sess-1",
+        "resume_text": "",
+        "total_questions": 2,
+        "current_question_index": 0,
+        "questions": [],
+        "status": "CREATED",
+        "knowledge_base_id": 1,
+        "interview_category": "Redis",
+    }
+    defaults.update(overrides)
+    return InterviewSessionDTO(**defaults)
+
+
+class TestCreateInterviewSession:
+    def test_creates_session_with_kb_fields(self, mock_interview_service: MagicMock) -> None:
+        mock_interview_service.create_session.return_value = _session_dto()
+
+        resp = client.post(
+            "/api/knowledgebase-interviews/sessions",
+            json={"knowledgeBaseId": 1, "category": "Redis", "mainQuestionCount": 2, "followUpCount": 1},
+        )
+
+        body = resp.json()
+        assert body["code"] == 200
+        assert body["data"]["sessionId"] == "kb-sess-1"
+        assert body["data"]["knowledgeBaseId"] == 1
+        assert body["data"]["interviewCategory"] == "Redis"
+        request_arg = mock_interview_service.create_session.call_args.args[0]
+        assert request_arg.knowledge_base_id == 1
+        assert request_arg.main_question_count == 2
+
+    def test_main_question_count_out_of_range_rejected(self, mock_interview_service: MagicMock) -> None:
+        resp = client.post(
+            "/api/knowledgebase-interviews/sessions",
+            json={"knowledgeBaseId": 1, "mainQuestionCount": 21, "followUpCount": 0},
+        )
+
+        assert resp.json()["code"] == 400
+        mock_interview_service.create_session.assert_not_awaited()
+
+    def test_insufficient_returns_3012_with_details(self, mock_interview_service: MagicMock) -> None:
+        mock_interview_service.create_session.side_effect = BusinessException(
+            ErrorCode.INTERVIEW_QUESTION_INSUFFICIENT,
+            "需要 5 道主问题，但只有 2 道同时满足：方向=Redis、难度=mid、每题至少 1 个追问",
+        )
+
+        resp = client.post(
+            "/api/knowledgebase-interviews/sessions",
+            json={"knowledgeBaseId": 1, "category": "Redis", "mainQuestionCount": 5, "followUpCount": 1},
+        )
+
+        body = resp.json()
+        assert body["code"] == 3012
+        assert "方向=Redis" in body["message"]
+
+    def test_kb_not_found(self, mock_interview_service: MagicMock) -> None:
+        mock_interview_service.create_session.side_effect = BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
+
+        resp = client.post(
+            "/api/knowledgebase-interviews/sessions",
+            json={"knowledgeBaseId": 999, "mainQuestionCount": 1, "followUpCount": 0},
+        )
+
+        assert resp.json()["code"] == 6001
+
+
+class TestInterviewCapacity:
+    def _capacity(self) -> KnowledgeBaseInterviewCapacityResponse:
+        return KnowledgeBaseInterviewCapacityResponse(
+            knowledge_base_id=1,
+            category="Redis",
+            difficulty="mid",
+            main_question_count=5,
+            categories=[InterviewCategoryOptionDTO(category="Redis", available_question_count=8)],
+            follow_up_options=[
+                InterviewFollowUpOptionDTO(follow_up_count=0, available_question_count=8, selectable=True)
+            ],
+        )
+
+    def test_returns_capacity_matrix(self, mock_interview_service: MagicMock) -> None:
+        mock_interview_service.get_capacity.return_value = self._capacity()
+
+        resp = client.get("/api/knowledgebase/1/interview-capacity?category=Redis&difficulty=mid&mainQuestionCount=5")
+
+        data = resp.json()["data"]
+        assert data["knowledgeBaseId"] == 1
+        assert data["categories"][0]["availableQuestionCount"] == 8
+        assert data["followUpOptions"][0]["selectable"] is True
+        kwargs = mock_interview_service.get_capacity.call_args.kwargs
+        assert kwargs["category"] == "Redis"
+        assert kwargs["main_question_count"] == 5
+
+    def test_defaults_difficulty_mid_and_main_count_5(self, mock_interview_service: MagicMock) -> None:
+        mock_interview_service.get_capacity.return_value = self._capacity()
+
+        client.get("/api/knowledgebase/1/interview-capacity")
+
+        kwargs = mock_interview_service.get_capacity.call_args.kwargs
+        assert kwargs["category"] is None
+        assert kwargs["difficulty"] == "mid"
+        assert kwargs["main_question_count"] == 5
+
+    def test_main_count_out_of_range_rejected(self, mock_interview_service: MagicMock) -> None:
+        resp = client.get("/api/knowledgebase/1/interview-capacity?mainQuestionCount=21")
+
+        assert resp.json()["code"] == 400
+        mock_interview_service.get_capacity.assert_not_awaited()

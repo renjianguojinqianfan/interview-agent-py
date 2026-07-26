@@ -26,6 +26,10 @@ class TestSerialize:
             "feedback",
             "isFollowUp",
             "parentQuestionIndex",
+            "referenceAnswer",
+            "keyPoints",
+            "scoringRubric",
+            "sourceContext",
         }
         assert item["isFollowUp"] is True
 
@@ -38,6 +42,15 @@ class TestDeserialize:
         raw = '[{"questionIndex": 0, "question": "Q", "type": "T", "category": "C"}]'
         result = deserialize_questions(raw)
         assert result[0].is_follow_up is False
+
+    def test_legacy_json_without_reference_fields_defaults_empty(self) -> None:
+        """#44 前的存量 questions_json 无题库参考键，反序列化回落默认空值。"""
+        raw = '[{"questionIndex": 0, "question": "Q", "type": "T", "category": "C"}]'
+        result = deserialize_questions(raw)
+        assert result[0].reference_answer is None
+        assert result[0].key_points == []
+        assert result[0].scoring_rubric is None
+        assert result[0].source_context is None
 
     def test_empty_array_deserializes_to_empty_list(self) -> None:
         assert deserialize_questions("[]") == []
@@ -67,5 +80,18 @@ class TestRoundtrip:
             feedback="不错",
             is_follow_up=True,
             parent_question_index=1,
+        )
+        assert deserialize_questions(serialize_questions([question])) == [question]
+
+    def test_question_bank_reference_fields_roundtrip(self) -> None:
+        question = InterviewQuestion(
+            question_index=0,
+            question="什么是缓存穿透？",
+            type="KNOWLEDGE_BASE",
+            category="Redis",
+            reference_answer="参考答案",
+            key_points=["要点A", "要点B"],
+            scoring_rubric="10分制规则",
+            source_context="原文片段",
         )
         assert deserialize_questions(serialize_questions([question])) == [question]

@@ -1,6 +1,5 @@
-"""知识库面试路由：题库管理端点（issue #42）。
+"""知识库面试路由：题库管理（#42）/ 异步生成（#43）/ 组卷面试与容量预检（#44）。
 
-新端点集中于此文件（#43 生成、#44 组卷面试后续同文件追加）；
 GET /api/knowledgebase/{id} 详情补进现有 knowledgebase 路由。
 路径对齐 Java KnowledgeBaseInterviewController 与前端 knowledgebase.ts。
 """
@@ -9,19 +8,24 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import get_knowledge_base_question_service
+from app.api.deps import get_knowledge_base_interview_service, get_knowledge_base_question_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
+from app.application.interview.schemas import InterviewSessionDTO
+from app.application.knowledgebase.interview_service import KnowledgeBaseInterviewService
 from app.application.knowledgebase.question_schemas import (
     CategoryCountDTO,
+    CreateKnowledgeBaseInterviewRequest,
     CreateKnowledgeBaseQuestionRequest,
     GenerateKnowledgeBaseQuestionsRequest,
+    KnowledgeBaseInterviewCapacityResponse,
     KnowledgeBaseQuestionDTO,
     QuestionGenStatusResponse,
     UpdateKnowledgeBaseQuestionRequest,
     UpdateKnowledgeBaseQuestionStatusRequest,
 )
 from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService
+from app.domain.entities.interview import DEFAULT_DIFFICULTY, MAX_QUESTION_COUNT
 
 router = APIRouter(tags=["知识库面试"])
 
@@ -112,3 +116,32 @@ async def delete_question(
 ) -> Result[None]:
     await service.delete_question(question_id)
     return Result.success(data=None)
+
+
+@router.post("/api/knowledgebase-interviews/sessions", response_model=Result[InterviewSessionDTO])
+async def create_interview_session(
+    body: CreateKnowledgeBaseInterviewRequest,
+    service: KnowledgeBaseInterviewService = Depends(get_knowledge_base_interview_service),
+) -> Result[InterviewSessionDTO]:
+    data = await service.create_session(body)
+    return Result.success(data=data)
+
+
+@router.get(
+    "/api/knowledgebase/{kb_id}/interview-capacity",
+    response_model=Result[KnowledgeBaseInterviewCapacityResponse],
+)
+async def get_interview_capacity(
+    kb_id: int,
+    category: str | None = Query(None),
+    difficulty: str = Query(DEFAULT_DIFFICULTY),
+    main_question_count: int = Query(5, ge=1, le=MAX_QUESTION_COUNT, alias="mainQuestionCount"),
+    service: KnowledgeBaseInterviewService = Depends(get_knowledge_base_interview_service),
+) -> Result[KnowledgeBaseInterviewCapacityResponse]:
+    data = await service.get_capacity(
+        kb_id,
+        category=category,
+        difficulty=difficulty,
+        main_question_count=main_question_count,
+    )
+    return Result.success(data=data)

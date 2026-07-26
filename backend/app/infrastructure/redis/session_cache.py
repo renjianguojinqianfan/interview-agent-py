@@ -14,6 +14,8 @@ _UNFINISHED_KEY = "interview:resume:{resume_id}:unfinished"
 
 _FIELD_RESUME_TEXT = "resumeText"
 _FIELD_RESUME_ID = "resumeId"
+_FIELD_KNOWLEDGE_BASE_ID = "knowledgeBaseId"
+_FIELD_INTERVIEW_CATEGORY = "interviewCategory"
 _FIELD_QUESTIONS_JSON = "questionsJson"
 _FIELD_CURRENT_INDEX = "currentIndex"
 _FIELD_STATUS = "status"
@@ -31,6 +33,9 @@ class CachedSession:
     questions_json: str
     current_index: int
     status: str
+    # 知识库面试会话标注（#44）；普通面试恒为 None
+    knowledge_base_id: int | None = None
+    interview_category: str | None = None
 
 
 class InterviewSessionCache:
@@ -52,11 +57,15 @@ class InterviewSessionCache:
         questions_json: str,
         current_index: int,
         status: str,
+        knowledge_base_id: int | None = None,
+        interview_category: str | None = None,
     ) -> None:
         key = _SESSION_KEY.format(session_id=session_id)
         mapping = {
             _FIELD_RESUME_TEXT: resume_text,
             _FIELD_RESUME_ID: str(resume_id) if resume_id is not None else "",
+            _FIELD_KNOWLEDGE_BASE_ID: str(knowledge_base_id) if knowledge_base_id is not None else "",
+            _FIELD_INTERVIEW_CATEGORY: interview_category or "",
             _FIELD_QUESTIONS_JSON: questions_json,
             _FIELD_CURRENT_INDEX: str(current_index),
             _FIELD_STATUS: status,
@@ -111,6 +120,7 @@ class InterviewSessionCache:
     def _parse_cached_session(self, session_id: str, raw: dict[str, str]) -> CachedSession:
         resume_id_str = raw.get(_FIELD_RESUME_ID, "")
         resume_id = int(resume_id_str) if resume_id_str else None
+        kb_id_str = raw.get(_FIELD_KNOWLEDGE_BASE_ID, "")
         return CachedSession(
             session_id=session_id,
             resume_text=raw.get(_FIELD_RESUME_TEXT, ""),
@@ -118,4 +128,6 @@ class InterviewSessionCache:
             questions_json=raw.get(_FIELD_QUESTIONS_JSON, "[]"),
             current_index=int(raw.get(_FIELD_CURRENT_INDEX, "0")),
             status=raw.get(_FIELD_STATUS, "CREATED"),
+            knowledge_base_id=int(kb_id_str) if kb_id_str else None,
+            interview_category=raw.get(_FIELD_INTERVIEW_CATEGORY) or None,
         )

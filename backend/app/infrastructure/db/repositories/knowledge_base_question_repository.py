@@ -50,6 +50,20 @@ class KnowledgeBaseQuestionRepository:
         )
         return list(result.scalars().all())
 
+    async def find_active_questions(
+        self, session: AsyncSession, kb_id: int, difficulty: str, category: str | None = None
+    ) -> list[KnowledgeBaseQuestion]:
+        """组卷候选：ACTIVE + 难度（category 可选），updated_at 倒序（对齐 Java selectActiveQuestions）。"""
+        query = select(KnowledgeBaseQuestion).where(
+            KnowledgeBaseQuestion.knowledge_base_id == kb_id,
+            KnowledgeBaseQuestion.difficulty == difficulty,
+            KnowledgeBaseQuestion.status == "ACTIVE",
+        )
+        if category is not None:
+            query = query.where(KnowledgeBaseQuestion.category == category)
+        result = await session.execute(query.order_by(KnowledgeBaseQuestion.updated_at.desc()))
+        return list(result.scalars().all())
+
     async def save(self, session: AsyncSession, question: KnowledgeBaseQuestion) -> KnowledgeBaseQuestion:
         session.add(question)
         await session.flush()

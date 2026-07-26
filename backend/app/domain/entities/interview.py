@@ -4,7 +4,7 @@
 ORM 模型在 infrastructure/db/models/interview.py，与本实体分离。
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 
@@ -23,7 +23,11 @@ class SessionStatus(StrEnum):
 
 @dataclass(frozen=True)
 class InterviewQuestion:
-    """面试问题（含追问）。type 由 Skill category key 驱动（如 MYSQL、CSS）。"""
+    """面试问题（含追问）。type 由 Skill category key 驱动（如 MYSQL、CSS）。
+
+    reference_answer/key_points/scoring_rubric/source_context 为题库组卷面试（#44）
+    随题下发的评分参考；普通面试出题路径恒为默认空值。
+    """
 
     question_index: int
     question: str
@@ -35,20 +39,13 @@ class InterviewQuestion:
     feedback: str | None = None
     is_follow_up: bool = False
     parent_question_index: int | None = None
+    reference_answer: str | None = None
+    key_points: list[str] = field(default_factory=list)
+    scoring_rubric: str | None = None
+    source_context: str | None = None
 
     def with_answer(self, answer: str) -> "InterviewQuestion":
-        return InterviewQuestion(
-            question_index=self.question_index,
-            question=self.question,
-            type=self.type,
-            category=self.category,
-            topic_summary=self.topic_summary,
-            user_answer=answer,
-            score=self.score,
-            feedback=self.feedback,
-            is_follow_up=self.is_follow_up,
-            parent_question_index=self.parent_question_index,
-        )
+        return replace(self, user_answer=answer)
 
 
 @dataclass(frozen=True)

@@ -73,6 +73,22 @@ class TestSaveSession:
         )
         mock_redis.set.assert_not_awaited()
 
+    async def test_saves_knowledge_base_fields(self, cache: InterviewSessionCache, mock_redis: AsyncMock) -> None:
+        """知识库面试会话（#44）：kbId/interviewCategory 随哈希存入。"""
+        await cache.save_session(
+            session_id="sess123",
+            resume_text="",
+            resume_id=None,
+            questions_json="[]",
+            current_index=0,
+            status="CREATED",
+            knowledge_base_id=7,
+            interview_category="Redis",
+        )
+        mapping = mock_redis.hset.call_args.kwargs["mapping"]
+        assert mapping[b"knowledgeBaseId"] == b"7"
+        assert mapping[b"interviewCategory"] == b"Redis"
+
 
 class TestGetSession:
     async def test_returns_cached_session(self, cache: InterviewSessionCache, mock_redis: AsyncMock) -> None:
@@ -106,6 +122,37 @@ class TestGetSession:
         result = await cache.get_session("sess123")
         assert result is not None
         assert result.resume_id is None
+
+    async def test_parses_knowledge_base_fields(self, cache: InterviewSessionCache, mock_redis: AsyncMock) -> None:
+        mock_redis.hgetall.return_value = {
+            b"resumeText": b"",
+            b"resumeId": b"",
+            b"questionsJson": b"[]",
+            b"currentIndex": b"0",
+            b"status": b"CREATED",
+            b"knowledgeBaseId": b"7",
+            b"interviewCategory": b"Redis",
+        }
+        result = await cache.get_session("sess123")
+        assert result is not None
+        assert result.knowledge_base_id == 7
+        assert result.interview_category == "Redis"
+
+    async def test_legacy_hash_without_kb_fields_defaults_none(
+        self, cache: InterviewSessionCache, mock_redis: AsyncMock
+    ) -> None:
+        """#44 前的存量哈希无 kb 字段，解析回落 None 保持向后兼容。"""
+        mock_redis.hgetall.return_value = {
+            b"resumeText": b"",
+            b"resumeId": b"42",
+            b"questionsJson": b"[]",
+            b"currentIndex": b"0",
+            b"status": b"CREATED",
+        }
+        result = await cache.get_session("sess123")
+        assert result is not None
+        assert result.knowledge_base_id is None
+        assert result.interview_category is None
 
 
 class TestUpdateQuestions:

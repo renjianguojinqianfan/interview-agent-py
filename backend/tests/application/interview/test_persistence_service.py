@@ -78,6 +78,48 @@ class TestSaveSession:
         assert orm_arg.status == SessionStatus.CREATED.value
         assert orm_arg.questions_json is not None
 
+    async def test_defaults_source_type_normal(self, service: InterviewPersistenceService, repo: MagicMock) -> None:
+        """普通面试不传来源参数：sourceType=NORMAL、kb 字段空（#44 回归）。"""
+        repo.save_session = AsyncMock()
+
+        await service.save_session(
+            session_id="sess123",
+            resume_id=None,
+            total_questions=1,
+            questions=[_question(0)],
+            llm_provider=None,
+            skill_id="java-backend",
+            difficulty="mid",
+        )
+
+        orm_arg = repo.save_session.call_args.args[1]
+        assert orm_arg.source_type == "NORMAL"
+        assert orm_arg.knowledge_base_id is None
+        assert orm_arg.interview_category is None
+
+    async def test_saves_knowledge_base_source_fields(
+        self, service: InterviewPersistenceService, repo: MagicMock
+    ) -> None:
+        repo.save_session = AsyncMock()
+
+        await service.save_session(
+            session_id="sess123",
+            resume_id=None,
+            total_questions=1,
+            questions=[_question(0)],
+            llm_provider=None,
+            skill_id="knowledge-base",
+            difficulty="mid",
+            source_type="KNOWLEDGE_BASE",
+            knowledge_base_id=7,
+            interview_category="Redis",
+        )
+
+        orm_arg = repo.save_session.call_args.args[1]
+        assert orm_arg.source_type == "KNOWLEDGE_BASE"
+        assert orm_arg.knowledge_base_id == 7
+        assert orm_arg.interview_category == "Redis"
+
 
 class TestFindBySessionId:
     async def test_returns_orm_when_found(self, service: InterviewPersistenceService, repo: MagicMock) -> None:
