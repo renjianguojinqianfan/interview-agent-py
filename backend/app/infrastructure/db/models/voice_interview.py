@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -80,7 +81,11 @@ class VoiceInterviewMessage(Base):
     """
 
     __tablename__ = "voice_interview_messages"
-    __table_args__ = ({"comment": "语音面试消息"},)
+    __table_args__ = (
+        # #61：并发落库竞态的 DB 层兜底（迁移 014），后到者违约被最佳努力路径吞掉
+        UniqueConstraint("session_id", "sequence_num", name="uk_voice_interview_message_session_seq"),
+        {"comment": "语音面试消息"},
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     session_id: Mapped[int] = mapped_column(

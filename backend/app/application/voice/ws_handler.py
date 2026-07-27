@@ -518,6 +518,9 @@ class VoiceWsOrchestrator:
         opening = await self._opening_loader.get_opening_question(self._context.skill_id)
         if not opening:
             return
+        # #61：重连判定提前到 TTS 投递之前并缓存——竞态窗口从播报数秒缩到毫秒级（#57 遗留辅助修法）；
+        # 双开标签页仍可能同时判 False 并发落库，由 (session_id, sequence_num) 唯一约束兜底（迁移 014）
+        should_persist = not await self._has_persisted_messages()
         await self._safe_send(ws, TextMessage(content=opening, final=True))
         self._ai_speaking = True
         try:
@@ -526,7 +529,7 @@ class VoiceWsOrchestrator:
             self._ai_speaking = False
             self._mute_until_ms = self._now() + ECHO_COOLDOWN_MS
         # #57：重连（消息表非空）只重新投递不再落库，避免每次刷新/断线重连重复 INSERT 开场白
-        if await self._has_persisted_messages():
+        if not should_persist:
             logger.debug("重连检测到已有消息，跳过开场白落库: sessionId=%s", self._session_id)
             return
         await self._persist_turn("", opening)

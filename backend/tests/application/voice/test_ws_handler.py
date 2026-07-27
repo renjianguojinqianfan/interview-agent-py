@@ -455,6 +455,24 @@ class TestPersistTurn:
         assert row.user_recognized_text == "首答"
         assert row.sequence_num == 1
 
+    async def test_unique_violation_swallowed_best_effort(self) -> None:
+        """#61：并发落库撞 (session_id, sequence_num) 唯一约束时，违约异常被最佳努力路径吞掉，不影响实时对话。"""
+        from sqlalchemy.exc import IntegrityError
+
+        repo = _FakeVoiceRepo(latest=None, count=0)
+        repo.save_message = AsyncMock(  # type: ignore[method-assign]
+            side_effect=IntegrityError(
+                "INSERT INTO voice_interview_messages ...",
+                {},
+                Exception('duplicate key value violates unique constraint "uk_voice_interview_message_session_seq"'),
+            )
+        )
+        orch = _make_orchestrator()
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+
+        await orch._persist_turn("我的回答", "新的问题")  # 不抛异常即为通过
+
 
 class TestOpeningQuestion:
     async def test_sends_opening_text_and_audio(self) -> None:
@@ -568,6 +586,27 @@ class TestOpeningPersistIdempotent:
         orch._repository = repo  # type: ignore[assignment]
         await orch._send_opening_question(_FakeClientWs())  # 不抛异常
         assert repo.saved == []
+
+    async def test_reconnect_check_runs_before_tts_delivery(self) -> None:
+        """#61：重连判定必须在 TTS 投递之前完成——把竞态窗口从播报数秒缩到毫秒级（#57 遗留辅助修法）。"""
+        orch = _make_orchestrator(opening="欢迎参加面试。")
+        _ready(orch)
+        order: list[str] = []
+
+        async def spy_check() -> bool:
+            order.append("check")
+            return False
+
+        async def spy_speak(_ws: object, _text: str) -> None:
+            order.append("tts")
+
+        orch._has_persisted_messages = spy_check  # type: ignore[method-assign]
+        orch._speak_text = spy_speak  # type: ignore[method-assign]
+
+        await orch._send_opening_question(_FakeClientWs())
+
+        assert "check" in order and "tts" in order
+        assert order.index("check") < order.index("tts"), "重连判定必须先于 TTS 投递执行（缩小竞态窗口）"
 
 
 def _phase_orm(current: str = "TECH", **enabled: bool) -> MagicMock:
