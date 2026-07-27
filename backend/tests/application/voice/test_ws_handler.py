@@ -477,6 +477,99 @@ class TestOpeningQuestion:
         assert ws.sent == []
 
 
+class _CountingVoiceRepo(_FakeVoiceRepo):
+    """计数随落库增长的假仓储：模拟真实表状态跨多次连接演进（#57 重连场景）。"""
+
+    def __init__(self, initial_count: int = 0) -> None:
+        super().__init__(latest=None, count=initial_count)
+        self._initial_count = initial_count
+
+    async def count_messages_by_session(self, _session: object, _pk: int) -> int:
+        return self._initial_count + len(self.saved)
+
+
+class _CountRaisingVoiceRepo(_FakeVoiceRepo):
+    """count 查询抛异常的假仓储（#57 最佳努力回退路径）。always_fail=False 时仅首调失败。"""
+
+    count_calls: int
+
+    def __init__(self, always_fail: bool = False) -> None:
+        super().__init__(latest=None, count=0)
+        self.count_calls = 0
+        self._always_fail = always_fail
+
+    async def count_messages_by_session(self, _session: object, _pk: int) -> int:
+        self.count_calls += 1
+        if self._always_fail or self.count_calls == 1:
+            raise RuntimeError("db down")
+        return 0
+
+
+class TestOpeningPersistIdempotent:
+    """#57：开场白仅首连落库；重连（消息表非空）只投递不持久化。"""
+
+    async def test_first_connection_persists_once(self) -> None:
+        repo = _CountingVoiceRepo(initial_count=0)
+        orch = _make_orchestrator(opening="欢迎参加面试。")
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+        await orch._send_opening_question(_FakeClientWs())
+        assert len(repo.saved) == 1
+        assert repo.saved[0].ai_generated_text == "欢迎参加面试。"
+
+    async def test_reconnect_does_not_persist_again(self) -> None:
+        repo = _CountingVoiceRepo(initial_count=1)  # 首连已落过开场白
+        orch = _make_orchestrator(opening="欢迎参加面试。")
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+        await orch._send_opening_question(_FakeClientWs())
+        assert repo.saved == []
+
+    async def test_reconnect_still_delivers_text_and_audio(self) -> None:
+        """去重只作用于落库，投递不受影响（验收项）。"""
+        repo = _CountingVoiceRepo(initial_count=1)
+        orch = _make_orchestrator(opening="欢迎参加面试。")
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+        ws = _FakeClientWs()
+        await orch._send_opening_question(ws)
+        texts = ws.sent_of("text")
+        assert texts and texts[0]["content"] == "欢迎参加面试。" and texts[0]["final"] is True
+        assert ws.sent_of("audio_chunk")[-1]["isLast"] is True
+        assert any(m["action"] == "audio_complete" for m in ws.sent_of("control"))
+
+    async def test_two_reconnects_total_one_row(self) -> None:
+        """首连 + 重连两次，落库总数仍为 1（验收项：重连两次场景）。
+
+        每轮新建 orchestrator（生产语义：每次连接实例化一次），共享同一 repo 模拟跨连接表状态。
+        """
+        repo = _CountingVoiceRepo(initial_count=0)
+        for _ in range(3):  # 首连 + 2 次重连
+            orch = _make_orchestrator(opening="欢迎参加面试。")
+            _ready(orch)
+            orch._repository = repo  # type: ignore[assignment]
+            await orch._send_opening_question(_FakeClientWs())
+        assert len(repo.saved) == 1
+
+    async def test_count_query_failure_falls_back_to_persist(self) -> None:
+        """计数查询失败按首连处理（回退到尝试落库；本例 _persist_turn 内二次查询恢复故成功）。"""
+        repo = _CountRaisingVoiceRepo()
+        orch = _make_orchestrator(opening="欢迎参加面试。")
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+        await orch._send_opening_question(_FakeClientWs())
+        assert len(repo.saved) == 1
+
+    async def test_db_fully_down_degrades_silently(self) -> None:
+        """DB 全程不可用：回退分支进入 _persist_turn 后同样失败被吞，一条不落且不上抛（最佳努力契约）。"""
+        repo = _CountRaisingVoiceRepo(always_fail=True)
+        orch = _make_orchestrator(opening="欢迎参加面试。")
+        _ready(orch)
+        orch._repository = repo  # type: ignore[assignment]
+        await orch._send_opening_question(_FakeClientWs())  # 不抛异常
+        assert repo.saved == []
+
+
 def _phase_orm(current: str = "TECH", **enabled: bool) -> MagicMock:
     flags = {"intro_enabled": True, "tech_enabled": True, "project_enabled": True, "hr_enabled": True}
     flags.update(enabled)

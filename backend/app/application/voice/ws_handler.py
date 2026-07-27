@@ -512,7 +512,7 @@ class VoiceWsOrchestrator:
             logger.warning("语音会话暂停失败: sessionId=%s, error=%s", self._session_id, e)
 
     async def _send_opening_question(self, ws: ClientWebSocket) -> None:
-        """连接建立后推送开场问题（文本 + TTS 预合成音频），并作为首行持久化。"""
+        """连接建立后推送开场问题（文本 + TTS 预合成音频）；仅会话首个连接时持久化（#57）。"""
         if self._context is None:
             return
         opening = await self._opening_loader.get_opening_question(self._context.skill_id)
@@ -525,7 +525,23 @@ class VoiceWsOrchestrator:
         finally:
             self._ai_speaking = False
             self._mute_until_ms = self._now() + ECHO_COOLDOWN_MS
+        # #57：重连（消息表非空）只重新投递不再落库，避免每次刷新/断线重连重复 INSERT 开场白
+        if await self._has_persisted_messages():
+            logger.debug("重连检测到已有消息，跳过开场白落库: sessionId=%s", self._session_id)
+            return
         await self._persist_turn("", opening)
+
+    async def _has_persisted_messages(self) -> bool:
+        """会话消息表是否已有记录（#57 重连判定）。
+
+        查询失败按首连处理（返回 False）：回退到尝试落库，保持最佳努力持久化语义。
+        """
+        try:
+            async with self._session_factory() as session:
+                return await self._repository.count_messages_by_session(session, self._session_id) > 0
+        except Exception as e:
+            logger.warning("语音消息计数查询失败，按首连处理: sessionId=%s, error=%s", self._session_id, e)
+            return False
 
     async def _speak_text(self, ws: ClientWebSocket, text: str) -> None:
         """整段文本按句切分并发 TTS，按句序发送 audio_chunk，末尾 is_last。"""
