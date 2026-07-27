@@ -162,7 +162,7 @@ class TestProcessBusiness:
         consumer._llm_registry.resolve_provider_id_by_name = AsyncMock(return_value=7)
         chat_client = object()
         consumer._llm_registry.get_chat_client = AsyncMock(return_value=chat_client)
-        report = MagicMock(overall_score=88)
+        report = MagicMock(overall_score=88, degraded_reasons=[])
         consumer._evaluation_graph.evaluate = AsyncMock(return_value=report)
 
         await consumer.process_business("sess1")
@@ -213,3 +213,74 @@ class TestMarkCompleted:
         await consumer.mark_completed("sess1")
         assert consumer.update_calls == [("COMPLETED", None)]
         session.commit.assert_awaited_once()
+
+
+class TestDegradedReasonsToEvaluateError:
+    """#56：批次降级原因写入 evaluate_error（状态仍 COMPLETED，部分成功不算失败）。"""
+
+    @staticmethod
+    def _report(reasons: list[str]) -> MagicMock:
+        return MagicMock(overall_score=66, degraded_reasons=reasons)
+
+    async def test_completed_with_degraded_reasons_writes_error(self) -> None:
+        consumer, _ = _make_consumer(status="PENDING", qa_records=[MagicMock()])
+        consumer._evaluation_graph.evaluate = AsyncMock(return_value=self._report(["批次[0,8): boom"]))
+
+        await consumer.process_business("sess1")
+        await consumer.mark_completed("sess1")
+
+        assert ("COMPLETED", "批次[0,8): boom") in consumer.update_calls
+
+    async def test_completed_without_degraded_reasons_keeps_error_none(self) -> None:
+        consumer, _ = _make_consumer(status="PENDING", qa_records=[MagicMock()])
+        consumer._evaluation_graph.evaluate = AsyncMock(return_value=self._report([]))
+
+        await consumer.process_business("sess1")
+        await consumer.mark_completed("sess1")
+
+        assert ("COMPLETED", None) in consumer.update_calls
+
+    async def test_reasons_not_leaked_to_next_payload(self) -> None:
+        """同一 consumer 实例处理下一条消息时不得沿用上一条的降级原因。"""
+        consumer, _ = _make_consumer(status="PENDING", qa_records=[MagicMock()])
+        consumer._evaluation_graph.evaluate = AsyncMock(return_value=self._report(["批次[0,8): boom"]))
+        await consumer.process_business("sess1")
+        await consumer.mark_completed("sess1")
+
+        await consumer.mark_completed("sess1")  # 无新 process_business，原因已消费
+
+        assert consumer.update_calls[-1] == ("COMPLETED", None)
+
+    async def test_long_reasons_truncated_to_column_limit(self) -> None:
+        """原因超 evaluate_error 列上限（500）须截断，否则落库报错反把成功评估打成 FAILED。"""
+        consumer, _ = _make_consumer(status="PENDING", qa_records=[MagicMock()])
+        consumer._evaluation_graph.evaluate = AsyncMock(return_value=self._report(["批次[0,8): " + "x" * 600]))
+
+        await consumer.process_business("sess1")
+        await consumer.mark_completed("sess1")
+
+        error = consumer.update_calls[-1][1]
+        assert error is not None and len(error) <= 500
+
+    async def test_clean_rerun_clears_stale_reasons(self) -> None:
+        """上轮降级后 mark_completed 未执行（如 DB 瞬断重试），本轮干净成功不得沿用陈旧原因。"""
+        consumer, _ = _make_consumer(status="PENDING", qa_records=[MagicMock()])
+        consumer._evaluation_graph.evaluate = AsyncMock(return_value=self._report(["批次[0,8): boom"]))
+        await consumer.process_business("sess1")  # 降级，原因入 map（未消费）
+
+        consumer._evaluation_graph.evaluate = AsyncMock(return_value=self._report([]))
+        await consumer.process_business("sess1")  # 重试干净成功
+        await consumer.mark_completed("sess1")
+
+        assert consumer.update_calls[-1] == ("COMPLETED", None)
+
+    async def test_mark_failed_clears_stale_reasons(self) -> None:
+        """失败路径清理暂存原因，后续重触发的干净完成不得携带陈旧原因。"""
+        consumer, _ = _make_consumer(status="PENDING", qa_records=[MagicMock()])
+        consumer._evaluation_graph.evaluate = AsyncMock(return_value=self._report(["批次[0,8): boom"]))
+        await consumer.process_business("sess1")
+        await consumer.mark_failed("sess1", "重试耗尽")
+
+        await consumer.mark_completed("sess1")  # 用户重触发后干净完成
+
+        assert consumer.update_calls[-1] == ("COMPLETED", None)

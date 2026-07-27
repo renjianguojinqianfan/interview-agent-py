@@ -118,6 +118,8 @@ class EvaluationReport:
     """统一面试评估报告（文字/语音共用）。对应 Java EvaluationReport。
 
     overall_score 为已答题平均分（未回答不计入分母）；全未回答时为 0。
+    degraded_reasons（#56）：批次 LLM 失败走零分兜底时的原因清单，供排障
+    （consumer 写入 evaluate_error）；全部批次成功时为空。
     """
 
     session_id: str
@@ -129,3 +131,4 @@ class EvaluationReport:
     strengths: list[str]
     improvements: list[str]
     reference_answers: list[ReferenceAnswer]
+    degraded_reasons: list[str] = field(default_factory=list)

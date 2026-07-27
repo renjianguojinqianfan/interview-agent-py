@@ -230,3 +230,77 @@ class TestPartialBatchFailure:
         # 批0 成功（80），批1 失败（零分兜底）
         assert scores[:4] == [80, 80, 80, 80]
         assert scores[4:] == [0, 0, 0, 0]
+
+
+class TestSchemaToleranceForMissingFields:
+    """#56：LLM 漏非核心字段（overallFeedback/questionIndex/referenceAnswer）不得整批作废零分。"""
+
+    def test_batch_output_accepts_production_missing_fields(self) -> None:
+        # 复现生产 payload：缺 overallFeedback；题项缺 questionIndex/referenceAnswer（qwen 实际返回）
+        output = BatchEvaluationOutput.model_validate(
+            {
+                "overallScore": 62,
+                "questionEvaluations": [{"questionId": "问题2", "score": 55, "feedback": "存在明显短板。"}],
+            }
+        )
+        assert output.overallFeedback == ""
+        assert output.questionEvaluations[0].questionIndex == -1
+        assert output.questionEvaluations[0].referenceAnswer == ""
+
+    def test_summary_output_accepts_missing_overall_feedback(self) -> None:
+        output = SummaryEvaluationOutput.model_validate({"strengths": ["s"]})
+        assert output.overallFeedback == ""
+
+    def test_score_still_required(self) -> None:
+        """score 是核心字段：缺失无法有意义恢复，必须保持校验失败（走整批兜底）。"""
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            BatchEvaluationOutput.model_validate({"questionEvaluations": [{"feedback": "无分数"}]})
+
+    async def test_missing_fields_end_to_end_scores_not_zero(self) -> None:
+        records = [_qa(0, "答0"), _qa(1, "答1")]
+        batch = BatchEvaluationOutput.model_validate(
+            {"questionEvaluations": [{"score": 85, "feedback": "好"}, {"score": 65}]}
+        )
+        graph, _ = _make_graph(batch_outputs=[batch], summary_raises=True)
+
+        report = await graph.evaluate(chat_client=MagicMock(), session_id="sess1", qa_records=records, resume_text="")
+
+        # 不再整批零分兜底
+        assert report.question_details[0].score == 85
+        assert report.question_details[1].score == 65
+        assert report.overall_score == 75
+        # 缺 feedback 的题走既有兜底文案（build_report 空串兜底）
+        assert report.question_details[1].feedback  # 非空
+
+    def test_to_batch_report_assigns_index_by_position(self) -> None:
+        """下游全按位置对齐：questionIndex 一律取 start_index + 位置（LLM 给错 1-based 值反而有害）。"""
+        graph, _ = _make_graph()
+        output = BatchEvaluationOutput.model_validate(
+            {"questionEvaluations": [{"score": 70}, {"score": 90, "questionIndex": 5}]}
+        )
+        report = graph._to_batch_report(output, start_index=2)
+        assert [e.question_index for e in report.question_evaluations] == [2, 3]
+
+
+class TestDegradedReasons:
+    """#56：批次兜底原因须透出到报告（供 consumer 写入 evaluate_error 排障）。"""
+
+    async def test_failed_batch_reason_recorded(self) -> None:
+        records = [_qa(0, "答0"), _qa(1, "答1")]
+        graph, _ = _make_graph(batch_outputs=[], batch_raises=True, summary_raises=True)
+
+        report = await graph.evaluate(chat_client=MagicMock(), session_id="sess1", qa_records=records, resume_text="")
+
+        assert report.degraded_reasons
+        assert "批次[0,2)" in report.degraded_reasons[0]
+
+    async def test_success_has_no_degraded_reasons(self) -> None:
+        records = [_qa(0, "答0")]
+        graph, _ = _make_graph(batch_outputs=[_batch_output([_eval_output(0, 80)])])
+
+        report = await graph.evaluate(chat_client=MagicMock(), session_id="sess1", qa_records=records, resume_text="")
+
+        assert report.degraded_reasons == []

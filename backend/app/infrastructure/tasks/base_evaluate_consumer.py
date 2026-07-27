@@ -27,6 +27,7 @@ from app.infrastructure.db.repositories.resume_repository import ResumeRepositor
 from app.infrastructure.redis.client import RedisClient
 from app.infrastructure.tasks.base_consumer import BaseStreamConsumer
 from app.infrastructure.tasks.constants import FIELD_RETRY_COUNT, STREAM_MAX_LEN, StreamConfig
+from app.infrastructure.tasks.utils import truncate_error
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,8 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
         self._resume_repository = resume_repository
         self._llm_registry = llm_registry
         self._evaluation_graph = evaluation_graph
+        # #56：process_business -> mark_completed 传递批次降级原因（基类消费循环为顺序处理）
+        self._degraded_reasons: dict[str, str] = {}
 
     # ==================== 公共实现 ====================
 
@@ -98,6 +101,14 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
 
             await self._persist_result(session, orm, report)
             await session.commit()
+            sid = self._session_id_text(payload)
+            if report.degraded_reasons:
+                # #56：部分批次降级仍算完成，原因暂存供 mark_completed 写入 evaluate_error 排障；
+                # 截断到列上限 500，否则落库报错会把已成功的评估反向打成 FAILED
+                self._degraded_reasons[sid] = truncate_error("; ".join(report.degraded_reasons))
+            else:
+                # 干净成功须清掉可能残留的上一轮原因（如上轮 mark_completed 失败后重试）
+                self._degraded_reasons.pop(sid, None)
             logger.info(
                 "%s结果已保存: %s, overallScore=%s",
                 self.task_display_name(),
@@ -108,13 +119,16 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
     async def mark_completed(self, payload: P) -> None:
         async with self._session_factory() as session:
             orm = await self._get_session_orm(session, payload)
+            degraded = self._degraded_reasons.pop(self._session_id_text(payload), None)
             if orm is None:
                 return
-            await self._update_evaluate_status(session, orm, AsyncTaskStatus.COMPLETED.value, None)
+            await self._update_evaluate_status(session, orm, AsyncTaskStatus.COMPLETED.value, degraded)
             await session.commit()
 
     async def mark_failed(self, payload: P, error: str) -> None:
         async with self._session_factory() as session:
+            # 失败路径同步清理暂存原因，避免陈旧条目污染后续重触发的 mark_completed
+            self._degraded_reasons.pop(self._session_id_text(payload), None)
             orm = await self._get_session_orm(session, payload)
             if orm is None:
                 return

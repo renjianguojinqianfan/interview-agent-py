@@ -513,6 +513,8 @@
     answers: { questionIndex, question, category, userAnswer, score, feedback, referenceAnswer?, keyPoints? }[] } }
 ```
 
+> `evaluateError` 语义（#56）：`FAILED` 时为失败原因；`COMPLETED` 时也可能非空——表示评估完成但存在部分批次 LLM 降级（对应题目按 0 分兜底），内容为降级原因清单（截断至 500 字符），仅作排障备注。文字/语音面试的 `evaluateError` 同语义。
+
 ---
 
 ## 附录 B：已知契约差异（待修复）

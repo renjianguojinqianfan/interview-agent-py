@@ -50,29 +50,38 @@ logger = logging.getLogger(__name__)
 
 
 class QuestionEvaluationOutput(BaseModel):
-    """LLM 单题评估输出，字段对齐 interview-evaluation-system.st 的输出结构。"""
+    """LLM 单题评估输出，字段对齐 interview-evaluation-system.st 的输出结构。
 
-    questionIndex: int
+    #56：score 为核心字段保持必填（缺失无法有意义恢复，整批走兜底）；其余字段
+    qwen 系模型常缺省，可选化避免单字段缺失放大为整批零分。questionIndex 缺失
+    以 -1 标记，由 _to_batch_report 按批内位置回填（下游合并本就按位置对齐）。
+    """
+
+    questionIndex: int = -1
     score: int
-    feedback: str
-    referenceAnswer: str
+    feedback: str = ""
+    referenceAnswer: str = ""
     keyPoints: list[str] = Field(default_factory=list)
 
 
 class BatchEvaluationOutput(BaseModel):
-    """LLM 批次评估输出。"""
+    """LLM 批次评估输出。
 
-    overallScore: int
-    overallFeedback: str
+    #56：overallScore 下游无消费者（总分由逐题分数重算）、overallFeedback 空串
+    会被 merge_overall_feedback 跳过后落默认评语，均可安全缺省。
+    """
+
+    overallScore: int = 0
+    overallFeedback: str = ""
     strengths: list[str] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list)
     questionEvaluations: list[QuestionEvaluationOutput] = Field(default_factory=list)
 
 
 class SummaryEvaluationOutput(BaseModel):
-    """LLM 二次汇总输出。"""
+    """LLM 二次汇总输出。#56：overallFeedback 缺省时 _to_summary 已有 fallback。"""
 
-    overallFeedback: str
+    overallFeedback: str = ""
     strengths: list[str] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list)
 
@@ -90,6 +99,7 @@ class _EvaluationState(TypedDict, total=False):
     batches: list[QaBatch]
     batch: QaBatch
     batch_results: Annotated[list[BatchResult], operator.add]
+    batch_errors: Annotated[list[str], operator.add]
     merged_evaluations: list[QuestionEvaluationItem]
     fallback_summary: Summary
     summary: Summary
@@ -148,6 +158,7 @@ class EvaluationGraph:
             "resume_text": resume_text or "",
             "reference_context": reference_context or "",
             "batch_results": [],
+            "batch_errors": [],
         }
         result = await self._compiled.ainvoke(initial, config=config)
         report = cast("EvaluationReport | None", result.get("report"))
@@ -224,16 +235,19 @@ class EvaluationGraph:
                     error_prefix="批次评估失败：",
                     log_context="批次评估",
                 )
-            report = self._to_batch_report(output)
+            report = self._to_batch_report(output, start_index=batch.start_index)
         except Exception as e:
-            # 第一级降级：LLM 调用/解析/网络失败 -> 整批零分兜底
+            # 第一级降级：LLM 调用/解析/网络失败 -> 整批零分兜底；原因透出供 evaluate_error 排障（#56）
             logger.warning(
                 "批次评估失败，零分兜底: start=%s, end=%s, error=%s",
                 batch.start_index,
                 batch.end_index,
                 e,
             )
-            return {"batch_results": [BatchResult(batch.start_index, batch.end_index, None)]}
+            return {
+                "batch_results": [BatchResult(batch.start_index, batch.end_index, None)],
+                "batch_errors": [f"批次[{batch.start_index},{batch.end_index}): {e}"],
+            }
 
         return {"batch_results": [BatchResult(batch.start_index, batch.end_index, report)]}
 
@@ -293,10 +307,11 @@ class EvaluationGraph:
             qa_records=state.get("qa_records", []),
             evaluations=state.get("merged_evaluations", []),
             summary=state.get("summary", Summary.empty()),
+            degraded_reasons=state.get("batch_errors", []),
         )
         return {"report": report}
 
-    def _to_batch_report(self, output: BatchEvaluationOutput) -> BatchReport:
+    def _to_batch_report(self, output: BatchEvaluationOutput, start_index: int) -> BatchReport:
         return BatchReport(
             overall_score=output.overallScore,
             overall_feedback=output.overallFeedback,
@@ -304,13 +319,15 @@ class EvaluationGraph:
             improvements=list(output.improvements),
             question_evaluations=[
                 QuestionEvaluationItem(
-                    question_index=e.questionIndex,
+                    # #56：下游合并/组装全按位置对齐（LLM 的 questionIndex 不作对齐键，模型给错
+                    # 1-based/越界值反而有害），一律按批内位置写入绝对下标
+                    question_index=start_index + i,
                     score=e.score,
                     feedback=e.feedback,
                     reference_answer=e.referenceAnswer,
                     key_points=list(e.keyPoints),
                 )
-                for e in output.questionEvaluations
+                for i, e in enumerate(output.questionEvaluations)
             ],
         )
 

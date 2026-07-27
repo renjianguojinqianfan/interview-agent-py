@@ -228,10 +228,12 @@ def build_report(
     qa_records: list[QaRecord],
     evaluations: list[QuestionEvaluationItem],
     summary: Summary,
+    degraded_reasons: list[str] | None = None,
 ) -> EvaluationReport:
     """组装最终评估报告（与 Java buildReport 一致）。
 
     overall_score = 已答题平均分（未回答不计入分母）；全未回答时为 0。
+    degraded_reasons（#56）：批次兜底原因透传，默认无降级。
     """
     question_details: list[QuestionEvaluation] = []
     reference_answers: list[ReferenceAnswer] = []
@@ -278,4 +280,5 @@ def build_report(
         strengths=list(summary.strengths),
         improvements=list(summary.improvements),
         reference_answers=reference_answers,
+        degraded_reasons=list(degraded_reasons or []),
     )
