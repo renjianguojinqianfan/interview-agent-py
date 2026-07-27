@@ -9,6 +9,7 @@ import './ScheduleCalendar.css';
 import { motion } from 'framer-motion';
 import type { InterviewSchedule } from '../../types/interviewSchedule';
 import { InterviewEvent } from './InterviewEvent';
+import { HalfDayGrid } from './HalfDayGrid';
 
 const localizer = dayjsLocalizer(dayjs);
 const DnDCalendar = withDragAndDrop(Calendar);
@@ -124,12 +125,26 @@ export const ScheduleCalendar: React.FC<ScheduleCalendarProps> = ({
     onSelectEvent(event as InterviewSchedule);
   };
 
+  // 两个视图分支共用的卡片容器样式（review：消除重复的动画参数与 className）
+  const containerProps = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 },
+    className:
+      'bg-white dark:bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-200/50 dark:border-slate-700/50 p-6 shadow-xl shadow-slate-200/50 dark:shadow-slate-900/50',
+  };
+
+  // #64：周/日视图改上午/下午两栏（12:00 分界），替代 rbc 逐小时时间轴；月视图保留 rbc（含拖拽改日期）。
+  // 两栏粗粒度下逐小时拖拽无语义，周/日调时间走编辑弹窗（15 分钟档位，#53）。
+  if (view === 'week' || view === 'day') {
+    return (
+      <motion.div {...containerProps}>
+        <HalfDayGrid view={view} date={date} interviews={interviews} onSelectEvent={onSelectEvent} />
+      </motion.div>
+    );
+  }
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-white dark:bg-slate-900/50 backdrop-blur-xl rounded-2xl border border-slate-200/50 dark:border-slate-700/50 p-6 shadow-xl shadow-slate-200/50 dark:shadow-slate-900/50"
-    >
+    <motion.div {...containerProps}>
       <DnDCalendar
           localizer={localizer}
           events={events}
