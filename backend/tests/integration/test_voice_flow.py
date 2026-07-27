@@ -62,3 +62,36 @@ def test_voice_end_session_transitions_and_enqueues_evaluate(integration_client:
     status = integration_client.get(f"/api/voice-interview/sessions/{session_pk}/evaluation").json()
     assert status["code"] == 200
     assert status["data"]["evaluateStatus"] == "PENDING"
+
+
+def test_voice_pause_resume_resume_is_idempotent(integration_client: TestClient) -> None:
+    """#60 竖切：create -> pause -> resume(200) -> resume(200 幂等)。
+
+    修复前首次 resume 在 commit 后读服务端 onupdate 的 updated_at 触发 MissingGreenlet 500，
+    留下 DB 已 IN_PROGRESS 的中间态；重试被状态机以非法迁移拒绝。本用例直接编码验收标准：
+    两次 resume 均 200 且返回完整 DTO（含 updatedAt），最终真库状态 IN_PROGRESS。
+    """
+    create = integration_client.post("/api/voice-interview/sessions", json={"skillId": "java-backend"})
+    assert create.status_code == 200
+    session_pk = create.json()["data"]["id"]
+
+    pause = integration_client.put(
+        f"/api/voice-interview/sessions/{session_pk}/pause", json={"reason": "user_initiated"}
+    )
+    assert pause.json()["code"] == 200
+
+    # 首次 resume：修复前此处 500（MissingGreenlet）
+    resume1 = integration_client.put(f"/api/voice-interview/sessions/{session_pk}/resume").json()
+    assert resume1["code"] == 200
+    assert resume1["data"]["status"] == "IN_PROGRESS"
+    assert resume1["data"]["updatedAt"]  # commit 后 onupdate 列可读（eager_defaults 回归防护）
+    assert resume1["data"]["webSocketUrl"]
+
+    # 重复 resume：幂等成功（修复前报非法状态迁移 400）
+    resume2 = integration_client.put(f"/api/voice-interview/sessions/{session_pk}/resume").json()
+    assert resume2["code"] == 200
+    assert resume2["data"]["status"] == "IN_PROGRESS"
+    assert resume2["data"]["webSocketUrl"]
+
+    state = _load_session(session_pk)
+    assert state["status"] == "IN_PROGRESS"

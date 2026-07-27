@@ -432,11 +432,9 @@ VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
         "DELETE /api/rag-chat/sessions/{}",  # 删除会话（CRUD）
         "PUT /api/rag-chat/sessions/{}/pin",  # 置顶（CRUD）
         "PUT /api/rag-chat/sessions/{}/title",  # 改标题（CRUD）
-        # —— 语音面试（create + end→评估已由 test_voice_flow 竖切覆盖）——
+        # —— 语音面试（create + end→评估已由 test_voice_flow 竖切覆盖；pause/resume 由 #60 竖切覆盖）——
         "DELETE /api/voice-interview/sessions/{}",  # 删除会话（CRUD）
         "POST /api/voice-interview/sessions/{}/evaluation",  # 触发评估（与 end→评估入队同类）
-        "PUT /api/voice-interview/sessions/{}/pause",  # 暂停（状态机 CRUD）
-        "PUT /api/voice-interview/sessions/{}/resume",  # 恢复（状态机 CRUD）
         # —— 面试排期 ——
         "POST /api/interview-schedule",  # 创建排期（CRUD）
         "POST /api/interview-schedule/parse",  # 解析排期（含 LLM）

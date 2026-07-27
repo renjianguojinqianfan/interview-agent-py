@@ -83,6 +83,80 @@ def _make_service(
     return VoiceEvaluationService(session=MagicMock(), repository=repository)
 
 
+def _make_session_service(
+    session_orm: VoiceInterviewSessionORM | None,
+) -> tuple[VoiceSessionService, dict[str, MagicMock]]:
+    db_session = AsyncMock()
+    repository = MagicMock()
+    repository.get_by_id = AsyncMock(return_value=session_orm)
+    cache = MagicMock()
+    cache.save_session = AsyncMock()
+    cache.delete_session = AsyncMock()
+    producer = MagicMock()
+    registry = MagicMock()
+    service = VoiceSessionService(
+        session=db_session,
+        repository=repository,
+        session_cache=cache,
+        evaluate_producer=producer,
+        llm_registry=registry,
+    )
+    return service, {"session": db_session, "repository": repository, "cache": cache}
+
+
+def _resumable_orm(status: str) -> VoiceInterviewSessionORM:
+    now = datetime(2026, 7, 27, 8, 0, tzinfo=UTC)
+    return _make_session_orm(
+        status=status,
+        current_phase="TECH",
+        intro_enabled=True,
+        tech_enabled=True,
+        project_enabled=True,
+        hr_enabled=True,
+        start_time=now,
+        created_at=now,
+        updated_at=now,
+        paused_at=None,
+        resumed_at=None,
+    )
+
+
+class TestResumeIdempotent:
+    """#60：resume 对 IN_PROGRESS 幂等（500 中间态后重试可自愈）；终态仍报非法迁移。"""
+
+    async def test_resume_in_progress_is_idempotent(self) -> None:
+        orm = _resumable_orm("IN_PROGRESS")
+        service, m = _make_session_service(orm)
+
+        dto = await service.resume_session(7)
+
+        assert dto.status == "IN_PROGRESS"
+        m["session"].commit.assert_not_awaited()  # 幂等路径不再执行状态 UPDATE
+        assert orm.resumed_at is None  # 不改写恢复时间
+        m["cache"].save_session.assert_awaited_once()  # 缓存重写，前端可拿 wsUrl 重连
+
+    async def test_resume_paused_transitions_normally(self) -> None:
+        orm = _resumable_orm("PAUSED")
+        service, m = _make_session_service(orm)
+
+        dto = await service.resume_session(7)
+
+        assert dto.status == "IN_PROGRESS"
+        assert orm.resumed_at is not None
+        m["session"].commit.assert_awaited_once()
+        m["cache"].save_session.assert_awaited_once()
+
+    async def test_resume_completed_still_rejected(self) -> None:
+        """幂等不扩大到终态：COMPLETED resume 仍报非法状态迁移。"""
+        service, m = _make_session_service(_resumable_orm("COMPLETED"))
+
+        with pytest.raises(BusinessException) as exc_info:
+            await service.resume_session(7)
+
+        assert exc_info.value.error_code is ErrorCode.BAD_REQUEST
+        m["session"].commit.assert_not_awaited()
+
+
 class TestGetEvaluationContract:
     async def test_completed_returns_flat_answers_with_reference(self) -> None:
         """完成态：返回扁平 answers[]（含 referenceAnswer/keyPoints）+ sessionId + totalQuestions。"""

@@ -279,7 +279,7 @@
 | GET | `/api/voice-interview/sessions/{sessionId}` | 会话详情（含 `webSocketUrl`） | - | [`VoiceSession`](#voicesession) | - |
 | POST | `/api/voice-interview/sessions/{sessionId}/end` | 结束会话（触发异步评估） | - | `null` | - |
 | PUT | `/api/voice-interview/sessions/{sessionId}/pause` | 暂停会话 | `{ reason? }` | `null` | - |
-| PUT | `/api/voice-interview/sessions/{sessionId}/resume` | 恢复会话（含 `webSocketUrl`） | - | [`VoiceSession`](#voicesession) | - |
+| PUT | `/api/voice-interview/sessions/{sessionId}/resume` | 恢复会话（含 `webSocketUrl`；对 IN_PROGRESS 幂等成功，#60） | - | [`VoiceSession`](#voicesession) | - |
 | DELETE | `/api/voice-interview/sessions/{sessionId}` | 删除会话 | - | `null` | - |
 | GET | `/api/voice-interview/sessions/{sessionId}/messages` | 会话消息列表（**裸数组**） | - | [`VoiceMessage`](#voicemessage)`[]` | - |
 | GET | `/api/voice-interview/sessions/{sessionId}/evaluation` | 获取评估状态/结果 | - | [`VoiceEvaluationStatus`](#voiceevaluationstatus) | - |

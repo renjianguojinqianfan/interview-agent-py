@@ -131,6 +131,11 @@ class VoiceSessionService:
 
     async def resume_session(self, session_id: int) -> VoiceSessionDTO:
         orm = await self._load_session(session_id)
+        # #60：IN_PROGRESS 重复 resume 幂等成功（历史 500 中间态/前端重试可自愈），
+        # 只重写缓存供 WS 握手快速恢复，不再执行状态 UPDATE；终态仍走状态机报非法迁移
+        if orm.status == VoiceSessionStatus.IN_PROGRESS.value:
+            await self._write_cache(orm)
+            return _to_session_dto(orm)
         validate_transition(VoiceSessionStatus(orm.status), VoiceSessionStatus.IN_PROGRESS)
         orm.status = VoiceSessionStatus.IN_PROGRESS.value
         orm.resumed_at = datetime.now(UTC)
