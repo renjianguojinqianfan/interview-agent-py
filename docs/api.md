@@ -261,12 +261,12 @@
 | PUT | `/api/llm-provider/voice/asr` | 更新 ASR 配置 | `AsrConfigRequest` | `null` | 5/s |
 | GET | `/api/llm-provider/voice/tts` | 获取 TTS 配置 | - | [`TtsConfig`](#ttsconfig) | 30/s |
 | PUT | `/api/llm-provider/voice/tts` | 更新 TTS 配置 | `TtsConfigRequest` | `null` | 5/s |
-| POST | `/api/llm-provider/voice/asr/test` | ASR 连通性测试 | - | `{ success, message, model }` | 10/s |
-| POST | `/api/llm-provider/voice/tts/test` | TTS 连通性测试 | - | `{ success, message, model }` | 10/s |
+| POST | `/api/llm-provider/voice/asr/test` | ASR 连接测试（真实 WS 握手鉴权，#55） | - | `{ success, message, model }` | 10/s |
+| POST | `/api/llm-provider/voice/tts/test` | TTS 连接测试（真实 WS 握手鉴权，#55） | - | `{ success, message, model }` | 10/s |
 
 - `providerId` 为**字符串**（= provider 名，ADR-0015）。
 - `apiKey` 写入时加密存储（AES-256-GCM），读出时以 `maskedApiKey`（首3***尾3）返回，不回传明文。
-- `POST /voice/tts/test` 后端已实现，前端 api 模块暂未封装调用。
+- 测试连接语义（#55）：携带解密后的 api_key 对 realtime 端点做真实 WebSocket 握手。key 未配置 → 直接失败不发起连接；HTTP 401/403 → 「鉴权失败，请检查 api_key」；其他失败归网络/握手错误。TTS 与 ASR 共用 `asr_url` 端点（仅 model 不同，设计使然）。
 
 ---
 

@@ -2,6 +2,9 @@ import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from app.application.llm_provider.schemas import (
     AsrConfigRequest,
@@ -352,57 +355,146 @@ class TestTestProvider:
         assert "connection refused" in result.message
 
 
-class TestTestAsrConfig:
-    async def test_test_asr_config_tcp_success(self, service, mock_voice_config_repo) -> None:
-        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config())
-        mock_writer = MagicMock()
-        mock_writer.wait_closed = AsyncMock()
-        with patch(
-            "app.application.llm_provider.service.asyncio.open_connection",
-            new_callable=AsyncMock,
-            return_value=(AsyncMock(), mock_writer),
-        ):
-            result = await service.test_asr_config()
-        assert result.success is True
-        assert "dashscope" in result.message
+class _FakeRealtimeConnection:
+    """记录 close 调用的假 realtime 连接（#55 握手测试）。"""
 
-    async def test_test_asr_config_tcp_failure(self, service, mock_voice_config_repo) -> None:
-        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config())
-        with patch(
-            "app.application.llm_provider.service.asyncio.open_connection",
-            new_callable=AsyncMock,
-            side_effect=ConnectionRefusedError("connection refused"),
-        ):
-            result = await service.test_asr_config()
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def send(self, message: str) -> None:  # pragma: no cover - 协议占位
+        return None
+
+    async def recv(self) -> str:  # pragma: no cover - 协议占位
+        return ""
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _install_connector(
+    service: LlmProviderService, error: Exception | None = None
+) -> tuple[_FakeRealtimeConnection, list[tuple[str, dict[str, str]]]]:
+    """向 service 注入记录调用的假连接器，返回 (连接, 调用记录)。"""
+    conn = _FakeRealtimeConnection()
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    async def connector(uri: str, headers: dict[str, str]) -> _FakeRealtimeConnection:
+        calls.append((uri, headers))
+        if error is not None:
+            raise error
+        return conn
+
+    service._realtime_connector = connector  # type: ignore[assignment]
+    return conn, calls
+
+
+def _invalid_status(code: int) -> InvalidStatus:
+    return InvalidStatus(Response(code, "rejected", Headers()))
+
+
+class TestTestAsrConfig:
+    """#55：测试连接必须携带解密 api_key 做真实 WS 握手，不再是裸 TCP 假阳性。"""
+
+    async def test_empty_key_fails_without_connecting(self, service, mock_voice_config_repo) -> None:
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(asr_key_cipher=""))
+        _conn, calls = _install_connector(service)
+        result = await service.test_asr_config()
         assert result.success is False
-        assert "connection refused" in result.message
+        assert "api_key 未配置" in result.message
+        assert calls == []  # key 为空不得发起外部连接
+
+    async def test_auth_failure_reports_auth_error(self, service, mock_voice_config_repo, encryption_service) -> None:
+        cipher = encryption_service.encrypt("sk-wrong")
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(asr_key_cipher=cipher))
+        _install_connector(service, error=_invalid_status(401))
+        result = await service.test_asr_config()
+        assert result.success is False
+        assert "鉴权失败" in result.message
+
+    async def test_handshake_success_uses_key_and_model_then_closes(
+        self, service, mock_voice_config_repo, encryption_service
+    ) -> None:
+        cipher = encryption_service.encrypt("sk-asr-real")
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(asr_key_cipher=cipher))
+        conn, calls = _install_connector(service)
+        result = await service.test_asr_config()
+        assert result.success is True
+        assert result.model == "qwen3-asr-flash-realtime"
+        uri, headers = calls[0]
+        assert "model=qwen3-asr-flash-realtime" in uri
+        assert headers["Authorization"] == "Bearer sk-asr-real"
+        assert conn.closed is True  # 测试完即断开
+
+    async def test_network_failure_reports_connection_error(
+        self, service, mock_voice_config_repo, encryption_service
+    ) -> None:
+        cipher = encryption_service.encrypt("sk-asr-real")
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(asr_key_cipher=cipher))
+        _install_connector(service, error=OSError("dns resolution failed"))
+        result = await service.test_asr_config()
+        assert result.success is False
+        assert "ASR 连接失败" in result.message
 
 
 class TestTestTtsConfig:
-    async def test_test_tts_config_tcp_success(self, service, mock_voice_config_repo) -> None:
-        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config())
-        mock_writer = MagicMock()
-        mock_writer.wait_closed = AsyncMock()
-        with patch(
-            "app.application.llm_provider.service.asyncio.open_connection",
-            new_callable=AsyncMock,
-            return_value=(AsyncMock(), mock_writer),
-        ):
-            result = await service.test_tts_config()
+    """#55：TTS 测试必须用 tts_api_key + tts_model 握手（此前误用 ASR 配置且不验鉴权）。"""
+
+    async def test_empty_key_fails_without_connecting(self, service, mock_voice_config_repo) -> None:
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(tts_key_cipher=""))
+        _conn, calls = _install_connector(service)
+        result = await service.test_tts_config()
+        assert result.success is False
+        assert "api_key 未配置" in result.message
+        assert calls == []
+
+    async def test_auth_failure_reports_auth_error(self, service, mock_voice_config_repo, encryption_service) -> None:
+        cipher = encryption_service.encrypt("sk-wrong")
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(tts_key_cipher=cipher))
+        _install_connector(service, error=_invalid_status(403))
+        result = await service.test_tts_config()
+        assert result.success is False
+        assert "鉴权失败" in result.message
+
+    async def test_handshake_uses_tts_key_and_tts_model(
+        self, service, mock_voice_config_repo, encryption_service
+    ) -> None:
+        """钉住复制粘贴 bug：必须用 tts_model 构造 uri、tts_api_key 鉴权（url 复用 asr_url 属设计使然）。"""
+        asr_cipher = encryption_service.encrypt("sk-asr-key")
+        tts_cipher = encryption_service.encrypt("sk-tts-key")
+        mock_voice_config_repo.get_singleton = AsyncMock(
+            return_value=_make_voice_config(asr_key_cipher=asr_cipher, tts_key_cipher=tts_cipher)
+        )
+        conn, calls = _install_connector(service)
+        result = await service.test_tts_config()
         assert result.success is True
         assert result.model == "qwen3-tts-flash-realtime"
+        uri, headers = calls[0]
+        assert "model=qwen3-tts-flash-realtime" in uri
+        assert uri.startswith("wss://dashscope.aliyuncs.com/api-ws/v1/realtime")
+        assert headers["Authorization"] == "Bearer sk-tts-key"
+        assert conn.closed is True
 
-    async def test_test_tts_config_tcp_failure(self, service, mock_voice_config_repo) -> None:
-        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config())
-        with patch(
-            "app.application.llm_provider.service.asyncio.open_connection",
-            new_callable=AsyncMock,
-            side_effect=ConnectionRefusedError("connection refused"),
-        ):
-            result = await service.test_tts_config()
+    async def test_network_failure_reports_connection_error(
+        self, service, mock_voice_config_repo, encryption_service
+    ) -> None:
+        cipher = encryption_service.encrypt("sk-tts-real")
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(tts_key_cipher=cipher))
+        _install_connector(service, error=TimeoutError())
+        result = await service.test_tts_config()
         assert result.success is False
-        assert "connection refused" in result.message
-        assert result.model == "qwen3-tts-flash-realtime"
+        # 无参 TimeoutError str 为空串，必须回退到异常类名（review HIGH：空消息回归防护）
+        assert "TTS 连接失败: TimeoutError" in result.message
+
+    async def test_close_failure_does_not_flip_success(
+        self, service, mock_voice_config_repo, encryption_service
+    ) -> None:
+        """握手成功即定论：close 抛异常不得误报为连接失败（review MEDIUM）。"""
+        cipher = encryption_service.encrypt("sk-tts-real")
+        mock_voice_config_repo.get_singleton = AsyncMock(return_value=_make_voice_config(tts_key_cipher=cipher))
+        conn, _calls = _install_connector(service)
+        conn.close = AsyncMock(side_effect=RuntimeError("abort during close"))  # type: ignore[method-assign]
+        result = await service.test_tts_config()
+        assert result.success is True
 
     async def test_test_tts_config_raises_when_uninitialized(self, service, mock_voice_config_repo) -> None:
         mock_voice_config_repo.get_singleton = AsyncMock(return_value=None)

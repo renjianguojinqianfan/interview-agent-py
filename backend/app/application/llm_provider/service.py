@@ -1,11 +1,12 @@
 import asyncio
+import contextlib
 import logging
-from urllib.parse import urlparse
 
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from websockets.exceptions import InvalidStatus
 
 from app.application.llm_provider.schemas import (
     AsrConfigDTO,
@@ -27,6 +28,7 @@ from app.infrastructure.db.models.voice_config import VoiceConfig
 from app.infrastructure.db.repositories.llm_global_setting_repository import LlmGlobalSettingRepository
 from app.infrastructure.db.repositories.llm_provider_repository import LlmProviderRepository
 from app.infrastructure.db.repositories.voice_config_repository import VoiceConfigRepository
+from app.infrastructure.voice.realtime_ws import RealtimeConnector, build_realtime_uri, default_connect
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +126,7 @@ class LlmProviderService:
         voice_config_repository: VoiceConfigRepository,
         encryption_service: ApiKeyEncryptionService,
         registry: LlmProviderRegistry,
+        realtime_connector: RealtimeConnector = default_connect,
     ) -> None:
         self._session = session
         self._provider_repository = provider_repository
@@ -131,6 +134,8 @@ class LlmProviderService:
         self._voice_config_repository = voice_config_repository
         self._encryption_service = encryption_service
         self._registry = registry
+        # #55：测试连接复用运行时同款 realtime 连接原语（可注入便于测试）
+        self._realtime_connector = realtime_connector
 
     async def list_providers(self) -> list[ProviderDTO]:
         providers = await self._provider_repository.list_all(self._session)
@@ -396,53 +401,71 @@ class LlmProviderService:
         config = await self._voice_config_repository.get_singleton(self._session)
         if config is None:
             raise BusinessException(ErrorCode.VOICE_CONFIG_READ_FAILED, "语音服务配置未初始化")
-        parsed = urlparse(config.asr_url)
-        host = parsed.hostname
-        port = parsed.port or (443 if parsed.scheme == "wss" else 80)
-        try:
-            _reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=_TEST_CONNECT_TIMEOUT,
-            )
-            writer.close()
-            await writer.wait_closed()
-            return ProviderTestResult(
-                success=True,
-                message=f"ASR WebSocket 连接成功: {host}",
-                model=config.asr_model,
-            )
-        except Exception as e:
-            return ProviderTestResult(
-                success=False,
-                message=f"ASR 连接失败: {e}",
-                model=config.asr_model,
-            )
+        return await self._test_realtime_handshake(
+            label="ASR",
+            url=config.asr_url,
+            model=config.asr_model,
+            api_key_cipher=config.asr_api_key,
+        )
 
     async def test_tts_config(self) -> ProviderTestResult:
         config = await self._voice_config_repository.get_singleton(self._session)
         if config is None:
             raise BusinessException(ErrorCode.VOICE_CONFIG_READ_FAILED, "语音服务配置未初始化")
-        parsed = urlparse(config.asr_url)
-        host = parsed.hostname
-        port = parsed.port or (443 if parsed.scheme == "wss" else 80)
-        try:
-            _reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=_TEST_CONNECT_TIMEOUT,
-            )
-            writer.close()
-            await writer.wait_closed()
-            return ProviderTestResult(
-                success=True,
-                message=f"TTS WebSocket 连接成功: {host}",
-                model=config.tts_model,
-            )
-        except Exception as e:
+        # url 复用 asr_url 属设计使然（ASR/TTS 共用 realtime 端点，仅 model 不同，见 tts.py）
+        return await self._test_realtime_handshake(
+            label="TTS",
+            url=config.asr_url,
+            model=config.tts_model,
+            api_key_cipher=config.tts_api_key,
+        )
+
+    async def _test_realtime_handshake(
+        self, label: str, url: str, model: str, api_key_cipher: str
+    ) -> ProviderTestResult:
+        """#55：携带解密 api_key 做真实 realtime WS 握手（裸 TCP 探测不验鉴权会假阳性）。"""
+        api_key = self._encryption_service.decrypt(api_key_cipher)
+        if not api_key:
             return ProviderTestResult(
                 success=False,
-                message=f"TTS 连接失败: {e}",
-                model=config.tts_model,
+                message=f"{label} api_key 未配置，请先在语音配置中填写",
+                model=model,
             )
+        uri = build_realtime_uri(url, model)
+        headers = {"Authorization": f"Bearer {api_key}"}
+        try:
+            conn = await asyncio.wait_for(
+                self._realtime_connector(uri, headers),
+                timeout=_TEST_CONNECT_TIMEOUT,
+            )
+        except InvalidStatus as e:
+            status = e.response.status_code
+            if status in (401, 403):
+                return ProviderTestResult(
+                    success=False,
+                    message=f"{label} 鉴权失败（HTTP {status}），请检查 api_key",
+                    model=model,
+                )
+            return ProviderTestResult(
+                success=False,
+                message=f"{label} 连接失败: 服务端拒绝握手（HTTP {status}）",
+                model=model,
+            )
+        except Exception as e:
+            # 超时抛无参 TimeoutError（str 为空串），回退到异常类名避免空消息
+            return ProviderTestResult(
+                success=False,
+                message=f"{label} 连接失败: {str(e) or e.__class__.__name__}",
+                model=model,
+            )
+        # 握手成功即定论（鉴权+握手已验证）；close 失败不改变结果
+        with contextlib.suppress(Exception):
+            await conn.close()
+        return ProviderTestResult(
+            success=True,
+            message=f"{label} WebSocket 握手成功: {model}",
+            model=model,
+        )
 
     def _to_dto(self, provider: LlmProvider, chat_id: int | None, emb_id: int | None) -> ProviderDTO:
         masked_key = _mask_api_key(self._encryption_service.decrypt(provider.api_key))
