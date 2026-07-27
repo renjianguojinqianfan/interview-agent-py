@@ -34,9 +34,9 @@ from app.application.voice.ws_schemas import (
     AudioMessage,
     ControlMessage,
     ErrorMessage,
+    ServerControlMessage,
     SubtitleMessage,
     TextMessage,
-    WarningMessage,
     parse_client_message,
 )
 from app.domain.entities.voice_interview import (
@@ -266,6 +266,8 @@ class VoiceWsOrchestrator:
             reason = "asr"
             try:
                 await asr.connect()
+                # #54：ASR 就绪即通知客户端解锁麦克风（前端 isAsrReady 的唯一来源）
+                await self._safe_send(ws, ServerControlMessage(action="asr_ready"))
                 reason = await self._pump(ws, asr)
             except AsrAuthError as e:
                 # #50：鉴权失败不可恢复，直接告知客户端并终止，不浪费重连等待
@@ -280,6 +282,10 @@ class VoiceWsOrchestrator:
                 return
             attempts += 1
             logger.info("ASR 断开，第 %d/%d 次重连: sessionId=%s", attempts, self._asr_max_reconnect, self._session_id)
+            # #54：重连期间通知前端置灰麦克风，重连成功后由 asr_ready 重新解锁
+            await self._safe_send(
+                ws, ServerControlMessage(action="asr_reconnecting", message="语音识别连接中断，正在重连")
+            )
             await asyncio.sleep(self._asr_reconnect_delay_seconds)
 
     async def _client_to_asr(self, ws: ClientWebSocket, asr: AsrClient) -> None:
@@ -320,6 +326,8 @@ class VoiceWsOrchestrator:
                 await self._safe_send(ws, SubtitleMessage(text=transcript.text, is_final=False))
 
     async def _on_final_transcript(self, ws: ClientWebSocket, text: str) -> None:
+        # #54：final 字幕下发客户端（前端据此把用户发言写入对话实录）
+        await self._safe_send(ws, SubtitleMessage(text=text, is_final=True))
         self._final_segments.append(text)
         merged = merge_segments(self._final_segments)
         if should_commit(merged, silence_ms=0):
@@ -360,13 +368,16 @@ class VoiceWsOrchestrator:
             self._ai_speaking = True
             try:
                 reply_parts: list[str] = []
+                accumulated = ""
                 pending = ""
                 semaphore = asyncio.Semaphore(TTS_MAX_CONCURRENCY)
                 sentence_tasks: list[asyncio.Task[list[str]]] = []
                 try:
                     async for token in self._dialogue_llm.stream_reply(self._context, self._format_history(), answer):
                         reply_parts.append(token)
-                        await self._safe_send(ws, TextMessage(text=token, is_final=False))
+                        # #54：流式发送累积全文（前端 setAiText 不做拼接，单 token 会导致文本闪烁）
+                        accumulated += token
+                        await self._safe_send(ws, TextMessage(content=accumulated, final=False))
                         pending += token
                         sentences, pending = split_sentences(pending)
                         for sentence in sentences:
@@ -383,10 +394,12 @@ class VoiceWsOrchestrator:
                         await self._safe_send(ws, ErrorMessage(code="llm_error", message="生成回复失败"))
 
                 reply = "".join(reply_parts).strip()
-                await self._safe_send(ws, TextMessage(text=reply, is_final=True))
+                await self._safe_send(ws, TextMessage(content=reply, final=True))
                 # 句子级并发合成，但按句子顺序发送音频块，保证前端播放顺序正确。
                 await self._emit_audio_in_order(ws, sentence_tasks)
                 await self._safe_send(ws, AudioChunkMessage(index=self._next_audio_index(), data="", is_last=True))
+                # #54：随发 audio_complete，前端据此触发音频排空收尾
+                await self._safe_send(ws, ServerControlMessage(action="audio_complete"))
                 if reply:
                     self._history.append((answer, reply))
                     await self._persist_turn(answer, reply)
@@ -477,11 +490,14 @@ class VoiceWsOrchestrator:
         elapsed_ms = self._now() - self._last_activity_ms
         if elapsed_ms >= PAUSE_IDLE_TIMEOUT_SECONDS * 1000:
             await self._pause_session()
-            await self._safe_send(ws, WarningMessage(code="pause_timeout", message="长时间无活动，面试已暂停"))
+            # #54：暂停事件走 control 消息（前端 onControl 分支处理；onmessage 无 warning 分支）
+            await self._safe_send(ws, ServerControlMessage(action="pause_timeout", message="长时间无活动，面试已暂停"))
             return True
         if elapsed_ms >= PAUSE_WARNING_SECONDS * 1000 and not self._pause_warned:
             self._pause_warned = True
-            await self._safe_send(ws, WarningMessage(code="pause_timeout_warning", message="即将因无活动而暂停"))
+            await self._safe_send(
+                ws, ServerControlMessage(action="pause_timeout_warning", message="即将因无活动而暂停")
+            )
         return False
 
     async def _pause_session(self) -> None:
@@ -502,7 +518,7 @@ class VoiceWsOrchestrator:
         opening = await self._opening_loader.get_opening_question(self._context.skill_id)
         if not opening:
             return
-        await self._safe_send(ws, TextMessage(text=opening, is_final=True))
+        await self._safe_send(ws, TextMessage(content=opening, final=True))
         self._ai_speaking = True
         try:
             await self._speak_text(ws, opening)
@@ -521,6 +537,8 @@ class VoiceWsOrchestrator:
         tasks = [asyncio.create_task(self._synthesize_sentence(sentence, semaphore)) for sentence in sentences]
         await self._emit_audio_in_order(ws, tasks)
         await self._safe_send(ws, AudioChunkMessage(index=self._next_audio_index(), data="", is_last=True))
+        # #54：随发 audio_complete，前端据此触发音频排空收尾
+        await self._safe_send(ws, ServerControlMessage(action="audio_complete"))
 
     async def _emit_audio_in_order(self, ws: ClientWebSocket, tasks: list[asyncio.Task[list[str]]]) -> None:
         """按句子创建顺序等待各合成任务并发送音频块，逐任务隔离异常（不静默吞没）。"""
@@ -585,9 +603,10 @@ class VoiceWsOrchestrator:
     async def _safe_send(
         self,
         ws: ClientWebSocket,
-        message: SubtitleMessage | TextMessage | AudioChunkMessage | ErrorMessage | WarningMessage,
+        message: SubtitleMessage | TextMessage | AudioChunkMessage | ErrorMessage | ServerControlMessage,
     ) -> None:
         try:
-            await ws.send_text(json.dumps(message.model_dump(by_alias=True), ensure_ascii=False))
+            # exclude_none：message 为空的 control 消息不下发 null 字段（对齐 Java 版线上格式）
+            await ws.send_text(json.dumps(message.model_dump(by_alias=True, exclude_none=True), ensure_ascii=False))
         except Exception as e:
             logger.warning("向客户端发送消息失败: sessionId=%s, error=%s", self._session_id, e)

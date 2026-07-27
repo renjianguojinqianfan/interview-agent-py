@@ -7,9 +7,9 @@ from app.application.voice.ws_schemas import (
     AudioMessage,
     ControlMessage,
     ErrorMessage,
+    ServerControlMessage,
     SubtitleMessage,
     TextMessage,
-    WarningMessage,
     parse_client_message,
 )
 
@@ -39,9 +39,22 @@ class TestOutboundSerialization:
         dumped = SubtitleMessage(text="你好", is_final=False).model_dump(by_alias=True)
         assert dumped == {"type": "subtitle", "text": "你好", "isFinal": False}
 
-    def test_text_camel_case(self) -> None:
-        dumped = TextMessage(text="回答", is_final=True).model_dump(by_alias=True)
-        assert dumped == {"type": "text", "text": "回答", "isFinal": True}
+    def test_text_uses_content_and_final_fields(self) -> None:
+        """#54：text 消息字段须为 content/final（前端 WebSocketTextMessage 契约）。"""
+        dumped = TextMessage(content="回答", final=True).model_dump(by_alias=True)
+        assert dumped == {"type": "text", "content": "回答", "final": True}
+
+    def test_server_control_message(self) -> None:
+        """#54：服务端出站控制消息（asr_ready/asr_reconnecting/audio_complete/pause_timeout*）。
+
+        message 为空时经 exclude_none 序列化不下发 null 字段（对齐 Java 版线上格式）。
+        """
+        dumped = ServerControlMessage(action="asr_ready").model_dump(by_alias=True, exclude_none=True)
+        assert dumped == {"type": "control", "action": "asr_ready"}
+        dumped = ServerControlMessage(action="asr_reconnecting", message="重连中").model_dump(
+            by_alias=True, exclude_none=True
+        )
+        assert dumped == {"type": "control", "action": "asr_reconnecting", "message": "重连中"}
 
     def test_audio_chunk_camel_case(self) -> None:
         dumped = AudioChunkMessage(index=0, data="QUJD", is_last=True).model_dump(by_alias=True)
@@ -50,7 +63,3 @@ class TestOutboundSerialization:
     def test_error_message(self) -> None:
         dumped = ErrorMessage(code="asr_error", message="失败").model_dump(by_alias=True)
         assert dumped == {"type": "error", "code": "asr_error", "message": "失败"}
-
-    def test_warning_message(self) -> None:
-        dumped = WarningMessage(code="pause_timeout_warning", message="即将暂停").model_dump(by_alias=True)
-        assert dumped == {"type": "warning", "code": "pause_timeout_warning", "message": "即将暂停"}

@@ -118,5 +118,8 @@ def test_streams_subtitle_for_partial_transcript() -> None:
     events = [AsrTranscript(text="今天", is_final=False)]
     app.dependency_overrides[get_voice_ws_orchestrator_factory] = _factory_override("IN_PROGRESS", events)
     with client.websocket_connect("/ws/voice-interview/1") as ws:
+        # #54：ASR 就绪后首条消息为 asr_ready 控制消息（前端据此解锁麦克风；空 message 不下发）
+        ready = json.loads(ws.receive_text())
+        assert ready == {"type": "control", "action": "asr_ready"}
         msg = json.loads(ws.receive_text())
         assert msg == {"type": "subtitle", "text": "今天", "isFinal": False}

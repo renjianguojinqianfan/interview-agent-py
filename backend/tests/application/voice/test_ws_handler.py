@@ -308,9 +308,9 @@ class TestCommitTurn:
         await orch._commit_turn(ws)
 
         text_msgs = ws.sent_of("text")
-        assert [m for m in text_msgs if not m["isFinal"]]  # 逐 token
-        finals = [m for m in text_msgs if m["isFinal"]]
-        assert finals and finals[-1]["text"] == "你好。请介绍"
+        assert [m for m in text_msgs if not m["final"]]  # 流式（累积全文）
+        finals = [m for m in text_msgs if m["final"]]
+        assert finals and finals[-1]["content"] == "你好。请介绍"
 
         audio_msgs = ws.sent_of("audio_chunk")
         # audio_chunk.data 必须为带 44 字节 WAV 头的 base64（前端 handleAudioChunk 跳过前 44 字节取 PCM）
@@ -463,9 +463,11 @@ class TestOpeningQuestion:
         ws = _FakeClientWs()
         await orch._send_opening_question(ws)
         texts = ws.sent_of("text")
-        assert texts and texts[0]["text"] == "欢迎参加面试。" and texts[0]["isFinal"] is True
+        assert texts and texts[0]["content"] == "欢迎参加面试。" and texts[0]["final"] is True
         audio = ws.sent_of("audio_chunk")
         assert audio and audio[-1]["isLast"] is True
+        # #54：开场音频链末尾同样随发 audio_complete
+        assert any(m["action"] == "audio_complete" for m in ws.sent_of("control"))
 
     async def test_empty_opening_skipped(self) -> None:
         orch = _make_orchestrator(opening="")
@@ -527,7 +529,8 @@ class TestPauseTimeout:
         ws = _FakeClientWs()
         stop = await orch._check_pause_timeout(ws)
         assert stop is False
-        assert ws.sent_of("warning")[0]["code"] == "pause_timeout_warning"
+        # #54：暂停超时事件走 control 消息（前端 onControl 分支处理）
+        assert ws.sent_of("control")[0]["action"] == "pause_timeout_warning"
 
     async def test_warning_sent_only_once(self) -> None:
         orch = _make_orchestrator(now_ms=275_000.0)
@@ -536,7 +539,7 @@ class TestPauseTimeout:
         ws = _FakeClientWs()
         await orch._check_pause_timeout(ws)
         await orch._check_pause_timeout(ws)
-        assert len(ws.sent_of("warning")) == 1
+        assert len(ws.sent_of("control")) == 1
 
     async def test_pauses_and_stops_at_300s(self) -> None:
         orm = _phase_orm("TECH")
@@ -548,7 +551,7 @@ class TestPauseTimeout:
         stop = await orch._check_pause_timeout(ws)
         assert stop is True
         assert orm.status == "PAUSED"
-        assert ws.sent_of("warning")[0]["code"] == "pause_timeout"
+        assert ws.sent_of("control")[0]["action"] == "pause_timeout"
 
 
 class _BlockingClientWs(_FakeClientWs):
@@ -588,3 +591,57 @@ class TestAsrReconnect:
         await orch.run(ws)
         assert asr.connect_count == 3  # 1 初始 + 2 重连
         assert asr.closed_count == 3
+
+
+class TestServerControlContract:
+    """#54：服务端出站控制消息契约（前端复用 Java 契约：缺 asr_ready 即麦克风永久置灰）。"""
+
+    async def test_sends_asr_ready_after_connect(self) -> None:
+        asr = _FakeAsr()
+        orch = _make_orchestrator(cached_status="IN_PROGRESS", db_orm=_orm(), asr=asr)
+        ws = _FakeClientWs()
+        await orch.run(ws)
+        actions = [m["action"] for m in ws.sent_of("control")]
+        assert "asr_ready" in actions
+
+    async def test_sends_asr_reconnecting_then_ready_again(self) -> None:
+        asr = _ReconnectAsr()
+        orch = _make_orchestrator(
+            cached_status="IN_PROGRESS", db_orm=_orm(), asr=asr, asr_max_reconnect=1, asr_reconnect_delay=0.0
+        )
+        ws = _BlockingClientWs()
+        await orch.run(ws)
+        actions = [m["action"] for m in ws.sent_of("control")]
+        assert "asr_reconnecting" in actions
+        assert actions.count("asr_ready") == 2  # 初始连接 + 重连成功后重新解锁
+
+    async def test_audio_complete_follows_last_chunk(self) -> None:
+        orch = _make_orchestrator(tokens=["你好。"])
+        _ready(orch)
+        orch._final_segments = ["我叫张三"]
+        ws = _FakeClientWs()
+        await orch._commit_turn(ws)
+        last_chunk_idx = max(i for i, m in enumerate(ws.sent) if m["type"] == "audio_chunk" and m["isLast"])
+        followers = [(m["type"], m.get("action")) for m in ws.sent[last_chunk_idx + 1 :]]
+        assert ("control", "audio_complete") in followers
+
+    async def test_final_transcript_pushed_as_final_subtitle(self) -> None:
+        """final 转写须下发 isFinal=true 字幕（前端据此把用户发言写入对话实录）。"""
+        orch = _make_orchestrator(tokens=["好的。"])
+        _ready(orch)
+        ws = _FakeClientWs()
+        await orch._on_final_transcript(ws, "a" * 25)
+        finals = [m for m in ws.sent_of("subtitle") if m["isFinal"]]
+        assert finals and finals[0]["text"] == "a" * 25
+
+    async def test_text_streaming_cumulative_with_content_field(self) -> None:
+        """text 出站 JSON 键须为 content/final，且流式为累积全文（前端 setAiText 不做拼接）。"""
+        orch = _make_orchestrator(tokens=["你好", "。", "请介绍"])
+        _ready(orch)
+        orch._final_segments = ["我叫张三"]
+        ws = _FakeClientWs()
+        await orch._commit_turn(ws)
+        text_msgs = ws.sent_of("text")
+        partials = [m["content"] for m in text_msgs if not m["final"]]
+        assert partials == ["你好", "你好。", "你好。请介绍"]
+        assert text_msgs[-1] == {"type": "text", "content": "你好。请介绍", "final": True}

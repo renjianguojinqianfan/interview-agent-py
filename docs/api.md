@@ -305,12 +305,14 @@
 
 | type | 字段 | 说明 |
 |---|---|---|
-| `subtitle` | `text`, `isFinal` | ASR 转写字幕 |
+| `subtitle` | `text`, `isFinal` | ASR 转写字幕（`isFinal=true` 为最终结果，前端据此写入对话实录） |
 | `audio` | `data`(Base64), `text` | AI 回复音频 + 文本 |
 | `audio_chunk` | `data`(Base64 WAV), `index`, `isLast` | 分片音频 |
-| `text` | `content`, `final?` | AI 文本回复 |
+| `text` | `content`, `final?` | AI 文本回复（流式为累积全文，`final=true` 收尾） |
 | `control` | `action`, `message?`, `timestamp?` | 控制响应 |
 | `error` | `message` | 错误 |
+
+服务端 `control.action` 枚举（#54）：`asr_ready`（ASR 就绪，前端解锁麦克风）、`asr_reconnecting`（ASR 重连中，暂时置灰）、`audio_complete`（本轮音频链结束）、`pause_timeout_warning` / `pause_timeout`（无活动暂停预警/已暂停）。
 
 ---
 
