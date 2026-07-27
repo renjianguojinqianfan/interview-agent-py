@@ -73,7 +73,7 @@ cp .env.example .env
 | `S3_ACCESS_KEY` | MinIO/S3 AccessKey | `minioadmin` |
 | `S3_SECRET_KEY` | MinIO/S3 SecretKey | `minioadmin` |
 | `S3_BUCKET` | 存储桶名称 | `interview-guide` |
-| `AI_API_KEY` | LLM API Key | - |
+| `AI_BAILIAN_API_KEY` | LLM API Key（仅首启 DB 无 provider 时加密 seed 落库，运行时以数据库为准） | - |
 | `AI_BASE_URL` | LLM API 基础 URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
 | `AI_MODEL` | 默认模型 | `qwen3.5-flash` |
 | `SECRET_KEY` | 应用密钥 | - |

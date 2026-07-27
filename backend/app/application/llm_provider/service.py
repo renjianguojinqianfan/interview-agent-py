@@ -46,15 +46,29 @@ def _mask_api_key(key: str) -> str:
 
 async def seed_default_provider(
     session_factory: async_sessionmaker[AsyncSession],
+    encryption_service: ApiKeyEncryptionService,
+    raw_api_key: str,
 ) -> None:
     async with session_factory() as session:
         result = await session.execute(select(LlmProvider))
         if result.scalars().first() is None:
+            # issue #46：首启从环境变量 AI_BAILIAN_API_KEY 注入 key（对齐 Java 版 seedProviders）。
+            # 加密失败（如加密 key 未配置）跳过本次 seed 下次启动重试，避免空 key 落库后幂等逻辑
+            # 导致 key 永久丢失；也不上抛，以免 lifespan 外层 except 连带跳过其余 seed
+            api_key_cipher = ""
+            if raw_api_key:
+                try:
+                    api_key_cipher = encryption_service.encrypt(raw_api_key)
+                except BusinessException:
+                    logger.warning(
+                        "AI_BAILIAN_API_KEY 已设置但加密失败（检查 APP_AI_CONFIG_ENCRYPTION_KEY），跳过本次 seed"
+                    )
+                    return
             session.add(
                 LlmProvider(
                     provider_name="dashscope",
                     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-                    api_key="",
+                    api_key=api_key_cipher,
                     model="qwen3.5-flash",
                     embedding_model="text-embedding-v3",
                     embedding_dimensions=1024,

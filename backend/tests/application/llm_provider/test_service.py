@@ -13,7 +13,7 @@ from app.application.llm_provider.schemas import (
     TtsConfigRequest,
     UpdateProviderRequest,
 )
-from app.application.llm_provider.service import LlmProviderService, _mask_api_key
+from app.application.llm_provider.service import LlmProviderService, _mask_api_key, seed_default_provider
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.db.models.llm_global_setting import LlmGlobalSetting
@@ -501,3 +501,55 @@ class TestTestTtsConfig:
         with pytest.raises(BusinessException) as exc:
             await service.test_tts_config()
         assert exc.value.error_code == ErrorCode.VOICE_CONFIG_READ_FAILED
+
+
+def _make_seed_session(existing_provider: LlmProvider | None = None) -> AsyncMock:
+    session = AsyncMock()
+    session.add = MagicMock()
+    result = MagicMock()
+    result.scalars.return_value.first.return_value = existing_provider
+    session.execute = AsyncMock(return_value=result)
+    return session
+
+
+def _make_session_factory(session: AsyncMock) -> MagicMock:
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    factory.return_value.__aexit__ = AsyncMock(return_value=False)
+    return factory
+
+
+class TestSeedDefaultProvider:
+    """issue #46：首启从环境变量注入 LLM api_key（对齐 Java 版 seedProviders）。"""
+
+    async def test_seed_with_env_key_stores_encrypted(self, encryption_service) -> None:
+        session = _make_seed_session()
+        await seed_default_provider(_make_session_factory(session), encryption_service, "sk-env-key-123")
+
+        provider = session.add.call_args[0][0]
+        assert provider.api_key != "sk-env-key-123"
+        assert encryption_service.decrypt(provider.api_key) == "sk-env-key-123"
+        session.commit.assert_awaited_once()
+
+    async def test_seed_with_empty_env_keeps_blank_key(self, encryption_service) -> None:
+        session = _make_seed_session()
+        await seed_default_provider(_make_session_factory(session), encryption_service, "")
+
+        provider = session.add.call_args[0][0]
+        assert provider.api_key == ""
+        session.commit.assert_awaited_once()
+
+    async def test_seed_skips_when_provider_exists(self, encryption_service) -> None:
+        session = _make_seed_session(existing_provider=_make_provider())
+        await seed_default_provider(_make_session_factory(session), encryption_service, "sk-env-key-123")
+
+        session.add.assert_not_called()
+        session.commit.assert_not_awaited()
+
+    async def test_seed_skips_when_encryption_key_missing(self) -> None:
+        """加密 key 未配置时不落空 key（幂等会致 key 永久丢失），跳过本次 seed 待下次启动重试。"""
+        session = _make_seed_session()
+        await seed_default_provider(_make_session_factory(session), ApiKeyEncryptionService(""), "sk-env-key-123")
+
+        session.add.assert_not_called()
+        session.commit.assert_not_awaited()

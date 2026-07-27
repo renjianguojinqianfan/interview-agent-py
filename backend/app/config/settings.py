@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     s3_bucket: str = "interview-guide"
     s3_region: str = "us-east-1"
 
-    ai_api_key: str = ""
+    ai_bailian_api_key: str = ""
+    """AI_BAILIAN_API_KEY: 首启 DB 无 provider 时 seed 注入的 LLM api_key（对齐 Java 版），运行时以数据库为准。"""
     ai_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     ai_model: str = "qwen3.5-flash"
 

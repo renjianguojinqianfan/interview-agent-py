@@ -39,6 +39,7 @@ from app.api.routers.voice_interview import router as voice_interview_router
 from app.api.routers.voice_ws import router as voice_ws_router
 from app.application.llm_provider.service import seed_default_provider, seed_global_setting, seed_voice_config
 from app.config.settings import settings
+from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.db.session import async_session_factory
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,8 @@ _CONSUMER_AUTO_START = "pytest" not in sys.modules
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     try:
-        await seed_default_provider(async_session_factory)
+        encryption_service = ApiKeyEncryptionService(settings.app_ai_config_encryption_key)
+        await seed_default_provider(async_session_factory, encryption_service, settings.ai_bailian_api_key)
         await seed_global_setting(async_session_factory)
         await seed_voice_config(async_session_factory)
     except Exception:
