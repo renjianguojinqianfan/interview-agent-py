@@ -436,11 +436,7 @@ VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
         "DELETE /api/voice-interview/sessions/{}",  # 删除会话（CRUD）
         "POST /api/voice-interview/sessions/{}/evaluation",  # 触发评估（与 end→评估入队同类）
         # —— 面试排期 ——
-        "POST /api/interview-schedule",  # 创建排期（CRUD）
-        "POST /api/interview-schedule/parse",  # 解析排期（含 LLM）
-        "PATCH /api/interview-schedule/{}/status",  # 改状态（CRUD）
-        "PUT /api/interview-schedule/{}",  # 更新排期（CRUD）
-        "DELETE /api/interview-schedule/{}",  # 删除排期（CRUD）
+        "POST /api/interview-schedule/parse",  # 解析排期（含 LLM）；create/update/status/delete 由 #63 竖切覆盖
         # —— LLM 供应商配置（配置 CRUD + 外呼连通性测试，非核心业务数据流）——
         "POST /api/llm-provider",  # 新增供应商（配置 CRUD）
         "PUT /api/llm-provider/{}",  # 更新供应商（配置 CRUD）
@@ -527,3 +523,32 @@ def test_side_effect_endpoints_covered_by_vertical_or_registered() -> None:
     assert not leaked, "VERTICAL_UNCOVERED_ALLOWLIST 中的端点已被竖切覆盖，应移除以收紧守卫：\n" + "\n".join(leaked)
     stale = sorted(VERTICAL_UNCOVERED_ALLOWLIST - side_effect)
     assert not stale, "VERTICAL_UNCOVERED_ALLOWLIST 存在已消失或非副作用端点，请清理：\n" + "\n".join(stale)
+
+
+def test_orm_with_onupdate_columns_has_eager_defaults() -> None:
+    """ADR-0019（#60/#63 GC loop）：带 onupdate 服务端生成列的 ORM 必须启用 eager_defaults。
+
+    UPDATE flush 会把 onupdate 列标记过期，commit 后构造 DTO 读取该列会在 asyncpg
+    异步上下文触发同步懒加载抛 MissingGreenlet -> 500（#60 resume、#63 日程更新实证）。
+    eager_defaults=True 让 UPDATE 经 RETURNING 立即取回，从 Base 统一继承；本守卫防止
+    新模型或单模型覆盖把它关回去。
+    """
+    import importlib
+    import pkgutil
+
+    import app.infrastructure.db.models as models_pkg
+    from app.infrastructure.db.base import Base
+
+    # 递归导入（walk_packages）：未来模型若按子包组织也不会漏检
+    for module in pkgutil.walk_packages(models_pkg.__path__, prefix=f"{models_pkg.__name__}."):
+        importlib.import_module(module.name)
+
+    violations = []
+    for mapper in Base.registry.mappers:
+        has_onupdate = any(col.onupdate is not None or col.server_onupdate is not None for col in mapper.columns)
+        if has_onupdate and mapper.eager_defaults is not True:
+            violations.append(f"{mapper.class_.__name__} (eager_defaults={mapper.eager_defaults!r})")
+    assert not violations, (
+        "以下 ORM 含 onupdate 服务端生成列但未启用 eager_defaults（commit 后读取将抛 "
+        "MissingGreenlet，见 ADR-0019）；应从 Base 继承而非单模型覆盖关闭：\n" + "\n".join(sorted(violations))
+    )

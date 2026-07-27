@@ -25,9 +25,6 @@ class VoiceInterviewSession(Base):
 
     __tablename__ = "voice_interview_sessions"
     __table_args__ = ({"comment": "语音面试会话"},)
-    # #60：UPDATE 时经 RETURNING 立即取回服务端 onupdate 列（updated_at），
-    # 避免 commit 后属性过期、异步上下文懒加载抛 MissingGreenlet
-    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default")
