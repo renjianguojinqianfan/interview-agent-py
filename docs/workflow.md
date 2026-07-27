@@ -97,13 +97,7 @@ code-review 完成（含 findings 修复）后、commit 前。
 
 ### 范围
 
-按 AGENTS.md §7 检查以下文件是否需要同步：
-
-- **AGENTS.md** - 行为边界、约定、命令等有变化时更新
-- **CONTEXT.md** - 领域术语增减或含义变化时更新
-- **docs/migration-plan.md** - 架构、目录结构、阶段任务有变化时更新
-- **docs/agents/review-plan.md** - review 节奏或分组有变化时更新
-- **docs/adr/** - 有非平凡架构决策时新建 ADR
+按 AGENTS.md §7 的文件清单逐项检查是否需要同步（清单以 AGENTS.md 为唯一真相源，此处不重复）。
 
 ### 为什么在 /code-review 之后
 
@@ -128,7 +122,7 @@ neat-freak 自身分两阶段：
 
 ### 原子提交
 
-每个 commit 是一个完整、可独立构建测试的逻辑变更。大功能拆分为多个原子提交（如：ORM + 迁移 -> service + API -> 文档同步）。
+定义见 AGENTS.md §8。大功能拆分为多个原子提交（如：ORM + 迁移 -> service + API -> 文档同步）。
 
 ### commit message 格式
 
@@ -148,8 +142,6 @@ commit 并推送后，关闭对应 GitHub issue（state: completed），附完�
 | 实现完成准备 review | `/implement` | 确认进入 review 阶段 |
 | review 完成 | `/neat-freak` | 执行上下文同步流程 |
 | 上下文同步完成准备提交 | `/implement` | 逐字对照 §9 流程顺序 |
-
-长对话中上下文会稀释早期加载的技能内容，todo list 和重新加载是对冲手段。
 
 ## 异常流程技能
 

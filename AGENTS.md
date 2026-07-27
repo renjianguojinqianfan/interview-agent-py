@@ -100,6 +100,8 @@ make verify
 
 - **AGENTS.md** - 行为边界、约定、命令等有变化时更新
 - **CONTEXT.md** - 领域术语增减或含义变化时更新（参见 `docs/agents/domain.md`）
+- **docs/api.md** - API 端点、请求/响应契约有变化时更新
+- **docs/adr/** - 有非平凡架构决策时新建 ADR
 - **docs/migration-plan.md** - 架构、目录结构、阶段任务有变化时更新
 - **docs/agents/review-plan.md** - review 节奏或分组有变化时更新
 - **docs/workflow.md** - 开发流程有变化时更新
