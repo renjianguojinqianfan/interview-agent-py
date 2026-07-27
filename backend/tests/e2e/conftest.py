@@ -52,6 +52,6 @@ async def live_session_factory() -> AsyncIterator[async_sessionmaker]:
         await _truncate(engine)
     except Exception:
         await engine.dispose()
-        _require_infra_or_skip("Postgres 不可用或未迁移：docker compose up -d postgres && uv run alembic upgrade head")
+        _require_infra_or_skip("Postgres 不可用或测试库未初始化：docker compose up -d postgres && make test-db-init")
     yield async_sessionmaker(engine, expire_on_commit=False)
     await engine.dispose()

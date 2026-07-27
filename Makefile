@@ -1,12 +1,16 @@
-.PHONY: verify test typecheck lint format format-check dev frontend-verify fe-install fe-lint fe-typecheck fe-test fe-build
+.PHONY: verify test test-db-init typecheck lint format format-check dev frontend-verify fe-install fe-lint fe-typecheck fe-test fe-build
 
 # 一键质量门禁（前后端，推荐提交前运行）
 verify: test typecheck lint format-check frontend-verify
 	@echo "✔ 验证通过"
 
-# 运行测试
+# 运行测试（本地自动切换到隔离测试库 interview_guide_test + Redis db1，见 backend/tests/conftest.py）
 test:
 	uv run --directory backend --frozen pytest
+
+# 初始化本地隔离测试库（幂等；首次跑测试前执行一次，新迁移合入后重跑同步 schema）
+test-db-init:
+	uv run --directory backend --frozen python -m scripts.init_test_db
 
 # 类型检查（mypy 严格模式）
 typecheck:

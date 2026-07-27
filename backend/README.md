@@ -9,7 +9,7 @@
 ```bash
 uv sync                                   # 安装依赖
 uv run uvicorn app.main:app --reload      # 开发服务器 -> http://localhost:8000
-uv run pytest                             # 运行测试
+uv run pytest                             # 运行测试（本地自动切隔离测试库+Redis db1，首次先 make test-db-init）
 uv run ruff check . && uv run mypy app/   # 规范 + 类型检查
 uv run alembic upgrade head               # 数据库迁移
 ```

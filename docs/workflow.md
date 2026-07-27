@@ -49,7 +49,7 @@
 
 测试重心从“分层镜像金字塔”转向“以用户动作为单位的行为奖杯”，决策见 `docs/adr/0016-testing-trophy-and-contract-conformance.md`：
 
-- **竖切（vertical slice）**：从真 HTTP 请求穿过真实路由/服务/仓储直到真 Postgres/Redis 落库的整链测试，仅替身化 AI 边界（LLM/ASR/TTS/embeddings）。落 `backend/tests/integration/`，与 `tests/e2e/` 同惯例：CI 缺基础设施则 fail、本地无 docker 优雅 skip。跑前先起基础设施（`docker compose up -d postgres redis minio createbuckets` 后 `uv run --directory backend alembic upgrade head`）。
+- **竖切（vertical slice）**：从真 HTTP 请求穿过真实路由/服务/仓储直到真 Postgres/Redis 落库的整链测试，仅替身化 AI 边界（LLM/ASR/TTS/embeddings）。落 `backend/tests/integration/`，与 `tests/e2e/` 同惯例：CI 缺基础设施则 fail、本地无 docker 优雅 skip。跑前先起基础设施（`docker compose up -d postgres redis minio createbuckets` 后 `make test-db-init`）。本地 pytest 自动切换到隔离测试库（`interview_guide_test`）与 Redis db1（`backend/tests/conftest.py`，issue #65）：开发库数据零触碰、无需停 uvicorn；新迁移合入后重跑 `make test-db-init` 同步测试库 schema。
 - **契约守卫**：`tests/test_architecture.py` 机械校验前端 api 声明的 (method, path) ⊆ 后端 OpenAPI schema，阻止前后端契约漂移（前端为权威、零改动，ADR-0001/0015）。
 - **竖切覆盖守卫**：同文件校验有副作用端点（POST/PUT/PATCH/DELETE）须被竖切覆盖或显式登记债务白名单，防覆盖缺口悄悄扩大。
 - **前端行为测试**：vitest + jsdom + MSW，页面级 `frontend/src/pages/*.test.tsx` 断言“点按钮 -> 发对请求（MSW）-> 改对状态 -> 渲染对结果”；基建在 `frontend/src/test/`。

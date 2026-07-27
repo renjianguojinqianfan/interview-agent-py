@@ -23,8 +23,8 @@ uv sync
 # 开发服务器
 uv run uvicorn app.main:app --reload    # -> http://localhost:8000
 
-# 测试（集成/e2e 竖切需真库：docker compose up -d postgres redis minio createbuckets）
-uv run pytest                            # 运行所有测试（本地无 docker 则集成/e2e 优雅 skip）
+# 测试（集成/e2e 竖切需真库：docker compose up -d postgres redis minio createbuckets，首次先 make test-db-init）
+uv run pytest                            # 运行所有测试（本地自动切隔离测试库+Redis db1，无需停 uvicorn；无 docker 则集成/e2e 优雅 skip）
 
 # 代码规范
 uv run ruff check .                      # lint 检查

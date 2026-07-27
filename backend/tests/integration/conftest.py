@@ -79,7 +79,7 @@ def integration_client(_live_app_client: TestClient) -> Iterator[TestClient]:
     try:
         _truncate_all()
     except Exception:
-        _require_infra_or_skip("Postgres 不可用或未迁移：docker compose up -d postgres && uv run alembic upgrade head")
+        _require_infra_or_skip("Postgres 不可用或测试库未初始化：docker compose up -d postgres && make test-db-init")
 
     limiter.reset()
     try:
