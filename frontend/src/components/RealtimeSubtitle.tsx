@@ -1,15 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import InterviewMessageBubble from './InterviewMessageBubble';
-
-interface Message {
-  role: 'user' | 'ai';
-  text: string;
-  id: string;
-}
+import { isDuplicateAiText, type TranscriptMessage } from '../utils/voiceInterview';
 
 interface RealtimeSubtitleProps {
-  messages: Message[];
+  messages: TranscriptMessage[];
   userText: string;
   aiText: string;
   isAiSpeaking: boolean;
@@ -23,11 +18,11 @@ export default function RealtimeSubtitle({
 }: RealtimeSubtitleProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeAiText = aiText.trim();
-  const latestAiMessage = [...messages].reverse().find(msg => msg.role === 'ai');
+  // #62：与实录两端 ai 条目相同（重投开场白/相邻重复）即隐藏活动气泡，避免同文本双渲染
   const shouldShowActiveAi =
     isAiSpeaking &&
     !!activeAiText &&
-    latestAiMessage?.text.trim() !== activeAiText.trim();
+    !isDuplicateAiText(messages, activeAiText);
 
   // Auto-scroll to bottom on new messages or text updates
   useEffect(() => {

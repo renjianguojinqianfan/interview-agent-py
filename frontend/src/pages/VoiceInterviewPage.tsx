@@ -6,7 +6,7 @@ import AudioRecorder from '../components/AudioRecorder';
 import InterviewPageHeader from '../components/InterviewPageHeader';
 import RealtimeSubtitle from '../components/RealtimeSubtitle';
 import { skillApi, type SkillDTO } from '../api/skill';
-import { buildVoiceInterviewWsUrl, getTemplateName } from '../utils/voiceInterview';
+import { buildVoiceInterviewWsUrl, getTemplateName, isDuplicateAiText } from '../utils/voiceInterview';
 import {
   voiceInterviewApi,
   connectWebSocket,
@@ -118,8 +118,8 @@ export default function VoiceInterviewPage() {
       return;
     }
     setMessages(prev => {
-      const last = prev[prev.length - 1];
-      if (last?.role === 'ai' && last.text.trim() === normalized) {
+      // #62：与实录两端 ai 条目比对去重——重投开场白命中第一条，双路径 commit 命中最后一条
+      if (isDuplicateAiText(prev, normalized)) {
         return prev;
       }
       return [
