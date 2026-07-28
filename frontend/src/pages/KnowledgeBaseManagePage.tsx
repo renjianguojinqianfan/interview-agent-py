@@ -21,6 +21,7 @@ import {
   Trash2,
   Upload,
   X,
+  XCircle,
 } from 'lucide-react';
 import {
   knowledgeBaseApi,
@@ -147,7 +148,15 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
   const [docsLoading, setDocsLoading] = useState(false);
   const [addingDocument, setAddingDocument] = useState(false);
   const [deletingDocumentId, setDeletingDocumentId] = useState<number | null>(null);
+  const [deleteDocumentItem, setDeleteDocumentItem] = useState<KnowledgeBaseDocumentItem | null>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Toast 通知（复用 SettingsPage 模式）
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   // 加载数据（不显示loading状态，用于轮询）
   const loadDataSilent = useCallback(async () => {
@@ -210,6 +219,32 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
       return () => clearInterval(timer);
     }
   }, [knowledgeBases, loading, loadDataSilent]);
+
+  // 多文档面板（ADR-0018）：静默刷新（不触发 loading 态，用于轮询）
+  const loadDocumentsSilent = useCallback(async (kbId: number) => {
+    try {
+      setDocuments(await knowledgeBaseApi.listDocuments(kbId));
+    } catch (error) {
+      console.error('加载文档列表失败:', error);
+    }
+  }, []);
+
+  // 轮询文档列表：面板展开且有非终态文档时，每 5 秒刷新（与库级轮询同频）
+  useEffect(() => {
+    if (expandedKbId === null) return;
+
+    const hasNonTerminal = documents.some(
+      doc => doc.vectorStatus === 'PENDING' || doc.vectorStatus === 'PROCESSING'
+    );
+
+    if (!hasNonTerminal) return;
+
+    const timer = setInterval(() => {
+      loadDocumentsSilent(expandedKbId);
+    }, 5000);
+
+    return () => clearInterval(timer);
+  }, [expandedKbId, documents, loadDocumentsSilent]);
 
   // 重新向量化
   const handleRevectorize = async (id: number) => {
@@ -336,7 +371,7 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
       await loadDataSilent();
     } catch (error) {
       console.error('追加文档失败:', error);
-      alert(error instanceof Error ? error.message : '追加文档失败');
+      showToast(error instanceof Error ? error.message : '追加文档失败', 'error');
     } finally {
       setAddingDocument(false);
     }
@@ -347,6 +382,7 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
     try {
       setDeletingDocumentId(documentId);
       await knowledgeBaseApi.deleteDocument(expandedKbId, documentId);
+      setDeleteDocumentItem(null);
       await loadDocuments(expandedKbId);
       await loadDataSilent();
     } catch (error) {
@@ -714,7 +750,7 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
                                   {getStatusText(doc.vectorStatus)}
                                 </span>
                                 <button
-                                  onClick={() => handleDeleteDocument(doc.id)}
+                                  onClick={() => setDeleteDocumentItem(doc)}
                                   disabled={deletingDocumentId === doc.id}
                                   className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors disabled:opacity-50"
                                   title="删除文档"
@@ -749,7 +785,7 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
         onChange={handleAddDocument}
       />
 
-      {/* 删除确认对话框 */}
+      {/* 删除知识库确认对话框 */}
       <DeleteConfirmDialog
         open={deleteItem !== null}
         item={deleteItem}
@@ -758,6 +794,39 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
         onConfirm={handleDelete}
         onCancel={() => setDeleteItem(null)}
       />
+
+      {/* 删除文档确认对话框 */}
+      <DeleteConfirmDialog
+        open={deleteDocumentItem !== null}
+        item={deleteDocumentItem ? { ...deleteDocumentItem, filename: deleteDocumentItem.originalFilename } : null}
+        itemType="文档"
+        loading={deletingDocumentId !== null}
+        onConfirm={() => deleteDocumentItem && handleDeleteDocument(deleteDocumentItem.id)}
+        onCancel={() => setDeleteDocumentItem(null)}
+      />
+
+      {/* Toast 通知 */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 50, x: '-50%' }}
+            className={`fixed bottom-6 left-1/2 px-5 py-3 rounded-xl shadow-lg text-sm font-medium
+              flex items-center gap-2 z-[60] ${
+                toast.type === 'success'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-red-600 text-white'
+              }`}
+          >
+            {toast.type === 'success'
+              ? <CheckCircle className="w-4 h-4" />
+              : <XCircle className="w-4 h-4" />
+            }
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
