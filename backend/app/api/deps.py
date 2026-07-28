@@ -30,6 +30,7 @@ from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.db.repositories.interview_schedule_repository import InterviewScheduleRepository
+from app.infrastructure.db.repositories.knowledge_base_document_repository import KnowledgeBaseDocumentRepository
 from app.infrastructure.db.repositories.knowledge_base_question_repository import KnowledgeBaseQuestionRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.db.repositories.llm_global_setting_repository import LlmGlobalSettingRepository
@@ -254,6 +255,7 @@ def get_knowledge_base_question_service(
         kb_repository=KnowledgeBaseRepository(),
         state_service=get_question_gen_state_service(),
         producer=get_question_gen_producer(),
+        document_repository=KnowledgeBaseDocumentRepository(),
     )
 
 
@@ -286,6 +288,7 @@ def get_question_generation_service() -> QuestionGenerationService:
         llm_registry=get_llm_registry(),
         invoker=StructuredOutputInvoker(),
         state_service=get_question_gen_state_service(),
+        document_repository=KnowledgeBaseDocumentRepository(),
     )
 
 

@@ -9,10 +9,6 @@ from app.infrastructure.db.models.knowledge_base import KnowledgeBase
 class KnowledgeBaseRepository:
     """知识库异步仓储。每个方法接收一个 AsyncSession，不在内部管理事务。"""
 
-    async def find_by_hash(self, session: AsyncSession, file_hash: str) -> KnowledgeBase | None:
-        result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.file_hash == file_hash))
-        return result.scalar_one_or_none()
-
     async def get_by_id(self, session: AsyncSession, kb_id: int) -> KnowledgeBase | None:
         result = await session.execute(select(KnowledgeBase).where(KnowledgeBase.id == kb_id))
         return result.scalar_one_or_none()

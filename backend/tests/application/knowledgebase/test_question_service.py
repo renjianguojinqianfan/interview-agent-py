@@ -84,12 +84,16 @@ def _make_service(**mocks: Any) -> tuple[KnowledgeBaseQuestionService, dict[str,
     producer = MagicMock()
     producer.send_task = AsyncMock(return_value="100-0")
 
+    document_repository = MagicMock()
+    document_repository.find_first_hash_by_kb = AsyncMock(return_value=mocks.get("first_doc_hash", "hash123"))
+
     service = KnowledgeBaseQuestionService(
         session=session,
         question_repository=question_repository,
         kb_repository=kb_repository,
         state_service=state_service,
         producer=producer,
+        document_repository=document_repository,
     )
     return service, {
         "session": session,
@@ -97,6 +101,7 @@ def _make_service(**mocks: Any) -> tuple[KnowledgeBaseQuestionService, dict[str,
         "kb_repository": kb_repository,
         "state_service": state_service,
         "producer": producer,
+        "document_repository": document_repository,
     }
 
 
@@ -194,11 +199,20 @@ class TestCreateQuestion:
         assert saved.skill_id == "knowledge-base"
         assert saved.difficulty == "mid"
         assert saved.status == "DRAFT"
-        assert saved.kb_content_hash == "hash123"
+        assert saved.kb_content_hash == "hash123"  # 取自首文档 hash
         assert saved.key_points_json == "[]"
         assert saved.follow_ups_json == "[]"
         assert dto.category == "Redis"
         mocks["session"].commit.assert_awaited_once()
+        mocks["document_repository"].find_first_hash_by_kb.assert_awaited_once()
+
+    async def test_kb_content_hash_none_when_no_documents(self) -> None:
+        service, mocks = _make_service(kb=_make_kb(), first_doc_hash=None)
+
+        await service.create_question(1, _create_request())
+
+        saved: KnowledgeBaseQuestion = mocks["question_repository"].save.await_args.args[1]
+        assert saved.kb_content_hash is None
 
     async def test_trims_and_serializes_fields(self) -> None:
         service, mocks = _make_service(kb=_make_kb())

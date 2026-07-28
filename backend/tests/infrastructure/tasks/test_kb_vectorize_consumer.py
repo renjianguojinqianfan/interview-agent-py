@@ -3,23 +3,33 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.entities.task_status import AsyncTaskStatus
-from app.infrastructure.db.models.knowledge_base import KnowledgeBase
+from app.infrastructure.db.models.knowledge_base import KnowledgeBaseDocument
 from app.infrastructure.redis.client import RedisClient
 from app.infrastructure.tasks.constants import KB_VECTORIZE
 from app.infrastructure.tasks.kb_vectorize_consumer import VectorizeStreamConsumer
 from app.infrastructure.tasks.kb_vectorize_producer import KbVectorizePayload
 
+_DOC_ID = 11
 
-def _make_kb(**overrides: object) -> KnowledgeBase:
+
+def _make_document(**overrides: object) -> KnowledgeBaseDocument:
     defaults: dict[str, object] = {
-        "id": 1,
+        "id": _DOC_ID,
+        "knowledge_base_id": 1,
         "file_hash": "h",
         "original_filename": "doc.pdf",
-        "content_text": "知识库正文内容",
+        "file_size": 2048,
+        "content_type": "application/pdf",
+        "storage_key": "doc-k",
+        "storage_url": "doc-u",
+        "content_text": "正文",
+        "chunk_count": 3,
         "vector_status": AsyncTaskStatus.PENDING.value,
+        "vector_error": None,
+        "uploaded_at": None,
     }
     defaults.update(overrides)
-    return KnowledgeBase(**defaults)
+    return KnowledgeBaseDocument(**defaults)
 
 
 def _make_session_factory() -> tuple[MagicMock, AsyncMock]:
@@ -41,6 +51,7 @@ def _make_consumer() -> tuple[VectorizeStreamConsumer, dict[str, MagicMock]]:
     vector_repository.insert_pending = AsyncMock(return_value=2)
     vector_repository.promote_vector_job = AsyncMock(return_value=2)
     vector_repository.delete_by_knowledge_base_id = AsyncMock(return_value=0)
+    vector_repository.delete_by_document_id = AsyncMock(return_value=0)
     vector_repository.delete_by_vector_job_id = AsyncMock(return_value=0)
 
     chunker = MagicMock()
@@ -53,7 +64,7 @@ def _make_consumer() -> tuple[VectorizeStreamConsumer, dict[str, MagicMock]]:
 
     redis_mock = AsyncMock()
     document_repository = MagicMock()
-    document_repository.get_by_id = AsyncMock(return_value=None)
+    document_repository.get_by_id = AsyncMock(return_value=_make_document())
     document_repository.list_by_kb = AsyncMock(return_value=[])
     document_repository.list_statuses_by_kb = AsyncMock(return_value=[])
     document_repository.sum_chunk_count_by_kb = AsyncMock(return_value=0)
@@ -80,96 +91,117 @@ def _make_consumer() -> tuple[VectorizeStreamConsumer, dict[str, MagicMock]]:
     }
 
 
-class TestParsePayload:
-    def test_parses_knowledge_base_id(self) -> None:
-        consumer, _ = _make_consumer()
-        payload = consumer.parse_payload("100-0", {b"knowledgeBaseId": b"42", b"retryCount": b"0"})
-        assert payload == KbVectorizePayload(knowledge_base_id=42)
+def _payload(**overrides: int) -> KbVectorizePayload:
+    defaults = {"knowledge_base_id": 1, "document_id": _DOC_ID}
+    defaults.update(overrides)
+    return KbVectorizePayload(**defaults)
 
-    def test_returns_none_when_missing(self) -> None:
+
+class TestParsePayload:
+    def test_parses_both_ids(self) -> None:
+        consumer, _ = _make_consumer()
+        payload = consumer.parse_payload("100-0", {b"knowledgeBaseId": b"42", b"documentId": b"7", b"retryCount": b"0"})
+        assert payload == KbVectorizePayload(knowledge_base_id=42, document_id=7)
+
+    def test_returns_none_when_missing_kb_id(self) -> None:
         consumer, _ = _make_consumer()
         assert consumer.parse_payload("100-0", {b"retryCount": b"0"}) is None
 
-    def test_returns_none_when_invalid(self) -> None:
+    def test_returns_none_when_invalid_kb_id(self) -> None:
         consumer, _ = _make_consumer()
         assert consumer.parse_payload("100-0", {b"knowledgeBaseId": b"abc"}) is None
+
+    def test_returns_none_when_missing_document_id(self) -> None:
+        consumer, _ = _make_consumer()
+        assert consumer.parse_payload("100-0", {b"knowledgeBaseId": b"42", b"retryCount": b"0"}) is None
+
+    def test_returns_none_when_invalid_document_id(self) -> None:
+        consumer, _ = _make_consumer()
+        assert consumer.parse_payload("100-0", {b"knowledgeBaseId": b"42", b"documentId": b"abc"}) is None
+
+
+class TestPayloadIdentifier:
+    def test_includes_both_ids(self) -> None:
+        consumer, _ = _make_consumer()
+        assert consumer.payload_identifier(_payload()) == f"knowledgeBaseId=1, documentId={_DOC_ID}"
 
 
 class TestMarkProcessing:
     async def test_sets_processing(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb()
 
-        await consumer.mark_processing(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.mark_processing(_payload())
 
-        args = mocks["repository"].update_vector_status.call_args.args
+        args = mocks["document_repository"].update_vector_status.call_args.args
         assert args[2] == AsyncTaskStatus.PROCESSING.value
 
     async def test_skips_when_completed(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb(vector_status=AsyncTaskStatus.COMPLETED.value)
+        mocks["document_repository"].get_by_id.return_value = _make_document(
+            vector_status=AsyncTaskStatus.COMPLETED.value
+        )
 
-        await consumer.mark_processing(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.mark_processing(_payload())
 
-        mocks["repository"].update_vector_status.assert_not_awaited()
+        mocks["document_repository"].update_vector_status.assert_not_awaited()
 
     async def test_skips_when_deleted(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = None
+        mocks["document_repository"].get_by_id.return_value = None
 
-        await consumer.mark_processing(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.mark_processing(_payload())
 
-        mocks["repository"].update_vector_status.assert_not_awaited()
+        mocks["document_repository"].update_vector_status.assert_not_awaited()
 
 
 class TestProcessBusiness:
     async def test_two_phase_commit_happy_path(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb()
 
-        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.process_business(_payload())
 
         mocks["embeddings"].aembed_documents.assert_awaited_once()
         mocks["vector_repository"].insert_pending.assert_awaited_once()
-        mocks["vector_repository"].delete_by_knowledge_base_id.assert_awaited_once()
+        mocks["vector_repository"].delete_by_document_id.assert_awaited_once()
         mocks["vector_repository"].promote_vector_job.assert_awaited_once()
-        mocks["repository"].mark_vectorized.assert_awaited_once()
-        assert mocks["repository"].mark_vectorized.call_args.args[3] == 2
+        mocks["document_repository"].mark_vectorized.assert_awaited_once()
+        assert mocks["document_repository"].mark_vectorized.call_args.args[3] == 2
 
     async def test_skips_when_completed(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb(vector_status=AsyncTaskStatus.COMPLETED.value)
+        mocks["document_repository"].get_by_id.return_value = _make_document(
+            vector_status=AsyncTaskStatus.COMPLETED.value
+        )
 
-        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.process_business(_payload())
 
         mocks["vector_repository"].insert_pending.assert_not_awaited()
 
     async def test_skips_when_deleted(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = None
+        mocks["document_repository"].get_by_id.return_value = None
 
-        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.process_business(_payload())
 
         mocks["vector_repository"].insert_pending.assert_not_awaited()
 
     async def test_empty_chunks_marks_zero(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb(content_text="")
+        mocks["document_repository"].get_by_id.return_value = _make_document(content_text="")
         mocks["chunker"].split.return_value = []
 
-        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.process_business(_payload())
 
         mocks["vector_repository"].insert_pending.assert_not_awaited()
-        mocks["vector_repository"].delete_by_knowledge_base_id.assert_awaited_once()
-        assert mocks["repository"].mark_vectorized.call_args.args[3] == 0
+        mocks["vector_repository"].delete_by_document_id.assert_awaited_once()
+        assert mocks["document_repository"].mark_vectorized.call_args.args[3] == 0
 
     async def test_cleans_pending_on_failure(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb()
         mocks["vector_repository"].promote_vector_job.side_effect = RuntimeError("db down")
 
         with pytest.raises(RuntimeError):
-            await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
+            await consumer.process_business(_payload())
 
         mocks["vector_repository"].delete_by_vector_job_id.assert_awaited_once()
 
@@ -177,19 +209,17 @@ class TestProcessBusiness:
 class TestMarkCompletedFailed:
     async def test_mark_completed(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb()
 
-        await consumer.mark_completed(KbVectorizePayload(knowledge_base_id=1))
+        await consumer.mark_completed(_payload())
 
-        assert mocks["repository"].update_vector_status.call_args.args[2] == AsyncTaskStatus.COMPLETED.value
+        assert mocks["document_repository"].update_vector_status.call_args.args[2] == AsyncTaskStatus.COMPLETED.value
 
     async def test_mark_failed(self) -> None:
         consumer, mocks = _make_consumer()
-        mocks["repository"].get_by_id.return_value = _make_kb()
 
-        await consumer.mark_failed(KbVectorizePayload(knowledge_base_id=1), "boom")
+        await consumer.mark_failed(_payload(), "boom")
 
-        args = mocks["repository"].update_vector_status.call_args.args
+        args = mocks["document_repository"].update_vector_status.call_args.args
         assert args[2] == AsyncTaskStatus.FAILED.value
         assert args[3] == "boom"
 
@@ -199,38 +229,10 @@ class TestRetryMessage:
         consumer, mocks = _make_consumer()
         redis = mocks["redis"]
 
-        await consumer.retry_message(KbVectorizePayload(knowledge_base_id=9), 2)
+        await consumer.retry_message(_payload(knowledge_base_id=9), 2)
 
         redis.xadd.assert_awaited_once()
         sent = redis.xadd.call_args.args[1]
         assert sent["knowledgeBaseId"] == "9"
+        assert sent["documentId"] == str(_DOC_ID)
         assert sent["retryCount"] == "2"
-
-
-class TestLegacyKbMessageForwardsToDocuments:
-    """#52：整库粒度旧消息在存在文档行时逐文档处理，
-    不再产生 document_id 为空的正式行，也不按首文档重建误删其他文档向量。"""
-
-    async def test_kb_scope_message_processes_per_document(self) -> None:
-        consumer, mocks = _make_consumer()
-        doc = MagicMock(id=11, vector_status="PENDING", content_text="正文")
-        mocks["document_repository"].list_by_kb = AsyncMock(return_value=[doc])
-        mocks["document_repository"].get_by_id = AsyncMock(return_value=doc)
-        mocks["vector_repository"].delete_by_document_id = AsyncMock(return_value=0)
-
-        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
-
-        # 逐文档路径：insert_pending 带 document_id，删除按文档而非整库
-        assert mocks["vector_repository"].insert_pending.await_args.kwargs.get("document_id") == 11
-        mocks["vector_repository"].delete_by_document_id.assert_awaited()
-        mocks["vector_repository"].delete_by_knowledge_base_id.assert_not_awaited()
-
-    async def test_kb_scope_message_without_documents_falls_back(self) -> None:
-        consumer, mocks = _make_consumer()
-        mocks["document_repository"].list_by_kb = AsyncMock(return_value=[])
-        mocks["repository"].get_by_id.return_value = _make_kb(content_text="正文")
-
-        await consumer.process_business(KbVectorizePayload(knowledge_base_id=1))
-
-        # 无文档行的存量异常数据：保留整库遗留路径
-        mocks["vector_repository"].delete_by_knowledge_base_id.assert_awaited()

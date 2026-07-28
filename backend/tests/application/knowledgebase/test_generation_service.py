@@ -84,6 +84,7 @@ def _make_service(
     kb: KnowledgeBase | None = None,
     search_results: list[SearchResult] | None = None,
     llm_output: GeneratedQuestionList | None = None,
+    first_doc_hash: str | None = "hash123",
 ) -> tuple[QuestionGenerationService, dict[str, Any]]:
     session_factory = _FakeSessionFactory()
 
@@ -111,6 +112,9 @@ def _make_service(
     state_service = MagicMock()
     state_service.replace_questions_and_complete = AsyncMock(return_value=True)
 
+    document_repository = MagicMock()
+    document_repository.find_first_hash_by_kb = AsyncMock(return_value=first_doc_hash)
+
     service = QuestionGenerationService(
         session_factory=session_factory,  # type: ignore[arg-type]
         kb_repository=kb_repository,
@@ -119,12 +123,14 @@ def _make_service(
         llm_registry=llm_registry,
         invoker=invoker,
         state_service=state_service,
+        document_repository=document_repository,
     )
     return service, {
         "vector_repository": vector_repository,
         "invoker": invoker,
         "state_service": state_service,
         "llm_registry": llm_registry,
+        "document_repository": document_repository,
     }
 
 
@@ -223,7 +229,7 @@ class TestEntityBuilding:
         assert question.difficulty == "mid"
         assert question.category == "知识库A"  # 空 category 回落知识库名
         assert question.status == "DRAFT"
-        assert question.kb_content_hash == "hash123"
+        assert question.kb_content_hash == "hash123"  # 取自首文档 hash
         assert len(json.loads(question.follow_ups_json)) == 2  # 追问截断至 followUpCount
         assert question.source_context  # 记录检索上下文
 
@@ -248,6 +254,31 @@ class TestEntityBuilding:
         with pytest.raises(BusinessException) as exc:
             await service.execute_generation(1, "task-1", _config())
         assert exc.value.error_code == ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED
+
+
+class TestKbContentHash:
+    async def test_kb_content_hash_uses_first_document_hash(self) -> None:
+        output = GeneratedQuestionList(questions=[_generated("题1")])
+        service, mocks = _make_service(
+            kb=_make_kb(), search_results=[_search_result("片段")], llm_output=output, first_doc_hash="doc-hash-abc"
+        )
+
+        await service.execute_generation(1, "task-1", _config())
+
+        mocks["document_repository"].find_first_hash_by_kb.assert_awaited_once()
+        question: KnowledgeBaseQuestion = mocks["state_service"].replace_questions_and_complete.await_args.args[2][0]
+        assert question.kb_content_hash == "doc-hash-abc"
+
+    async def test_kb_content_hash_none_when_no_documents(self) -> None:
+        output = GeneratedQuestionList(questions=[_generated("题1")])
+        service, mocks = _make_service(
+            kb=_make_kb(), search_results=[_search_result("片段")], llm_output=output, first_doc_hash=None
+        )
+
+        await service.execute_generation(1, "task-1", _config())
+
+        question: KnowledgeBaseQuestion = mocks["state_service"].replace_questions_and_complete.await_args.args[2][0]
+        assert question.kb_content_hash is None
 
 
 class TestCompletion:

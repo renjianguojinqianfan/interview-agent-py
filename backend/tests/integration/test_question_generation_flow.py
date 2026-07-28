@@ -24,6 +24,7 @@ from app.application.knowledgebase.generation_service import (
 from app.application.knowledgebase.generation_state_service import QuestionGenerationStateService
 from app.config.settings import settings
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase, KnowledgeBaseQuestion
+from app.infrastructure.db.repositories.knowledge_base_document_repository import KnowledgeBaseDocumentRepository
 from app.infrastructure.db.repositories.knowledge_base_question_repository import KnowledgeBaseQuestionRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.redis.client import create_redis_client
@@ -131,6 +132,7 @@ def _consume(kb_id: int, override_task_id: str | None = None) -> None:
                 llm_registry=registry,
                 invoker=invoker,
                 state_service=state,
+                document_repository=KnowledgeBaseDocumentRepository(),
             )
             producer = QuestionGenProducer(redis, KB_QUESTION_GEN, state)
             consumer = QuestionGenConsumer(redis, KB_QUESTION_GEN, state, generation, producer)

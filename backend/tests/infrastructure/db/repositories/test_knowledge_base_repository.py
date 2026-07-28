@@ -48,17 +48,6 @@ def _scalar(session: AsyncMock, value: object) -> None:
     session.execute.return_value = mock_result
 
 
-class TestFindByHash:
-    async def test_found(self, repo: KnowledgeBaseRepository, session: AsyncMock) -> None:
-        kb = _make_kb()
-        _scalar_one(session, kb)
-        assert await repo.find_by_hash(session, "hash1") is kb
-
-    async def test_none(self, repo: KnowledgeBaseRepository, session: AsyncMock) -> None:
-        _scalar_one(session, None)
-        assert await repo.find_by_hash(session, "missing") is None
-
-
 class TestGetById:
     async def test_found(self, repo: KnowledgeBaseRepository, session: AsyncMock) -> None:
         kb = _make_kb()

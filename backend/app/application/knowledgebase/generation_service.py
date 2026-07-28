@@ -23,6 +23,7 @@ from app.infrastructure.ai.prompt_loader import load_prompt
 from app.infrastructure.ai.prompt_sanitizer import PromptSanitizer
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase, KnowledgeBaseQuestion
+from app.infrastructure.db.repositories.knowledge_base_document_repository import KnowledgeBaseDocumentRepository
 from app.infrastructure.db.repositories.knowledge_base_question_repository import KnowledgeBaseQuestionRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.vector.repository import VectorRepository
@@ -82,6 +83,7 @@ class QuestionGenerationService:
         llm_registry: LlmProviderRegistry,
         invoker: StructuredOutputInvoker,
         state_service: QuestionGenerationStateService,
+        document_repository: KnowledgeBaseDocumentRepository,
         sanitizer: PromptSanitizer | None = None,
     ) -> None:
         self._session_factory = session_factory
@@ -92,6 +94,7 @@ class QuestionGenerationService:
         self._invoker = invoker
         self._state_service = state_service
         self._sanitizer = sanitizer or PromptSanitizer()
+        self._document_repository = document_repository
 
     async def execute_generation(self, kb_id: int, task_id: str, config: QuestionGenerationConfigDTO) -> None:
         async with self._session_factory() as session:
@@ -133,7 +136,9 @@ class QuestionGenerationService:
             raise BusinessException(ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED, "知识库题库生成结果为空")
 
         # 3. 构建实体（题干归一化去重，跳过计数）
-        batch = self._build_entities(kb, difficulty, context, normalized.follow_up_count, generated)
+        async with self._session_factory() as session:
+            first_doc_hash = await self._document_repository.find_first_hash_by_kb(session, kb.id)
+        batch = self._build_entities(kb, difficulty, context, normalized.follow_up_count, generated, first_doc_hash)
         if not batch.questions:
             raise BusinessException(ErrorCode.INTERVIEW_QUESTION_GENERATION_FAILED, "知识库题库生成结果无有效题干")
 
@@ -226,6 +231,7 @@ class QuestionGenerationService:
         source_context: str,
         follow_up_count: int,
         generated: GeneratedQuestionList,
+        kb_content_hash: str | None,
     ) -> _GenerationBatch:
         entities: list[KnowledgeBaseQuestion] = []
         batch_keys: set[str] = set()
@@ -256,7 +262,7 @@ class QuestionGenerationService:
                     scoring_rubric=trim_to_none(dto.scoringRubric),
                     follow_ups_json=self._write_follow_ups(dto.followUps, follow_up_count),
                     source_context=source_context,
-                    kb_content_hash=kb.file_hash,
+                    kb_content_hash=kb_content_hash,
                     status="DRAFT",
                 )
             )

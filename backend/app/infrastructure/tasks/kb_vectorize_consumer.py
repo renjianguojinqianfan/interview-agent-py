@@ -67,115 +67,38 @@ class VectorizeStreamConsumer(BaseStreamConsumer[KbVectorizePayload]):
         except (ValueError, TypeError):
             logger.warning("向量化消息 %s 解析失败，跳过: msgId=%s", self._config.id_field, msg_id)
             return None
-        # ADR-0018：可选文档粒度字段；缺失/非法时回退整库粒度（兼容存量消息）
-        document_id: int | None = None
         raw_doc = data.get(FIELD_DOCUMENT_ID.encode())
-        if raw_doc is not None:
-            try:
-                document_id = int(raw_doc)
-            except (ValueError, TypeError):
-                logger.warning("向量化消息 documentId 解析失败，回退整库粒度: msgId=%s", msg_id)
+        if raw_doc is None:
+            logger.warning("向量化消息缺少 documentId，跳过: msgId=%s", msg_id)
+            return None
+        try:
+            document_id = int(raw_doc)
+        except (ValueError, TypeError):
+            logger.warning("向量化消息 documentId 解析失败，跳过: msgId=%s", msg_id)
+            return None
         return KbVectorizePayload(knowledge_base_id=kb_id, document_id=document_id)
 
     def payload_identifier(self, payload: KbVectorizePayload) -> str:
-        if payload.document_id is not None:
-            return f"knowledgeBaseId={payload.knowledge_base_id}, documentId={payload.document_id}"
-        return f"knowledgeBaseId={payload.knowledge_base_id}"
+        return f"knowledgeBaseId={payload.knowledge_base_id}, documentId={payload.document_id}"
 
     async def mark_processing(self, payload: KbVectorizePayload) -> None:
-        if payload.document_id is not None:
-            async with self._session_factory() as session:
-                doc = await self._document_repository.get_by_id(session, payload.document_id)
-                if doc is None:
-                    logger.warning("知识库文档已删除，跳过 mark_processing: documentId=%s", payload.document_id)
-                    return
-                if doc.vector_status == AsyncTaskStatus.COMPLETED.value:
-                    logger.info("文档已向量化完成，跳过重复处理: documentId=%s", payload.document_id)
-                    return
-                await self._document_repository.update_vector_status(
-                    session, doc, AsyncTaskStatus.PROCESSING.value, None
-                )
-                await self._sync_kb_aggregate(session, payload.knowledge_base_id)
-                await session.commit()
-            return
         async with self._session_factory() as session:
-            kb = await self._repository.get_by_id(session, payload.knowledge_base_id)
-            if kb is None:
-                logger.warning("知识库已删除，跳过 mark_processing: knowledgeBaseId=%s", payload.knowledge_base_id)
+            doc = await self._document_repository.get_by_id(session, payload.document_id)
+            if doc is None:
+                logger.warning("知识库文档已删除，跳过 mark_processing: documentId=%s", payload.document_id)
                 return
-            if kb.vector_status == AsyncTaskStatus.COMPLETED.value:
-                logger.info("知识库已向量化完成，跳过重复处理: knowledgeBaseId=%s", payload.knowledge_base_id)
+            if doc.vector_status == AsyncTaskStatus.COMPLETED.value:
+                logger.info("文档已向量化完成，跳过重复处理: documentId=%s", payload.document_id)
                 return
-            await self._repository.update_vector_status(session, kb, AsyncTaskStatus.PROCESSING.value, None)
+            await self._document_repository.update_vector_status(session, doc, AsyncTaskStatus.PROCESSING.value, None)
+            await self._sync_kb_aggregate(session, payload.knowledge_base_id)
             await session.commit()
 
     async def process_business(self, payload: KbVectorizePayload) -> None:
-        if payload.document_id is not None:
-            await self._process_document(payload.knowledge_base_id, payload.document_id)
-            return
-        # 兼容整库粒度旧消息（ADR-0018）：有文档行则逐文档处理，避免产生 document_id 为空的
-        # 正式行，也避免按 KB 首文档重建时误删其他文档的向量
-        async with self._session_factory() as session:
-            docs = await self._document_repository.list_by_kb(session, payload.knowledge_base_id)
-        if docs:
-            for doc in docs:
-                await self._process_document(payload.knowledge_base_id, doc.id)
-            return
-        kb_id = payload.knowledge_base_id
-        async with self._session_factory() as session:
-            kb = await self._repository.get_by_id(session, kb_id)
-            if kb is None:
-                logger.warning("知识库已删除，跳过向量化: knowledgeBaseId=%s", kb_id)
-                return
-            if kb.vector_status == AsyncTaskStatus.COMPLETED.value:
-                logger.info("知识库已向量化完成，跳过重复向量化: knowledgeBaseId=%s", kb_id)
-                return
-            content_text = kb.content_text or ""
-
-        chunks = await asyncio.to_thread(self._chunker.split, content_text)
-        job_id = uuid.uuid4().hex
-
-        if not chunks:
-            logger.warning("知识库无可向量化文本: knowledgeBaseId=%s", kb_id)
-            async with self._session_factory() as session:
-                kb = await self._repository.get_by_id(session, kb_id)
-                if kb is None:
-                    return
-                await self._vector_repository.delete_by_knowledge_base_id(session, kb_id)
-                await self._repository.mark_vectorized(session, kb, job_id, 0)
-                await session.commit()
-            return
-
-        embeddings = await self._llm_registry.get_default_embeddings()
-        vectors = await self._embed_in_batches(embeddings, chunks)
-        items = [
-            VectorItem(content=chunk, embedding=vector, metadata={"chunkIndex": index})
-            for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
-        ]
-
-        try:
-            async with self._session_factory() as session:
-                await self._vector_repository.insert_pending(session, job_id, kb_id, items)
-                await session.commit()
-
-            async with self._session_factory() as session:
-                kb = await self._repository.get_by_id(session, kb_id)
-                if kb is None:
-                    await self._vector_repository.delete_by_vector_job_id(session, job_id)
-                    await session.commit()
-                    return
-                await self._vector_repository.delete_by_knowledge_base_id(session, kb_id)
-                await self._vector_repository.promote_vector_job(session, kb_id, job_id)
-                await self._repository.mark_vectorized(session, kb, job_id, len(items))
-                await session.commit()
-        except Exception:
-            await self._cleanup_pending(job_id)
-            raise
-
-        logger.info("知识库向量化完成: knowledgeBaseId=%s, chunks=%d", kb_id, len(items))
+        await self._process_document(payload.knowledge_base_id, payload.document_id)
 
     async def _process_document(self, kb_id: int, document_id: int) -> None:
-        """文档粒度向量化（ADR-0018）：两阶段提交同整库路径，但删除/归属按 document_id。"""
+        """文档粒度向量化（ADR-0018）：两阶段提交，删除/归属按 document_id。"""
         async with self._session_factory() as session:
             doc = await self._document_repository.get_by_id(session, document_id)
             if doc is None:
@@ -243,50 +166,34 @@ class VectorizeStreamConsumer(BaseStreamConsumer[KbVectorizePayload]):
         await session.flush()
 
     async def mark_completed(self, payload: KbVectorizePayload) -> None:
-        if payload.document_id is not None:
-            async with self._session_factory() as session:
-                doc = await self._document_repository.get_by_id(session, payload.document_id)
-                if doc is None:
-                    return
-                await self._document_repository.update_vector_status(session, doc, AsyncTaskStatus.COMPLETED.value)
-                await self._sync_kb_aggregate(session, payload.knowledge_base_id)
-                await session.commit()
-            return
         async with self._session_factory() as session:
-            kb = await self._repository.get_by_id(session, payload.knowledge_base_id)
-            if kb is None:
+            doc = await self._document_repository.get_by_id(session, payload.document_id)
+            if doc is None:
                 return
-            await self._repository.update_vector_status(session, kb, AsyncTaskStatus.COMPLETED.value, None)
+            await self._document_repository.update_vector_status(session, doc, AsyncTaskStatus.COMPLETED.value)
+            await self._sync_kb_aggregate(session, payload.knowledge_base_id)
             await session.commit()
 
     async def mark_failed(self, payload: KbVectorizePayload, error: str) -> None:
-        if payload.document_id is not None:
-            async with self._session_factory() as session:
-                doc = await self._document_repository.get_by_id(session, payload.document_id)
-                if doc is None:
-                    return
-                await self._document_repository.update_vector_status(session, doc, AsyncTaskStatus.FAILED.value, error)
-                await self._sync_kb_aggregate(session, payload.knowledge_base_id)
-                await session.commit()
-            return
         async with self._session_factory() as session:
-            kb = await self._repository.get_by_id(session, payload.knowledge_base_id)
-            if kb is None:
+            doc = await self._document_repository.get_by_id(session, payload.document_id)
+            if doc is None:
                 return
-            await self._repository.update_vector_status(session, kb, AsyncTaskStatus.FAILED.value, error)
+            await self._document_repository.update_vector_status(session, doc, AsyncTaskStatus.FAILED.value, error)
+            await self._sync_kb_aggregate(session, payload.knowledge_base_id)
             await session.commit()
 
     async def retry_message(self, payload: KbVectorizePayload, retry_count: int) -> None:
         message = {
             self._config.id_field: str(payload.knowledge_base_id),
             FIELD_RETRY_COUNT: str(retry_count),
+            FIELD_DOCUMENT_ID: str(payload.document_id),
         }
-        if payload.document_id is not None:
-            message[FIELD_DOCUMENT_ID] = str(payload.document_id)
         await self._redis.xadd(self._config.stream_key, message, max_len=STREAM_MAX_LEN)
         logger.info(
-            "知识库向量化任务已重新入队: knowledgeBaseId=%s, retryCount=%s",
+            "知识库向量化任务已重新入队: knowledgeBaseId=%s, documentId=%s, retryCount=%s",
             payload.knowledge_base_id,
+            payload.document_id,
             retry_count,
         )
 

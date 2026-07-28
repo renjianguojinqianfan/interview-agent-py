@@ -20,6 +20,7 @@ from app.application.knowledgebase.question_schemas import (
 from app.domain.errors import BusinessException, ErrorCode
 from app.domain.services.question_bank import trim_to_none
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase, KnowledgeBaseQuestion
+from app.infrastructure.db.repositories.knowledge_base_document_repository import KnowledgeBaseDocumentRepository
 from app.infrastructure.db.repositories.knowledge_base_question_repository import KnowledgeBaseQuestionRepository
 from app.infrastructure.db.repositories.knowledge_base_repository import KnowledgeBaseRepository
 from app.infrastructure.json_utils import json_loads_dict_list, json_loads_list
@@ -78,12 +79,14 @@ class KnowledgeBaseQuestionService:
         kb_repository: KnowledgeBaseRepository,
         state_service: QuestionGenerationStateService,
         producer: QuestionGenProducer,
+        document_repository: KnowledgeBaseDocumentRepository,
     ) -> None:
         self._session = session
         self._question_repository = question_repository
         self._kb_repository = kb_repository
         self._state_service = state_service
         self._producer = producer
+        self._document_repository = document_repository
 
     async def list_questions(
         self,
@@ -143,6 +146,8 @@ class KnowledgeBaseQuestionService:
         category = _require_non_blank(request.category, "面试方向不能为空")
         question_text = _require_non_blank(request.question, "题干不能为空")
 
+        first_doc_hash = await self._document_repository.find_first_hash_by_kb(self._session, kb.id)
+
         now = datetime.now(UTC)  # 应用侧时间戳，对齐 Java @PrePersist（server_default 仅为迁移兼容）
         question = KnowledgeBaseQuestion(
             knowledge_base_id=kb.id,
@@ -157,7 +162,7 @@ class KnowledgeBaseQuestionService:
             scoring_rubric=trim_to_none(request.scoring_rubric),
             follow_ups_json=_write_follow_ups(request.follow_ups),
             source_context=trim_to_none(request.source_context),
-            kb_content_hash=kb.file_hash,
+            kb_content_hash=first_doc_hash,
             status=request.status or "DRAFT",
             created_at=now,
             updated_at=now,

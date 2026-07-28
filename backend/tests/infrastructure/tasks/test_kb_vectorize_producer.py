@@ -41,16 +41,20 @@ def producer(mock_redis: AsyncMock, repository: MagicMock) -> VectorizeStreamPro
 
 
 class TestBuildMessage:
-    def test_includes_knowledge_base_id_and_retry_count(self, producer: VectorizeStreamProducer) -> None:
-        msg = producer.build_message(KbVectorizePayload(knowledge_base_id=42))
+    def test_includes_knowledge_base_id_document_id_and_retry_count(self, producer: VectorizeStreamProducer) -> None:
+        msg = producer.build_message(KbVectorizePayload(knowledge_base_id=42, document_id=7))
 
         assert msg["knowledgeBaseId"] == "42"
+        assert msg["documentId"] == "7"
         assert msg["retryCount"] == "0"
 
 
 class TestPayloadIdentifier:
-    def test_includes_knowledge_base_id(self, producer: VectorizeStreamProducer) -> None:
-        assert producer.payload_identifier(KbVectorizePayload(knowledge_base_id=7)) == "knowledgeBaseId=7"
+    def test_includes_both_ids(self, producer: VectorizeStreamProducer) -> None:
+        assert (
+            producer.payload_identifier(KbVectorizePayload(knowledge_base_id=7, document_id=3))
+            == "knowledgeBaseId=7, documentId=3"
+        )
 
 
 class TestTaskDisplayName:
@@ -63,7 +67,9 @@ class TestOnSendFailed:
         kb = KnowledgeBase(id=1, file_hash="h", original_filename="x.pdf", vector_status="PENDING")
         repository.get_by_id.return_value = kb
 
-        await producer.on_send_failed(KbVectorizePayload(knowledge_base_id=1), "任务入队失败: Redis down")
+        await producer.on_send_failed(
+            KbVectorizePayload(knowledge_base_id=1, document_id=10), "任务入队失败: Redis down"
+        )
 
         repository.update_vector_status.assert_awaited_once()
         args = repository.update_vector_status.call_args.args
@@ -73,7 +79,7 @@ class TestOnSendFailed:
     async def test_skips_when_not_found(self, producer: VectorizeStreamProducer, repository: MagicMock) -> None:
         repository.get_by_id.return_value = None
 
-        await producer.on_send_failed(KbVectorizePayload(knowledge_base_id=999), "error")
+        await producer.on_send_failed(KbVectorizePayload(knowledge_base_id=999, document_id=1), "error")
 
         repository.update_vector_status.assert_not_awaited()
 
@@ -81,7 +87,7 @@ class TestOnSendFailed:
         kb = KnowledgeBase(id=1, file_hash="h", original_filename="x.pdf", vector_status="PENDING")
         repository.get_by_id.return_value = kb
 
-        await producer.on_send_failed(KbVectorizePayload(knowledge_base_id=1), "x" * 600)
+        await producer.on_send_failed(KbVectorizePayload(knowledge_base_id=1, document_id=10), "x" * 600)
 
         args = repository.update_vector_status.call_args.args
         assert len(args[3]) <= 500
@@ -91,7 +97,7 @@ class TestSendTaskIntegration:
     async def test_sends_message_via_redis_xadd(self, producer: VectorizeStreamProducer, mock_redis: AsyncMock) -> None:
         mock_redis.xadd.return_value = "100-0"
 
-        msg_id = await producer.send_task(KbVectorizePayload(knowledge_base_id=5))
+        msg_id = await producer.send_task(KbVectorizePayload(knowledge_base_id=5, document_id=1))
 
         assert msg_id == "100-0"
         mock_redis.xadd.assert_awaited_once()

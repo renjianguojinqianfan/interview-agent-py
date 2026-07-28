@@ -196,6 +196,14 @@
 | POST | `/api/knowledgebase/{kbId}/revectorize` | 重新向量化（失败重试） | - | `null` | 2/s |
 | GET | `/api/knowledgebase/{kbId}` | 单个知识库详情（题库管理页头部，#42 转活） | - | [`KnowledgeBaseItem`](#knowledgebaseitem) | - |
 
+### 文档管理
+
+| 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
+|---|---|---|---|---|---|
+| POST | `/api/knowledgebase/{kbId}/documents` | 追加文档到已有知识库（同库按 file_hash 去重） | `multipart: file` | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto) | 13/s |
+| GET | `/api/knowledgebase/{kbId}/documents` | 获取知识库的文档列表 | - | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto)`[]` | - |
+| DELETE | `/api/knowledgebase/{kbId}/documents/{documentId}` | 删除指定文档，同步更新知识库聚合状态 | - | `null` | - |
+
 - `sortBy`：`time` / `size` / `access` / `question`；`vectorStatus`：`PENDING` / `PROCESSING` / `COMPLETED` / `FAILED`。
 - 向量化异步：上传后 `vectorStatus=PENDING`，前端轮询列表刷新状态。
 - `KnowledgeBaseItem` 携 `questionGenStatus`（`NONE`/`QUEUED`/`PROCESSING`/`COMPLETED`/`FAILED`，无任务时 `NONE`）与 `questionGenError`。
@@ -438,11 +446,21 @@
 ```ts
 { knowledgeBase: { id, filename, vectorStatus }, storage: { fileKey, fileUrl, knowledgeBaseId }, duplicate }
 ```
+> `duplicate`：始终 `false`。全局判重已移除（#67/ADR-0018），跨库允许同文件；同库去重走 `POST /documents`。
+
 ### KnowledgeBaseItem
 ```ts
 { id, name, category?, originalFilename, fileSize?, contentType?, uploadedAt, lastAccessedAt,
   accessCount, questionCount, vectorStatus, vectorError?, chunkCount }
 ```
+> `fileSize`：文档聚合求和（ADR-0018 contract 前置），非 KB 行文件级字段。
+
+### KnowledgeBaseDocumentDTO
+```ts
+{ id, knowledgeBaseId, originalFilename, fileSize, contentType,
+  vectorStatus, vectorError?, chunkCount, uploadedAt }
+```
+
 ### KnowledgeBaseStats
 ```ts
 { totalCount, totalQuestionCount, totalAccessCount, completedCount, processingCount }

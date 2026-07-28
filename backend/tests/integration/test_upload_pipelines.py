@@ -119,4 +119,5 @@ def test_knowledgebase_upload_persists_and_enqueues_vectorize(integration_client
     assert rows[0]["vector_status"] == "PENDING"  # 待异步向量化（消费侧 e2e 覆盖）
     assert rows[0]["name"] == "并发知识库"
     assert rows[0]["category"] == "Java"
-    assert isinstance(rows[0]["content_text"], str) and rows[0]["content_text"].strip()  # 解析文本真入库
+    # 3c: KB 行不再双写 content_text，文件级字段由 Document 行承载
+    assert rows[0]["content_text"] is None

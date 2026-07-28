@@ -48,3 +48,16 @@ contract 阶段（后续独立工单）：待旧读路径全部切换到 documen
   由 contract 阶段收敛；`kb_content_hash`（题库快照哈希，ADR-0017）语义暂不变，
   仍指 KB 首文档内容哈希。
 - 迁移 013 可完整 downgrade（删索引/列/表），不触碰既有行。
+
+## Contract 前置重构进展（#67，2026-07-28）
+
+`knowledge_bases` 旧文件级列的读路径已全部切换到 `knowledge_base_documents`：
+
+- **upload 去全局判重**：移除 `find_by_hash`，跨库允许同文件；migration 015 drop UNIQUE 约束
+- **upload 去双写**：KB 行不再写 `storage_key`/`content_text`/`file_size`/`content_type`/`storage_url`（仅保留 `file_hash` 满足 NOT NULL、`original_filename` 满足 NOT NULL）
+- **读路径切换**：列表 `fileSize` 改文档聚合求和；`download`/`delete` 走文档表
+- **consumer 清理**：移除 `document_id is None` 整库粒度分支（~91 行）
+- **kb_content_hash 解耦**：改取首文档 hash
+- **性能修复**：`sum_chunk_count_by_kb` 改 SQL 聚合
+
+`app/` 内无任何代码读取 KB 文件级旧列。剩余删列操作（migration 016）留待后续工单。
