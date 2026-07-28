@@ -353,7 +353,7 @@ class RagChatService:
         kb_names: list[str] = []
         for kb_id in self._kb_ids(sess):
             kb = await self._kb_repository.get_by_id(self._session, kb_id)
-            kb_names.append((kb.name or kb.original_filename) if kb is not None else "未知知识库")
+            kb_names.append(kb.name if kb is not None and kb.name else "未知知识库")
         return RagSessionListItemDTO(
             id=sess.id,
             title=sess.title,

@@ -64,7 +64,7 @@ class TestTaskDisplayName:
 
 class TestOnSendFailed:
     async def test_updates_status_to_failed(self, producer: VectorizeStreamProducer, repository: MagicMock) -> None:
-        kb = KnowledgeBase(id=1, file_hash="h", original_filename="x.pdf", vector_status="PENDING")
+        kb = KnowledgeBase(id=1, vector_status="PENDING")
         repository.get_by_id.return_value = kb
 
         await producer.on_send_failed(
@@ -84,7 +84,7 @@ class TestOnSendFailed:
         repository.update_vector_status.assert_not_awaited()
 
     async def test_truncates_long_error(self, producer: VectorizeStreamProducer, repository: MagicMock) -> None:
-        kb = KnowledgeBase(id=1, file_hash="h", original_filename="x.pdf", vector_status="PENDING")
+        kb = KnowledgeBase(id=1, vector_status="PENDING")
         repository.get_by_id.return_value = kb
 
         await producer.on_send_failed(KbVectorizePayload(knowledge_base_id=1, document_id=10), "x" * 600)

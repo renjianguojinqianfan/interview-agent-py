@@ -72,8 +72,6 @@ def _seed_knowledge_base() -> int:
         try:
             async with AsyncSession(engine) as db:
                 kb = KnowledgeBase(
-                    file_hash="rag-vertical-kb-hash",
-                    original_filename="db-notes.txt",
                     name="数据库知识库",
                     category="Database",
                     vector_status="COMPLETED",

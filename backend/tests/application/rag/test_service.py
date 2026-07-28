@@ -41,15 +41,8 @@ def _make_session(**overrides: Any) -> RagChatSession:
 def _make_kb(**overrides: Any) -> KnowledgeBase:
     defaults: dict[str, Any] = {
         "id": 1,
-        "file_hash": "h",
-        "original_filename": "doc.pdf",
         "name": "知识库A",
         "category": None,
-        "file_size": 100,
-        "content_type": "application/pdf",
-        "storage_key": "k",
-        "storage_url": "u",
-        "content_text": "t",
         "chunk_count": 1,
         "access_count": 0,
         "question_count": 0,

@@ -38,8 +38,6 @@ def _seed_kb() -> int:
         try:
             async with AsyncSession(engine) as db:
                 kb = KnowledgeBase(
-                    file_hash=f"hash-{uuid.uuid4().hex[:8]}",
-                    original_filename="guide.md",
                     name="组卷竖切知识库",
                     vector_status="COMPLETED",
                 )

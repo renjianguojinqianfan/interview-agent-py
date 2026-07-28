@@ -1,8 +1,8 @@
-# ADR-0018: 知识库多文档模型（expand 阶段）
+# ADR-0018: 知识库多文档模型（expand + contract 阶段）
 
 ## 状态
 
-已接受（2026-07-26，issue #52）
+已接受（2026-07-26，issue #52）；contract 阶段完成（2026-07-28，issue #59）
 
 ## 背景
 
@@ -61,3 +61,17 @@ contract 阶段（后续独立工单）：待旧读路径全部切换到 documen
 - **性能修复**：`sum_chunk_count_by_kb` 改 SQL 聚合
 
 `app/` 内无任何代码读取 KB 文件级旧列。剩余删列操作（migration 016）留待后续工单。
+
+## Contract 阶段完成（#59，2026-07-28）
+
+migration 016 从 `knowledge_bases` 表删除以下 9 个文件级列：
+
+- `file_hash`、`original_filename`、`file_size`、`content_type`
+- `storage_key`、`storage_url`、`content_text`
+- `vector_job_id`、`vectorized_at`
+
+所有文件级数据完全由 `knowledge_base_documents` 表承载。KB 行只保留聚合视图/元数据：
+`id`、`name`、`category`、`chunk_count`、`access_count`、`question_count`、
+`vector_status`、`vector_error`、`question_gen_*` 系列、`uploaded_at`、`last_accessed_at`。
+
+多文档模型 fully converged。

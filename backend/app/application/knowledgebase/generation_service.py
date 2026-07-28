@@ -202,7 +202,7 @@ class QuestionGenerationService:
         user_template = await load_prompt("knowledgebase-question-generation-user")
         system_prompt = system_template.format()
         user_prompt = user_template.format(
-            knowledgeBaseName=self._sanitizer.sanitize(kb.name or kb.original_filename) or "",
+            knowledgeBaseName=self._sanitizer.sanitize(kb.name) or "",
             difficulty=config.difficulty,
             questionCount=config.question_count,
             followUpCount=config.follow_up_count,
@@ -236,7 +236,7 @@ class QuestionGenerationService:
         entities: list[KnowledgeBaseQuestion] = []
         batch_keys: set[str] = set()
         skipped_count = 0
-        kb_name = kb.name or kb.original_filename
+        kb_name = kb.name
         for dto in generated.questions:
             raw_question = (dto.question or "").strip()
             if not raw_question:

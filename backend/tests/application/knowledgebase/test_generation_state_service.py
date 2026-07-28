@@ -19,8 +19,6 @@ from app.infrastructure.db.models.knowledge_base import KnowledgeBase, Knowledge
 def _make_kb(**overrides: Any) -> KnowledgeBase:
     defaults: dict[str, Any] = {
         "id": 1,
-        "file_hash": "hash123",
-        "original_filename": "doc.pdf",
         "name": "知识库A",
         "vector_status": "COMPLETED",
         "question_gen_status": "NONE",

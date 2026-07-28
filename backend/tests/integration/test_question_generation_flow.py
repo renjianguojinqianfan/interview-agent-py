@@ -55,10 +55,7 @@ def _seed_kb_with_vectors() -> int:
         try:
             async with AsyncSession(engine) as db:
                 kb = KnowledgeBase(
-                    file_hash=f"hash-{uuid.uuid4().hex[:8]}",
-                    original_filename="guide.md",
                     name="生成竖切知识库",
-                    content_text="Redis 与 MySQL 知识",
                     vector_status="COMPLETED",
                 )
                 db.add(kb)

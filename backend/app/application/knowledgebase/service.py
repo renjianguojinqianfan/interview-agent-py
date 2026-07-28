@@ -52,9 +52,9 @@ def to_kb_list_item(
     """
     return KnowledgeBaseListItemDTO(
         id=kb.id,
-        name=kb.name or doc_original_filename or kb.original_filename,
+        name=kb.name or doc_original_filename or "",
         category=kb.category,
-        original_filename=doc_original_filename or kb.original_filename,
+        original_filename=doc_original_filename,
         file_size=doc_file_size,
         content_type=doc_content_type,
         uploaded_at=kb.uploaded_at,
@@ -128,10 +128,8 @@ class KnowledgeBaseService:
         storage_key = await self._storage.upload_file(data, filename, _KB_STORAGE_PREFIX)
         storage_url = self._storage.build_file_url(storage_key)
 
-        # 3c: KB 行只写必要字段（文件级字段由 Document 行承载）
+        # 3c: KB 行只写聚合元数据（文件级字段由 Document 行承载）
         kb = KnowledgeBase(
-            file_hash=file_hash,
-            original_filename=name or filename,
             name=name or filename,
             category=category or None,
             vector_status=AsyncTaskStatus.PENDING.value,
@@ -402,7 +400,7 @@ class KnowledgeBaseService:
         return content_type in self._allowed_types
 
     def _to_kb_info(self, kb: KnowledgeBase, agg: DocAggregate | None = None) -> KnowledgeBaseInfoDTO:
-        filename = agg.first_original_filename if agg and agg.first_original_filename else kb.original_filename
+        filename = agg.first_original_filename if agg and agg.first_original_filename else kb.name or ""
         return KnowledgeBaseInfoDTO(
             id=kb.id,
             filename=filename,

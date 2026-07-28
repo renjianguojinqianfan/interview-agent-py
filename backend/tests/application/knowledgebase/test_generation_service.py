@@ -23,8 +23,6 @@ from app.infrastructure.vector.repository import SearchResult
 def _make_kb(**overrides: Any) -> KnowledgeBase:
     defaults: dict[str, Any] = {
         "id": 1,
-        "file_hash": "hash123",
-        "original_filename": "doc.pdf",
         "name": "知识库A",
         "question_gen_task_id": "task-1",
     }

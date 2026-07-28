@@ -231,7 +231,7 @@ class KnowledgeBaseQuestionService:
     def _kb_name(self, kb: KnowledgeBase | None) -> str | None:
         if kb is None:
             return None
-        return kb.name or kb.original_filename
+        return kb.name
 
     def _contains_keyword(self, question: KnowledgeBaseQuestion, keyword: str) -> bool:
         lower = keyword.lower()

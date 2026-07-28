@@ -37,15 +37,8 @@ def _make_document(**overrides: Any) -> KnowledgeBaseDocument:
 def _make_kb(**overrides: Any) -> KnowledgeBase:
     defaults: dict[str, Any] = {
         "id": 1,
-        "file_hash": "h",
-        "original_filename": "doc.pdf",
         "name": "知识库A",
         "category": "后端",
-        "file_size": 2048,
-        "content_type": "application/pdf",
-        "storage_key": "k",
-        "storage_url": "u",
-        "content_text": "正文",
         "chunk_count": 3,
         "access_count": 4,
         "question_count": 2,
@@ -202,7 +195,7 @@ class TestUpload:
         m["producer"].send_task.assert_awaited_once()
 
     async def test_upload_kb_row_minimal_fields(self) -> None:
-        """3c: KB 行只写必要字段，文件级字段由 Document 行承载。"""
+        """3c: KB 行只写聚合元数据，文件级字段由 Document 行承载。"""
         captured: list[KnowledgeBase] = []
 
         async def _save(_session: Any, kb: KnowledgeBase) -> KnowledgeBase:
@@ -216,16 +209,8 @@ class TestUpload:
         await service.upload("doc.pdf", "application/pdf", b"data")
 
         kb = captured[0]
-        assert kb.file_hash == "hash123"
-        assert kb.original_filename == "doc.pdf"  # NOT NULL
         assert kb.name == "doc.pdf"
         assert kb.vector_status == "PENDING"
-        # 文件级字段应为 None
-        assert kb.file_size is None
-        assert kb.content_type is None
-        assert kb.storage_key is None
-        assert kb.storage_url is None
-        assert kb.content_text is None
 
     async def test_empty_text_raises_parse_failed(self) -> None:
         service, _ = _make_service(parsed_text="   ")
@@ -278,7 +263,7 @@ class TestListKnowledgeBases:
     async def test_list_file_size_is_document_sum(self) -> None:
         """3b: 列表 file_size 来自文档聚合。"""
         service, m = _make_service()
-        kb = _make_kb(id=1, file_size=None)
+        kb = _make_kb(id=1)
         m["repository"].list_all.return_value = [kb]
         m["document_repository"].aggregate_by_kb_ids = AsyncMock(
             return_value={
@@ -293,8 +278,16 @@ class TestListKnowledgeBases:
         assert result[0].file_size == 4096
 
     async def test_name_falls_back_to_filename(self) -> None:
+        """KB name 为 None 时，列表项 name 回退到文档聚合的 original_filename。"""
         service, m = _make_service()
         m["repository"].list_all.return_value = [_make_kb(name=None)]
+        m["document_repository"].aggregate_by_kb_ids = AsyncMock(
+            return_value={
+                1: DocAggregate(
+                    file_size_sum=0, first_original_filename="doc.pdf", first_content_type="application/pdf"
+                )
+            }
+        )
 
         result = await service.list_knowledge_bases()
 
@@ -311,9 +304,9 @@ class TestListKnowledgeBases:
     async def test_sort_by_size_desc(self) -> None:
         service, m = _make_service()
         kbs = [
-            _make_kb(id=1, file_size=100),
-            _make_kb(id=2, file_size=500),
-            _make_kb(id=3, file_size=300),
+            _make_kb(id=1),
+            _make_kb(id=2),
+            _make_kb(id=3),
         ]
         m["repository"].list_all.return_value = kbs
         # mock aggregate: kb2 最大，kb3 次之，kb1 最小

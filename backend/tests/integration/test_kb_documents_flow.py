@@ -44,11 +44,6 @@ def _load_state() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
                     [
                         {
                             "id": kb.id,
-                            "content_text": kb.content_text,
-                            "file_size": kb.file_size,
-                            "content_type": kb.content_type,
-                            "storage_key": kb.storage_key,
-                            "storage_url": kb.storage_url,
                             "vector_status": kb.vector_status,
                         }
                         for kb in kbs
@@ -96,14 +91,9 @@ def test_kb_multi_document_append_list_delete(integration_client: TestClient) ->
     assert body["data"]["knowledgeBaseId"] == kb_id
     assert body["data"]["vectorStatus"] == "PENDING"
 
-    # 3. 真库断言：documents 两行，KB 行文件级字段已清空（issue59a 去双写）
+    # 3. 真库断言：documents 两行，KB 行只保留聚合元数据（issue59a 去双写 + issue59b 删列）
     kbs, docs = _load_state()
     assert len(kbs) == 1
-    assert kbs[0]["content_text"] is None  # KB 行不再双写 content_text
-    assert kbs[0]["file_size"] is None  # KB 行不再写 file_size
-    assert kbs[0]["content_type"] is None  # KB 行不再写 content_type
-    assert kbs[0]["storage_key"] is None  # KB 行不再写 storage_key
-    assert kbs[0]["storage_url"] is None  # KB 行不再写 storage_url
     assert len(docs) == 2
     assert {d["filename"] for d in docs} == {"first.txt", "second.md"}
     assert "第二份文档" in str(docs[1]["content_text"])
@@ -163,11 +153,6 @@ def test_cross_kb_same_file_both_succeed(integration_client: TestClient) -> None
     kbs, docs = _load_state()
     assert len(kbs) == 2
     assert len(docs) == 2
-    # 两个 KB 行的文件级字段均为 None（去双写）
-    for kb in kbs:
-        assert kb["file_size"] is None
-        assert kb["content_text"] is None
-        assert kb["storage_key"] is None
     # 两个 document 行各自承载文件级字段
     for doc in docs:
         assert doc["file_size"] is not None and doc["file_size"] > 0

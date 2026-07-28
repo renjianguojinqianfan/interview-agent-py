@@ -23,8 +23,6 @@ def repo() -> KnowledgeBaseRepository:
 def _make_kb(**overrides: object) -> KnowledgeBase:
     defaults: dict[str, object] = {
         "id": 1,
-        "file_hash": "hash1",
-        "original_filename": "doc.pdf",
     }
     defaults.update(overrides)
     return KnowledgeBase(**defaults)  # type: ignore[arg-type]
@@ -66,7 +64,7 @@ class TestSave:
 
 class TestListAll:
     async def test_no_filter(self, repo: KnowledgeBaseRepository, session: AsyncMock) -> None:
-        kbs = [_make_kb(id=1), _make_kb(id=2, file_hash="h2")]
+        kbs = [_make_kb(id=1), _make_kb(id=2)]
         _scalars_all(session, kbs)
         assert await repo.list_all(session) == kbs
 
@@ -146,14 +144,4 @@ class TestUpdateCategory:
         kb = _make_kb(category=None)
         await repo.update_category(session, kb, "PYTHON")
         assert kb.category == "PYTHON"
-        session.flush.assert_awaited_once()
-
-
-class TestMarkVectorized:
-    async def test_sets_job_chunk_and_timestamp(self, repo: KnowledgeBaseRepository, session: AsyncMock) -> None:
-        kb = _make_kb()
-        await repo.mark_vectorized(session, kb, "job-123", 12)
-        assert kb.vector_job_id == "job-123"
-        assert kb.chunk_count == 12
-        assert kb.vectorized_at is not None
         session.flush.assert_awaited_once()

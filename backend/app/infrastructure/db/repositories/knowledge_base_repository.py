@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,14 +69,7 @@ class KnowledgeBaseRepository:
     async def search(self, session: AsyncSession, keyword: str) -> list[KnowledgeBase]:
         pattern = f"%{keyword}%"
         result = await session.execute(
-            select(KnowledgeBase)
-            .where(
-                or_(
-                    KnowledgeBase.name.ilike(pattern),
-                    KnowledgeBase.original_filename.ilike(pattern),
-                )
-            )
-            .order_by(KnowledgeBase.uploaded_at.desc())
+            select(KnowledgeBase).where(KnowledgeBase.name.ilike(pattern)).order_by(KnowledgeBase.uploaded_at.desc())
         )
         return list(result.scalars().all())
 
@@ -106,10 +99,4 @@ class KnowledgeBaseRepository:
 
     async def update_category(self, session: AsyncSession, kb: KnowledgeBase, category: str | None) -> None:
         kb.category = category
-        await session.flush()
-
-    async def mark_vectorized(self, session: AsyncSession, kb: KnowledgeBase, job_id: str, chunk_count: int) -> None:
-        kb.vector_job_id = job_id
-        kb.chunk_count = chunk_count
-        kb.vectorized_at = datetime.now(UTC)
         await session.flush()
