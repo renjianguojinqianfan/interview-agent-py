@@ -1,4 +1,5 @@
 import {Fragment, useCallback, useEffect, useRef, useState} from 'react';
+import {usePolling} from '../hooks/usePolling';
 import {AnimatePresence, motion} from 'framer-motion';
 import {
   AlertCircle,
@@ -160,22 +161,18 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
 
   // 加载数据（不显示loading状态，用于轮询）
   const loadDataSilent = useCallback(async () => {
-    try {
-      const [statsData, kbList, categoryList] = await Promise.all([
-        knowledgeBaseApi.getStatistics(),
-        searchKeyword
-          ? knowledgeBaseApi.search(searchKeyword)
-          : selectedCategory
-          ? knowledgeBaseApi.getByCategory(selectedCategory)
-          : knowledgeBaseApi.getAllKnowledgeBases(sortBy),
-        knowledgeBaseApi.getAllCategories(),
-      ]);
-      setStats(statsData);
-      setKnowledgeBases(kbList);
-      setCategories(categoryList);
-    } catch (error) {
-      console.error('加载数据失败:', error);
-    }
+    const [statsData, kbList, categoryList] = await Promise.all([
+      knowledgeBaseApi.getStatistics(),
+      searchKeyword
+        ? knowledgeBaseApi.search(searchKeyword)
+        : selectedCategory
+        ? knowledgeBaseApi.getByCategory(selectedCategory)
+        : knowledgeBaseApi.getAllKnowledgeBases(sortBy),
+      knowledgeBaseApi.getAllCategories(),
+    ]);
+    setStats(statsData);
+    setKnowledgeBases(kbList);
+    setCategories(categoryList);
   }, [searchKeyword, sortBy, selectedCategory]);
 
   // 加载数据
@@ -205,46 +202,33 @@ export default function KnowledgeBaseManagePage({ onUpload, onChat }: KnowledgeB
     loadData();
   }, [loadData]);
 
-  // 轮询：当有 PENDING 或 PROCESSING 状态时，每5秒刷新一次
-  useEffect(() => {
-    const hasPendingItems = knowledgeBases.some(
-      kb => kb.vectorStatus === 'PENDING' || kb.vectorStatus === 'PROCESSING'
-    );
-
-    if (hasPendingItems && !loading) {
-      const timer = setInterval(() => {
-        loadDataSilent();
-      }, 5000);
-
-      return () => clearInterval(timer);
-    }
-  }, [knowledgeBases, loading, loadDataSilent]);
+  // 轮询：当有 PENDING 或 PROCESSING 状态时，每5秒刷新一次（指数退避）
+  const hasPendingItems = knowledgeBases.some(
+    kb => kb.vectorStatus === 'PENDING' || kb.vectorStatus === 'PROCESSING'
+  );
+  usePolling({
+    callback: loadDataSilent,
+    interval: 5000,
+    enabled: hasPendingItems && !loading,
+  });
 
   // 多文档面板（ADR-0018）：静默刷新（不触发 loading 态，用于轮询）
   const loadDocumentsSilent = useCallback(async (kbId: number) => {
-    try {
-      setDocuments(await knowledgeBaseApi.listDocuments(kbId));
-    } catch (error) {
-      console.error('加载文档列表失败:', error);
-    }
+    setDocuments(await knowledgeBaseApi.listDocuments(kbId));
   }, []);
 
-  // 轮询文档列表：面板展开且有非终态文档时，每 5 秒刷新（与库级轮询同频）
-  useEffect(() => {
-    if (expandedKbId === null) return;
-
-    const hasNonTerminal = documents.some(
-      doc => doc.vectorStatus === 'PENDING' || doc.vectorStatus === 'PROCESSING'
-    );
-
-    if (!hasNonTerminal) return;
-
-    const timer = setInterval(() => {
-      loadDocumentsSilent(expandedKbId);
-    }, 5000);
-
-    return () => clearInterval(timer);
-  }, [expandedKbId, documents, loadDocumentsSilent]);
+  // 轮询文档列表：面板展开且有非终态文档时，每 5 秒刷新（指数退避）
+  const hasNonTerminalDocs = expandedKbId !== null && documents.some(
+    doc => doc.vectorStatus === 'PENDING' || doc.vectorStatus === 'PROCESSING'
+  );
+  const pollDocuments = useCallback(() => {
+    if (expandedKbId !== null) loadDocumentsSilent(expandedKbId);
+  }, [expandedKbId, loadDocumentsSilent]);
+  usePolling({
+    callback: pollDocuments,
+    interval: 5000,
+    enabled: hasNonTerminalDocs,
+  });
 
   // 重新向量化
   const handleRevectorize = async (id: number) => {

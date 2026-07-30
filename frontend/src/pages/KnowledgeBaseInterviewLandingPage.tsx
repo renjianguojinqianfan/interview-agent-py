@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowDownUp,
@@ -56,6 +57,15 @@ export default function KnowledgeBaseInterviewLandingPage() {
     }
   }, [sortKey]);
 
+  // 静默轮询（不触发 loading 态，用于指数退避轮询）
+  const pollKnowledgeBases = useCallback(async () => {
+    const list = await knowledgeBaseApi.getAllKnowledgeBases(
+      sortKey === 'question' ? 'question' : 'time',
+      'COMPLETED'
+    );
+    setKnowledgeBases(list);
+  }, [sortKey]);
+
   useEffect(() => {
     loadKnowledgeBases();
   }, [loadKnowledgeBases]);
@@ -64,29 +74,11 @@ export default function KnowledgeBaseInterviewLandingPage() {
     isQuestionGenerationActive(kb.questionGenStatus)
   );
 
-  useEffect(() => {
-    if (!hasActiveGeneration) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const poll = async () => {
-      try {
-        const list = await knowledgeBaseApi.getAllKnowledgeBases(
-          sortKey === 'question' ? 'question' : 'time',
-          'COMPLETED'
-        );
-        if (!cancelled) setKnowledgeBases(list);
-      } finally {
-        if (!cancelled) timer = setTimeout(poll, 5000);
-      }
-    };
-
-    timer = setTimeout(poll, 5000);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [hasActiveGeneration, sortKey]);
+  usePolling({
+    callback: pollKnowledgeBases,
+    interval: 5000,
+    enabled: hasActiveGeneration,
+  });
 
   const filteredAndSorted = useMemo(() => {
     const trimmed = keyword.trim().toLowerCase();

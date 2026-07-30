@@ -1,4 +1,5 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   Archive,
@@ -166,56 +167,40 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
     loadQuestions();
   }, [loadQuestions]);
 
-  useEffect(() => {
+  const prevGenStatusRef = useRef<QuestionGenStatus | null>(null);
+
+  const pollGenStatus = useCallback(async () => {
     if (Number.isNaN(knowledgeBaseIdNum)) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let previousStatus: QuestionGenStatus | null = null;
+    const current = await knowledgeBaseApi.getQuestionGenerationStatus(knowledgeBaseIdNum);
+    const sameTask = trackedTaskId === null
+      || current.questionGenTaskId === trackedTaskId;
+    setGenerationStatus(current);
+    if (current.questionGenTaskId && trackedTaskId === null
+        && isQuestionGenerationActive(current.questionGenStatus)) {
+      setTrackedTaskId(current.questionGenTaskId);
+    }
+    if (shouldRefreshGeneratedQuestions(
+      prevGenStatusRef.current,
+      current.questionGenStatus,
+      sameTask
+    )) {
+      setFilters({
+        status: 'DRAFT',
+        category: '',
+        difficulty: current.questionGenConfig?.difficulty || '',
+        keyword: '',
+      });
+      void loadKnowledgeBase();
+    }
+    prevGenStatusRef.current = current.questionGenStatus;
+  }, [knowledgeBaseIdNum, trackedTaskId, loadKnowledgeBase]);
 
-    const poll = async () => {
-      try {
-        const current = await knowledgeBaseApi.getQuestionGenerationStatus(knowledgeBaseIdNum);
-        if (cancelled) return;
-
-        const sameTask = trackedTaskId === null
-          || current.questionGenTaskId === trackedTaskId;
-        setGenerationStatus(current);
-        if (current.questionGenTaskId && trackedTaskId === null
-            && isQuestionGenerationActive(current.questionGenStatus)) {
-          setTrackedTaskId(current.questionGenTaskId);
-        }
-
-        if (shouldRefreshGeneratedQuestions(
-          previousStatus,
-          current.questionGenStatus,
-          sameTask
-        )) {
-          setFilters({
-            status: 'DRAFT',
-            category: '',
-            difficulty: current.questionGenConfig?.difficulty || '',
-            keyword: '',
-          });
-          void loadKnowledgeBase();
-        }
-        previousStatus = current.questionGenStatus;
-
-        if (isQuestionGenerationActive(current.questionGenStatus)) {
-          timer = setTimeout(poll, 3000);
-        }
-      } catch {
-        if (!cancelled && trackedTaskId !== null) {
-          timer = setTimeout(poll, 3000);
-        }
-      }
-    };
-
-    void poll();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [knowledgeBaseIdNum, trackedTaskId]);
+  const generationActive = isQuestionGenerationActive(generationStatus?.questionGenStatus);
+  usePolling({
+    callback: pollGenStatus,
+    interval: 3000,
+    enabled: generationActive || (trackedTaskId !== null && !generationStatus),
+  });
 
   // 切换筛选/Tab 时清空已选并回到第一页
   useEffect(() => {
@@ -304,7 +289,6 @@ export default function KnowledgeBaseInterviewQuestionsPage() {
   const generationNotice = generationStatus
     ? getQuestionGenerationNotice(generationStatus)
     : null;
-  const generationActive = isQuestionGenerationActive(generationStatus?.questionGenStatus);
   const retryConfig = generationStatus?.questionGenConfig
     ? {
         difficulty: generationStatus.questionGenConfig.difficulty,

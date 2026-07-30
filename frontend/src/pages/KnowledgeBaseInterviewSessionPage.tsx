@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { usePolling } from '../hooks/usePolling';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { historyApi } from '../api/history';
@@ -41,47 +42,33 @@ export default function KnowledgeBaseInterviewSessionPage() {
     };
   }, [sessionId, stateKbId]);
 
-  useEffect(() => {
-    if (!awaitingEvaluation || !sessionId || kbId === undefined) return;
+  const pollEvaluation = useCallback(async () => {
+    if (!sessionId || kbId === undefined) return;
+    const detail = await historyApi.getInterviewDetail(sessionId);
+    // 成功响应后清除临时错误（保留永久性评估失败错误）
+    if (evaluationError && !evaluationError.includes('评估失败')) {
+      setEvaluationError('');
+    }
+    const completion = resolveKnowledgeBaseInterviewCompletion(
+      detail.evaluateStatus,
+      kbId,
+      sessionId,
+    );
+    if (completion.kind === 'completed') {
+      navigate(completion.path, { replace: true });
+      return;
+    }
+    if (completion.kind === 'failed') {
+      setEvaluationError(detail.evaluateError || '面试评估失败，请前往面试记录查看');
+      return;
+    }
+  }, [sessionId, kbId, navigate, evaluationError]);
 
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const pollEvaluation = async () => {
-      try {
-        const detail = await historyApi.getInterviewDetail(sessionId);
-        if (cancelled) return;
-
-        const completion = resolveKnowledgeBaseInterviewCompletion(
-          detail.evaluateStatus,
-          kbId,
-          sessionId,
-        );
-        if (completion.kind === 'completed') {
-          navigate(completion.path, { replace: true });
-          return;
-        }
-        if (completion.kind === 'failed') {
-          setEvaluationError(detail.evaluateError || '面试评估失败，请前往面试记录查看');
-          return;
-        }
-      } catch {
-        if (!cancelled) {
-          setEvaluationError('暂时无法获取评估进度，系统将继续重试');
-        }
-      }
-
-      if (!cancelled) {
-        timer = setTimeout(pollEvaluation, 3000);
-      }
-    };
-
-    void pollEvaluation();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [awaitingEvaluation, kbId, navigate, sessionId]);
+  usePolling({
+    callback: pollEvaluation,
+    interval: 3000,
+    enabled: awaitingEvaluation && !evaluationError.includes('评估失败'),
+  });
 
   if (!sessionId) {
     return <Navigate to="/knowledgebase-interview" replace />;

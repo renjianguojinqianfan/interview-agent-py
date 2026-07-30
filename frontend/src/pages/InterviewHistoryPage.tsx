@@ -1,4 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {usePolling} from '../hooks/usePolling';
 import {useNavigate} from 'react-router-dom';
 import {AnimatePresence, motion} from 'framer-motion';
 import {CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
@@ -210,7 +211,6 @@ export default function InterviewHistoryPage({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [deleteItem, setDeleteItem] = useState<UnifiedInterviewItem | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
-  const pollingRef = useRef<number | null>(null);
   const skillsRef = useRef<SkillDTO[]>([]);
   const skillsLoadedRef = useRef(false);
 
@@ -222,40 +222,43 @@ export default function InterviewHistoryPage({
     setCompletionFilter('all');
   };
 
+  // 核心加载逻辑（不含 try/catch，供 loadAll 和 pollLoadAll 复用）
+  const fetchAndSetItems = useCallback(async (isPolling: boolean) => {
+    if (!skillsLoadedRef.current) {
+      skillsRef.current = await skillApi.listSkills().catch(() => [] as SkillDTO[]);
+      skillsLoadedRef.current = true;
+    }
+    const loadedSkills = skillsRef.current;
+    const textInterviews = await loadTextInterviews(loadedSkills);
+    const scopedTextInterviews = isKnowledgeBaseView
+      ? textInterviews.filter(item => item.knowledgeBaseId === knowledgeBaseFilterId)
+      : textInterviews.filter(item => item.sourceType !== 'KNOWLEDGE_BASE');
+    const voiceSessions = isKnowledgeBaseView ? [] : await loadVoiceInterviews();
+
+    const voiceWithNames = voiceSessions.map(item => {
+      const skillName = getTemplateName(item.title, loadedSkills);
+      return skillName !== item.title ? { ...item, title: skillName } : item;
+    });
+
+    const all = [...scopedTextInterviews, ...voiceWithNames];
+    all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    setItems(prev => {
+      if (isPolling && itemsEqual(prev, all)) return prev;
+      return all;
+    });
+  }, [isKnowledgeBaseView, knowledgeBaseFilterId]);
+
   const loadAll = useCallback(async (isPolling = false) => {
     if (!isPolling) setLoading(true);
-
     try {
-      // Only fetch skills on first load; reuse cached ref on polling
-      if (!skillsLoadedRef.current) {
-        skillsRef.current = await skillApi.listSkills().catch(() => [] as SkillDTO[]);
-        skillsLoadedRef.current = true;
-      }
-      const loadedSkills = skillsRef.current;
-      const textInterviews = await loadTextInterviews(loadedSkills);
-      const scopedTextInterviews = isKnowledgeBaseView
-        ? textInterviews.filter(item => item.knowledgeBaseId === knowledgeBaseFilterId)
-        : textInterviews.filter(item => item.sourceType !== 'KNOWLEDGE_BASE');
-      const voiceSessions = isKnowledgeBaseView ? [] : await loadVoiceInterviews();
-
-      const voiceWithNames = voiceSessions.map(item => {
-        const skillName = getTemplateName(item.title, loadedSkills);
-        return skillName !== item.title ? { ...item, title: skillName } : item;
-      });
-
-      const all = [...scopedTextInterviews, ...voiceWithNames];
-      all.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-      setItems(prev => {
-        if (isPolling && itemsEqual(prev, all)) return prev;
-        return all;
-      });
+      await fetchAndSetItems(isPolling);
     } catch (err) {
       console.error('加载面试记录失败', err);
     } finally {
       if (!isPolling) setLoading(false);
     }
-  }, [isKnowledgeBaseView, knowledgeBaseFilterId]);
+  }, [fetchAndSetItems]);
 
   // Load text interviews from dedicated API
   async function loadTextInterviews(skills: SkillDTO[]): Promise<UnifiedInterviewItem[]> {
@@ -310,24 +313,14 @@ export default function InterviewHistoryPage({
     loadAll();
   }, [loadAll]);
 
-  // Polling for evaluation status
-  useEffect(() => {
-    const hasEvaluating = items.some(i => isEvaluating(i));
-
-    if (hasEvaluating && !pollingRef.current) {
-      pollingRef.current = window.setInterval(() => loadAll(true), 3000);
-    } else if (!hasEvaluating && pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
-
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
-      }
-    };
-  }, [items, loadAll]);
+  // Polling for evaluation status（指数退避）
+  const hasEvaluating = items.some(i => isEvaluating(i));
+  const pollLoadAll = useCallback(() => fetchAndSetItems(true), [fetchAndSetItems]);
+  usePolling({
+    callback: pollLoadAll,
+    interval: 3000,
+    enabled: hasEvaluating && !loading,
+  });
 
   const handleRowClick = (item: UnifiedInterviewItem) => {
     if (item.type === 'text') {

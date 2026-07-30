@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useState} from 'react';
 import {AnimatePresence, motion} from 'framer-motion';
 import {AnalyzeStatus, historyApi, ResumeListItem, ResumeStats} from '../api/history';
+import {usePolling} from '../hooks/usePolling';
 import DeleteConfirmDialog from './DeleteConfirmDialog';
 import {getScoreColor} from '../utils/score';
 import {formatDate} from '../utils/date';
@@ -124,16 +125,12 @@ export default function HistoryList({ onSelectResume }: HistoryListProps) {
 
   // 静默加载数据（用于轮询）
   const loadDataSilent = useCallback(async () => {
-    try {
-      const [resumeData, statsData] = await Promise.all([
-        historyApi.getResumes(),
-        historyApi.getStatistics(),
-      ]);
-      setResumes(resumeData);
-      setStats(statsData);
-    } catch (err) {
-      console.error('加载数据失败', err);
-    }
+    const [resumeData, statsData] = await Promise.all([
+      historyApi.getResumes(),
+      historyApi.getStatistics(),
+    ]);
+    setResumes(resumeData);
+    setStats(statsData);
   }, []);
 
   // 加载数据
@@ -157,23 +154,19 @@ export default function HistoryList({ onSelectResume }: HistoryListProps) {
     loadResumes();
   }, [loadResumes]);
 
-  // 轮询：当有待处理项时，每5秒刷新一次
+  // 轮询：当有待处理项时，每5秒刷新一次（指数退避）
   // 待处理判断：显式的 PENDING/PROCESSING 状态，或状态未定义且无分数
-  useEffect(() => {
-    const hasPendingItems = resumes.some(
-      r => r.analyzeStatus === 'PENDING' ||
-        r.analyzeStatus === 'PROCESSING' ||
-        (r.analyzeStatus === undefined && r.latestScore === undefined)
-    );
+  const hasPendingItems = resumes.some(
+    r => r.analyzeStatus === 'PENDING' ||
+      r.analyzeStatus === 'PROCESSING' ||
+      (r.analyzeStatus === undefined && r.latestScore === undefined)
+  );
 
-    if (hasPendingItems && !loading) {
-      const timer = setInterval(() => {
-        loadDataSilent();
-      }, 5000);
-
-      return () => clearInterval(timer);
-    }
-  }, [resumes, loading, loadDataSilent]);
+  usePolling({
+    callback: loadDataSilent,
+    interval: 5000,
+    enabled: hasPendingItems && !loading,
+  });
 
   // 下载简历
   const handleDownload = (resume: ResumeListItem, e: React.MouseEvent) => {
