@@ -69,6 +69,7 @@
 - 路径参数：`{sessionId}`、`{id}` 等，类型见各接口。
 - 上传：`multipart/form-data`，文件字段名 `file`。
 - 允许上传类型：PDF / Word(doc/docx) / txt / markdown；大小上限 **10 MB**。
+- 列表接口支持分页：`limit`（默认 200，最大 500）和 `offset`（默认 0）。响应仍为裸数组，超出 limit 的数据截断。
 
 ---
 
@@ -120,7 +121,7 @@
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
 | POST | `/api/resumes/upload` | 上传简历（异步分析） | `multipart: file` | [`ResumeUploadResponse`](#resumeuploadresponse) | 5/s |
-| GET | `/api/resumes` | 简历列表（**裸数组**） | - | [`ResumeListItem`](#resumelistitem)`[]` | - |
+| GET | `/api/resumes` | 简历列表（**裸数组**） | query: `limit?=200`, `offset?=0` | [`ResumeListItem`](#resumelistitem)`[]` | - |
 | GET | `/api/resumes/statistics` | 简历统计 | - | `{ totalCount, totalInterviewCount, totalAccessCount }` | - |
 | GET | `/api/resumes/{resumeId}/detail` | 简历详情（含分析、关联面试） | - | [`ResumeDetail`](#resumedetail) | - |
 | DELETE | `/api/resumes/{resumeId}` | 删除简历 | - | `null` | - |
@@ -135,7 +136,7 @@
 
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
-| GET | `/api/interview/skills` | 技能列表 | - | [`SkillDTO`](#skilldto)`[]` | - |
+| GET | `/api/interview/skills` | 技能列表 | query: `limit?=200`, `offset?=0` | [`SkillDTO`](#skilldto)`[]` | - |
 | GET | `/api/interview/skills/{skillId}` | 技能详情 | - | [`SkillDTO`](#skilldto) | - |
 | POST | `/api/interview/skills/parse-jd` | 解析 JD 为面试分类 | `{ jdText }` | [`CategoryDTO`](#categorydto)`[]` | 5/s |
 
@@ -146,7 +147,7 @@
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
 | POST | `/api/interview/sessions` | 创建面试会话（AI 出题） | [`CreateInterviewRequest`](#createinterviewrequest) | [`InterviewSession`](#interviewsession) | 5/s |
-| GET | `/api/interview/sessions` | 会话列表（**裸数组**） | - | [`SessionListItem`](#sessionlistitem)`[]` | - |
+| GET | `/api/interview/sessions` | 会话列表（**裸数组**） | query: `limit?=200`, `offset?=0` | [`SessionListItem`](#sessionlistitem)`[]` | - |
 | GET | `/api/interview/sessions/unfinished/{resumeId}` | 查未完成会话 | - | [`InterviewSession`](#interviewsession) | - |
 | GET | `/api/interview/sessions/{sessionId}` | 会话信息 | - | [`InterviewSession`](#interviewsession) | - |
 | GET | `/api/interview/sessions/{sessionId}/question` | 当前问题 | - | `{ completed, message?, question? }` | - |
@@ -169,7 +170,7 @@
 |---|---|---|---|---|---|
 | POST | `/api/interview-schedule/parse` | 解析日程原文（规则+AI） | `{ rawText, source? }` | [`ParseResponse`](#parseresponse) | 5/s |
 | POST | `/api/interview-schedule` | 创建日程 | [`CreateScheduleRequest`](#createschedulerequest) | [`InterviewSchedule`](#interviewschedule) | - |
-| GET | `/api/interview-schedule` | 日程列表（**裸数组**） | query: `status?`,`start?`,`end?` | [`InterviewSchedule`](#interviewschedule)`[]` | - |
+| GET | `/api/interview-schedule` | 日程列表（**裸数组**） | query: `status?`,`start?`,`end?`,`limit?=200`,`offset?=0` | [`InterviewSchedule`](#interviewschedule)`[]` | - |
 | GET | `/api/interview-schedule/{id}` | 日程详情 | - | [`InterviewSchedule`](#interviewschedule) | - |
 | PUT | `/api/interview-schedule/{id}` | 更新日程 | [`CreateScheduleRequest`](#createschedulerequest) | [`InterviewSchedule`](#interviewschedule) | - |
 | DELETE | `/api/interview-schedule/{id}` | 删除日程 | - | `null` | - |
@@ -185,11 +186,11 @@
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
 | POST | `/api/knowledgebase/upload` | 上传知识库文件（异步向量化） | `multipart: file, name?, category?` | [`KnowledgeBaseUploadResponse`](#knowledgebaseuploadresponse) | 3/s |
-| GET | `/api/knowledgebase/list` | 知识库列表（**裸数组**） | query: `sortBy?`,`vectorStatus?` | [`KnowledgeBaseItem`](#knowledgebaseitem)`[]` | - |
+| GET | `/api/knowledgebase/list` | 知识库列表（**裸数组**） | query: `sortBy?`,`vectorStatus?`,`limit?=200`,`offset?=0` | [`KnowledgeBaseItem`](#knowledgebaseitem)`[]` | - |
 | GET | `/api/knowledgebase/stats` | 统计 | - | [`KnowledgeBaseStats`](#knowledgebasestats) | - |
 | GET | `/api/knowledgebase/categories` | 全部分类（**裸数组**） | - | `string[]` | - |
-| GET | `/api/knowledgebase/category/{category}` | 按分类查询（**裸数组**） | - | [`KnowledgeBaseItem`](#knowledgebaseitem)`[]` | - |
-| GET | `/api/knowledgebase/search` | 关键词搜索（**裸数组**） | query: `keyword` | [`KnowledgeBaseItem`](#knowledgebaseitem)`[]` | - |
+| GET | `/api/knowledgebase/category/{category}` | 按分类查询（**裸数组**） | query: `limit?=200`, `offset?=0` | [`KnowledgeBaseItem`](#knowledgebaseitem)`[]` | - |
+| GET | `/api/knowledgebase/search` | 关键词搜索（**裸数组**） | query: `keyword`,`limit?=200`,`offset?=0` | [`KnowledgeBaseItem`](#knowledgebaseitem)`[]` | - |
 | GET | `/api/knowledgebase/{kbId}/download` | 下载原文件 | - | *文件二进制* | - |
 | PUT | `/api/knowledgebase/{kbId}/category` | 更新分类 | `{ category }` | `null` | - |
 | DELETE | `/api/knowledgebase/{kbId}` | 删除知识库 | - | `null` | - |
@@ -201,7 +202,7 @@
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
 | POST | `/api/knowledgebase/{kbId}/documents` | 追加文档到已有知识库（同库按 file_hash 去重） | `multipart: file` | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto) | 13/s |
-| GET | `/api/knowledgebase/{kbId}/documents` | 获取知识库的文档列表 | - | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto)`[]` | - |
+| GET | `/api/knowledgebase/{kbId}/documents` | 获取知识库的文档列表 | query: `limit?=200`, `offset?=0` | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto)`[]` | - |
 | DELETE | `/api/knowledgebase/{kbId}/documents/{documentId}` | 删除指定文档，同步更新知识库聚合状态 | - | `null` | - |
 
 - `sortBy`：`time` / `size` / `access` / `question`；`vectorStatus`：`PENDING` / `PROCESSING` / `COMPLETED` / `FAILED`。
@@ -214,7 +215,7 @@
 
 | 方法 | 路径 | 说明 | 请求 | 响应 data | 限流 |
 |------|------|------|------|-----------|------|
-| GET | `/api/knowledgebase/{kbId}/questions` | 题目列表（更新时间倒序） | query: `status`/`category`/`difficulty`/`keyword` 可选组合 | `KnowledgeBaseQuestion[]` | - |
+| GET | `/api/knowledgebase/{kbId}/questions` | 题目列表（更新时间倒序） | query: `status`/`category`/`difficulty`/`keyword` 可选组合, `limit?=200`, `offset?=0` | `KnowledgeBaseQuestion[]` | - |
 | GET | `/api/knowledgebase/{kbId}/questions/categories` | 方向及题目数（count 降序） | - | `{ category, count }[]` | - |
 | POST | `/api/knowledgebase/{kbId}/questions` | 手动新增题目（默认 DRAFT） | `SaveKnowledgeBaseQuestionRequest`（category/question 必填） | `KnowledgeBaseQuestion` | - |
 | PUT | `/api/knowledgebase/questions/{questionId}` | 部分更新题目（未提供字段跳过） | `SaveKnowledgeBaseQuestionRequest` 子集 | `KnowledgeBaseQuestion` | - |
@@ -236,7 +237,7 @@
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
 | POST | `/api/rag-chat/sessions` | 创建会话 | `{ knowledgeBaseIds, title? }` | [`RagSession`](#ragsession) | - |
-| GET | `/api/rag-chat/sessions` | 会话列表（**裸数组**） | - | [`RagSessionListItem`](#ragsessionlistitem)`[]` | - |
+| GET | `/api/rag-chat/sessions` | 会话列表（**裸数组**） | query: `limit?=200`, `offset?=0` | [`RagSessionListItem`](#ragsessionlistitem)`[]` | - |
 | GET | `/api/rag-chat/sessions/{sessionId}` | 会话详情（含消息、知识库） | - | [`RagSessionDetail`](#ragsessiondetail) | - |
 | PUT | `/api/rag-chat/sessions/{sessionId}/title` | 更新标题 | `{ title }` | `null` | - |
 | PUT | `/api/rag-chat/sessions/{sessionId}/pin` | 切换置顶 | - | `null` | - |
@@ -255,7 +256,7 @@
 
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
-| GET | `/api/llm-provider/list` | 供应商列表 | - | [`ProviderItem`](#provideritem)`[]` | 30/s |
+| GET | `/api/llm-provider/list` | 供应商列表 | query: `limit?=200`, `offset?=0` | [`ProviderItem`](#provideritem)`[]` | 30/s |
 | POST | `/api/llm-provider` | 新增供应商 | [`CreateProviderRequest`](#createproviderrequest) | `null` | 5/s |
 | GET | `/api/llm-provider/{providerId}` | 供应商详情 | - | [`ProviderItem`](#provideritem) | 30/s |
 | PUT | `/api/llm-provider/{providerId}` | 更新供应商 | [`UpdateProviderRequest`](#updateproviderrequest) | `null` | 5/s |
@@ -283,13 +284,13 @@
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
 | POST | `/api/voice-interview/sessions` | 创建语音会话 | [`CreateVoiceSessionRequest`](#createvoicesessionrequest) | [`VoiceSession`](#voicesession)（含 `webSocketUrl`） | 5/s |
-| GET | `/api/voice-interview/sessions` | 会话列表（**裸数组**） | query: `userId?`,`status?` | [`VoiceSessionMeta`](#voicesessionmeta)`[]` | - |
+| GET | `/api/voice-interview/sessions` | 会话列表（**裸数组**） | query: `userId?`,`status?`,`limit?=200`,`offset?=0` | [`VoiceSessionMeta`](#voicesessionmeta)`[]` | - |
 | GET | `/api/voice-interview/sessions/{sessionId}` | 会话详情（含 `webSocketUrl`） | - | [`VoiceSession`](#voicesession) | - |
 | POST | `/api/voice-interview/sessions/{sessionId}/end` | 结束会话（触发异步评估） | - | `null` | - |
 | PUT | `/api/voice-interview/sessions/{sessionId}/pause` | 暂停会话 | `{ reason? }` | `null` | - |
 | PUT | `/api/voice-interview/sessions/{sessionId}/resume` | 恢复会话（含 `webSocketUrl`；对 IN_PROGRESS 幂等成功，#60） | - | [`VoiceSession`](#voicesession) | - |
 | DELETE | `/api/voice-interview/sessions/{sessionId}` | 删除会话 | - | `null` | - |
-| GET | `/api/voice-interview/sessions/{sessionId}/messages` | 会话消息列表（**裸数组**） | - | [`VoiceMessage`](#voicemessage)`[]` | - |
+| GET | `/api/voice-interview/sessions/{sessionId}/messages` | 会话消息列表（**裸数组**） | query: `limit?=200`, `offset?=0` | [`VoiceMessage`](#voicemessage)`[]` | - |
 | GET | `/api/voice-interview/sessions/{sessionId}/evaluation` | 获取评估状态/结果 | - | [`VoiceEvaluationStatus`](#voiceevaluationstatus) | - |
 | POST | `/api/voice-interview/sessions/{sessionId}/evaluation` | 触发异步评估 | - | [`VoiceEvaluationStatus`](#voiceevaluationstatus) | - |
 
