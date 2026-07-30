@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.domain.errors import BusinessException, ErrorCode
-from app.infrastructure.vector.repository import SearchResult, VectorItem, VectorRepository
+from app.infrastructure.vector.repository import BATCH_SIZE, SearchResult, VectorItem, VectorRepository
 
 
 @pytest.fixture()
@@ -26,7 +26,8 @@ class TestVectorItem:
 
 
 class TestInsertPending:
-    async def test_inserts_with_job_metadata(self, repo: VectorRepository, session: AsyncMock) -> None:
+    async def test_batch_insert_single_call(self, repo: VectorRepository, session: AsyncMock) -> None:
+        """少量 items（< BATCH_SIZE）应只触发 1 次 execute（批量参数列表）。"""
         items = [
             VectorItem(content="chunk1", embedding=[0.1, 0.2]),
             VectorItem(content="chunk2", embedding=[0.3, 0.4]),
@@ -34,7 +35,11 @@ class TestInsertPending:
         count = await repo.insert_pending(session, "job-123", 42, items)
 
         assert count == 2
-        assert session.execute.call_count == 2
+        assert session.execute.call_count == 1
+        # 验证传入的是包含 2 组参数的列表
+        batch_params = session.execute.call_args.args[1]
+        assert isinstance(batch_params, list)
+        assert len(batch_params) == 2
 
     async def test_empty_items_returns_zero(self, repo: VectorRepository, session: AsyncMock) -> None:
         count = await repo.insert_pending(session, "job-123", 42, [])
@@ -45,12 +50,27 @@ class TestInsertPending:
         items = [VectorItem(content="chunk", embedding=[0.1], metadata={"source": "page1"})]
         await repo.insert_pending(session, "job-1", 1, items)
 
-        call_args = session.execute.call_args
-        params = call_args.kwargs.get("parameters") or call_args.args[1]
-        metadata = json.loads(params["metadata"])
+        # 批量模式下 params 是列表，取第一个元素
+        batch_params = session.execute.call_args.args[1]
+        assert isinstance(batch_params, list)
+        metadata = json.loads(batch_params[0]["metadata"])
         assert metadata["kb_vector_job_id"] == "job-1"
         assert metadata["kb_target_id"] == "1"
         assert metadata["source"] == "page1"
+
+    async def test_batch_boundary_splits_into_multiple_calls(self, repo: VectorRepository, session: AsyncMock) -> None:
+        """超过 BATCH_SIZE 的 items 应按批拆分 execute 调用次数。"""
+        items = [VectorItem(content=f"c{i}", embedding=[0.1]) for i in range(BATCH_SIZE + 50)]
+        count = await repo.insert_pending(session, "job-big", 7, items)
+
+        assert count == BATCH_SIZE + 50
+        # 150 条 → ceil(150/100) = 2 次 execute
+        assert session.execute.call_count == 2
+        # 第一批 BATCH_SIZE 条，第二批剩余
+        first_batch = session.execute.call_args_list[0].args[1]
+        second_batch = session.execute.call_args_list[1].args[1]
+        assert len(first_batch) == BATCH_SIZE
+        assert len(second_batch) == 50
 
 
 class TestPromoteVectorJob:

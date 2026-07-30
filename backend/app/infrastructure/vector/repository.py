@@ -10,6 +10,9 @@ from app.domain.errors import BusinessException, ErrorCode
 
 logger = logging.getLogger(__name__)
 
+# 批量 INSERT 每批上限，避免超长事务
+BATCH_SIZE: int = 100
+
 
 @dataclass
 class VectorItem:
@@ -87,6 +90,8 @@ class VectorRepository:
         )
 
         try:
+            # 构建批量参数列表
+            params_list: list[dict[str, Any]] = []
             for item in items:
                 metadata: dict[str, Any] = {
                     "kb_vector_job_id": job_id,
@@ -94,18 +99,22 @@ class VectorRepository:
                 }
                 if item.metadata:
                     metadata.update(item.metadata)
-
                 embedding_str = "[" + ",".join(str(v) for v in item.embedding) + "]"
-                await session.execute(
-                    sql,
+                params_list.append(
                     {
                         "content": item.content,
                         "metadata": json.dumps(metadata),
                         "embedding": embedding_str,
                         "kb_id": kb_id,
                         "document_id": document_id,
-                    },
+                    }
                 )
+
+            # 分批执行，每批最多 BATCH_SIZE 条，避免超长事务
+            for i in range(0, len(params_list), BATCH_SIZE):
+                batch = params_list[i : i + BATCH_SIZE]
+                await session.execute(sql, batch)
+
             logger.info("插入待定向量: jobId=%s, kbId=%s, count=%d", job_id, kb_id, len(items))
             return len(items)
         except Exception as e:
