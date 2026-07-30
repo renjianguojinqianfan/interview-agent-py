@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
 from app.api.deps import get_resume_service
@@ -11,6 +11,7 @@ from app.application.resume.schemas import (
     ResumeUploadResponse,
 )
 from app.application.resume.service import ResumeService
+from app.config.settings import settings
 
 router = APIRouter(prefix="/api/resumes", tags=["简历管理"])
 
@@ -24,6 +25,9 @@ async def upload_resume(
     service: ResumeService = Depends(get_resume_service),
 ) -> Result[ResumeUploadResponse]:
     data = await file.read()
+    if len(data) > settings.resume_max_file_size:
+        max_mb = settings.resume_max_file_size // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"文件大小超过限制（最大 {max_mb}MB）")
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
     result = await service.upload(filename, content_type, data)
@@ -32,9 +36,11 @@ async def upload_resume(
 
 @router.get("", response_model=Result[list[ResumeListItemDTO]])
 async def list_resumes(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: ResumeService = Depends(get_resume_service),
 ) -> Result[list[ResumeListItemDTO]]:
-    result = await service.list_resumes()
+    result = await service.list_resumes(limit=limit, offset=offset)
     return Result.success(data=result)
 
 

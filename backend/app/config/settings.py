@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/interview_guide"
 
     redis_url: str = "redis://localhost:6379/0"
+    redis_max_connections: int = 50
 
     s3_endpoint: str = "http://localhost:9000"
     s3_access_key: str = ""
@@ -44,6 +45,7 @@ class Settings(BaseSettings):
     voice_tts_voice: str = "longxiaochun"
     voice_session_idle_timeout: int = 120
     voice_reconnect_timeout: int = 30
+    voice_max_ws_connections: int = 10
 
     rate_limit_global: int = 100
     rate_limit_per_ip: int = 30

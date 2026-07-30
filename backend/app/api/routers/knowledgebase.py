@@ -1,6 +1,6 @@
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
 from app.api.deps import get_knowledge_base_service
@@ -14,6 +14,7 @@ from app.application.knowledgebase.schemas import (
     UpdateCategoryRequest,
 )
 from app.application.knowledgebase.service import KnowledgeBaseService
+from app.config.settings import settings
 
 router = APIRouter(prefix="/api/knowledgebase", tags=["知识库管理"])
 
@@ -29,6 +30,9 @@ async def upload_knowledge_base(
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[KnowledgeBaseUploadResponse]:
     data = await file.read()
+    if len(data) > settings.knowledge_base_max_file_size:
+        max_mb = settings.knowledge_base_max_file_size // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"文件大小超过限制（最大 {max_mb}MB）")
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
     result = await service.upload(filename, content_type, data, name=name, category=category)
@@ -39,9 +43,11 @@ async def upload_knowledge_base(
 async def list_knowledge_bases(
     sort_by: str | None = Query(None, alias="sortBy"),
     vector_status: str | None = Query(None, alias="vectorStatus"),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[list[KnowledgeBaseListItemDTO]]:
-    data = await service.list_knowledge_bases(sort_by=sort_by, vector_status=vector_status)
+    data = await service.list_knowledge_bases(sort_by=sort_by, vector_status=vector_status, limit=limit, offset=offset)
     return Result.success(data=data)
 
 
@@ -64,18 +70,22 @@ async def list_categories(
 @router.get("/category/{category}", response_model=Result[list[KnowledgeBaseListItemDTO]])
 async def list_by_category(
     category: str,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[list[KnowledgeBaseListItemDTO]]:
-    data = await service.list_by_category(category)
+    data = await service.list_by_category(category, limit=limit, offset=offset)
     return Result.success(data=data)
 
 
 @router.get("/search", response_model=Result[list[KnowledgeBaseListItemDTO]])
 async def search_knowledge_bases(
     keyword: str = Query(...),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[list[KnowledgeBaseListItemDTO]]:
-    data = await service.search(keyword)
+    data = await service.search(keyword, limit=limit, offset=offset)
     return Result.success(data=data)
 
 
@@ -135,6 +145,9 @@ async def add_knowledge_base_document(
 ) -> Result[KnowledgeBaseDocumentDTO]:
     """向既有知识库追加文档（ADR-0018，一库多文档）。"""
     data = await file.read()
+    if len(data) > settings.knowledge_base_max_file_size:
+        max_mb = settings.knowledge_base_max_file_size // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"文件大小超过限制（最大 {max_mb}MB）")
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
     result = await service.add_document(kb_id, filename, content_type, data)
@@ -144,9 +157,11 @@ async def add_knowledge_base_document(
 @router.get("/{kb_id}/documents", response_model=Result[list[KnowledgeBaseDocumentDTO]])
 async def list_knowledge_base_documents(
     kb_id: int,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[list[KnowledgeBaseDocumentDTO]]:
-    data = await service.list_documents(kb_id)
+    data = await service.list_documents(kb_id, limit=limit, offset=offset)
     return Result.success(data=data)
 
 

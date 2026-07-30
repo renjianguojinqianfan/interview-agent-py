@@ -1,14 +1,16 @@
-"""语音面试 WebSocket 端点集成测试：覆盖握手拒绝与字幕流转（覆盖端点接线）。"""
+"""语音面试 WebSocket 端点集成测试：覆盖握手拒绝、字幕流转与并发上限（覆盖端点接线）。"""
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.api.deps import get_voice_ws_orchestrator_factory
+from app.api.routers import voice_ws as voice_ws_module
 from app.application.voice.ws_handler import VoiceWsOrchestrator
+from app.config.settings import settings
 from app.infrastructure.redis.voice_session_cache import CachedVoiceSession
 from app.infrastructure.voice.asr import AsrConnectionClosed, AsrTranscript
 from app.main import app
@@ -123,3 +125,27 @@ def test_streams_subtitle_for_partial_transcript() -> None:
         assert ready == {"type": "control", "action": "asr_ready"}
         msg = json.loads(ws.receive_text())
         assert msg == {"type": "subtitle", "text": "今天", "isFinal": False}
+
+
+def test_rejects_when_connection_limit_reached() -> None:
+    """连接数达上限时返回 close code 4005。"""
+    app.dependency_overrides[get_voice_ws_orchestrator_factory] = _factory_override("IN_PROGRESS", [])
+    with (
+        patch.object(voice_ws_module, "_active_connection_count", settings.voice_max_ws_connections),
+        pytest.raises(WebSocketDisconnect) as exc_info,
+        client.websocket_connect("/ws/voice-interview/99"),
+    ):
+        pass  # pragma: no cover
+    assert exc_info.value.code == 4005
+
+
+def test_allows_connection_when_under_limit() -> None:
+    """连接数未达上限时正常连接。"""
+    events = [AsrTranscript(text="测试", is_final=True)]
+    app.dependency_overrides[get_voice_ws_orchestrator_factory] = _factory_override("IN_PROGRESS", events)
+    with (
+        patch.object(voice_ws_module, "_active_connection_count", 0),
+        client.websocket_connect("/ws/voice-interview/1") as ws,
+    ):
+        ready = json.loads(ws.receive_text())
+        assert ready == {"type": "control", "action": "asr_ready"}

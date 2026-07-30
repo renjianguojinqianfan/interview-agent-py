@@ -1,9 +1,9 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from redis.exceptions import ResponseError
 
-from app.infrastructure.redis.client import RedisClient
+from app.infrastructure.redis.client import RedisClient, create_redis_client
 
 
 @pytest.fixture()
@@ -64,3 +64,33 @@ class TestXAck:
         result = await client.xack("test:stream", "group", "123-0")
         assert result == 1
         mock_redis.xack.assert_called_once_with("test:stream", "group", "123-0")
+
+
+class TestCreateRedisClient:
+    def test_passes_max_connections_from_settings(self) -> None:
+        with (
+            patch("app.infrastructure.redis.client.Redis") as mock_redis_cls,
+            patch("app.config.settings.settings") as mock_settings,
+        ):
+            mock_settings.redis_url = "redis://localhost:6379/0"
+            mock_settings.redis_max_connections = 50
+            create_redis_client()
+            mock_redis_cls.from_url.assert_called_once_with(
+                "redis://localhost:6379/0",
+                decode_responses=False,
+                max_connections=50,
+            )
+
+    def test_uses_custom_max_connections(self) -> None:
+        with (
+            patch("app.infrastructure.redis.client.Redis") as mock_redis_cls,
+            patch("app.config.settings.settings") as mock_settings,
+        ):
+            mock_settings.redis_url = "redis://custom:6379/1"
+            mock_settings.redis_max_connections = 100
+            create_redis_client()
+            mock_redis_cls.from_url.assert_called_once_with(
+                "redis://custom:6379/1",
+                decode_responses=False,
+                max_connections=100,
+            )

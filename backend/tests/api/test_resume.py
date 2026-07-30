@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -141,6 +141,22 @@ class TestUploadResume:
         body = response.json()
         assert body["code"] == ErrorCode.RESUME_FILE_TYPE_NOT_SUPPORTED.code
 
+    def test_oversized_file_returns_413(self, mock_service: MagicMock) -> None:
+        mock_service.upload.return_value = _upload_response(resume_id=1)
+
+        with patch("app.api.routers.resume.settings") as mock_settings:
+            mock_settings.resume_max_file_size = 10  # 10 bytes
+            response = client.post(
+                "/api/resumes/upload",
+                files={"file": ("big.pdf", b"x" * 100, "application/pdf")},
+            )
+
+        # 异常处理器将 HTTPException 转为 200 + Result.error
+        body = response.json()
+        assert body["code"] != 200
+        assert "文件大小超过限制" in body["message"]
+        mock_service.upload.assert_not_awaited()
+
     def test_rate_limit_blocks_sixth_request(self, mock_service: MagicMock) -> None:
         mock_service.upload.return_value = _upload_response(resume_id=1)
 
@@ -171,12 +187,12 @@ class TestListResumes:
         assert body["data"][0]["interviewCount"] == 3
         assert body["data"][0]["analyzeStatus"] == "PENDING"
 
-    def test_calls_service_without_pagination(self, mock_service: MagicMock) -> None:
+    def test_calls_service_with_default_pagination(self, mock_service: MagicMock) -> None:
         mock_service.list_resumes.return_value = _list_items()
 
         client.get("/api/resumes")
 
-        mock_service.list_resumes.assert_awaited_once_with()
+        mock_service.list_resumes.assert_awaited_once_with(limit=200, offset=0)
 
 
 class TestResumeStatistics:

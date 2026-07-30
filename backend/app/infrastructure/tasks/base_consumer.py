@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import uuid
 from abc import ABC, abstractmethod
@@ -24,15 +25,28 @@ class BaseStreamConsumer[T](ABC):
         self._config = config
         self._consumer_name = f"{config.consumer_prefix}{uuid.uuid4().hex[:8]}"
         self._running = False
+        self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         self._running = True
         await self._redis.create_stream_group(self._config.stream_key, self._config.group_name)
-        asyncio.create_task(self._consume_loop())
+        self._task = asyncio.create_task(self._consume_loop())
         logger.info("%s consumer started: %s", self.task_display_name(), self._consumer_name)
 
     async def stop(self) -> None:
         self._running = False
+        if self._task is not None:
+            try:
+                await asyncio.wait_for(self._task, timeout=30)
+            except TimeoutError:
+                logger.warning(
+                    "%s consumer did not stop within 30s, cancelling: %s",
+                    self.task_display_name(),
+                    self._consumer_name,
+                )
+                self._task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self._task
         logger.info("%s consumer stopped: %s", self.task_display_name(), self._consumer_name)
 
     async def _consume_loop(self) -> None:
@@ -64,6 +78,7 @@ class BaseStreamConsumer[T](ABC):
                 logger.error("%s consume loop error: %s", self.task_display_name(), e)
 
             await asyncio.sleep(0)
+        logger.info("%s consume loop exited: %s", self.task_display_name(), self._consumer_name)
 
     async def _process_message(self, msg_id: str, data: dict[bytes, bytes]) -> None:
         try:

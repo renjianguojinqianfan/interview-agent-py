@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -151,6 +151,22 @@ class TestUpload:
         assert codes[:3] == [200, 200, 200]
         assert codes[3] == ErrorCode.RATE_LIMIT_EXCEEDED.code
 
+    def test_oversized_file_returns_413(self, mock_service: MagicMock) -> None:
+        mock_service.upload.return_value = _upload_response(kb_id=1)
+
+        with patch("app.api.routers.knowledgebase.settings") as mock_settings:
+            mock_settings.knowledge_base_max_file_size = 10  # 10 bytes
+            response = client.post(
+                "/api/knowledgebase/upload",
+                files={"file": ("big.pdf", b"x" * 100, "application/pdf")},
+            )
+
+        # 异常处理器将 HTTPException 转为 200 + Result.error
+        body = response.json()
+        assert body["code"] != 200
+        assert "文件大小超过限制" in body["message"]
+        mock_service.upload.assert_not_awaited()
+
 
 class TestList:
     def test_returns_bare_array_with_contract_fields(self, mock_service: MagicMock) -> None:
@@ -175,7 +191,12 @@ class TestList:
 
         client.get("/api/knowledgebase/list?sortBy=access&vectorStatus=PENDING")
 
-        mock_service.list_knowledge_bases.assert_awaited_once_with(sort_by="access", vector_status="PENDING")
+        mock_service.list_knowledge_bases.assert_awaited_once_with(
+            sort_by="access",
+            vector_status="PENDING",
+            limit=200,
+            offset=0,
+        )
 
 
 class TestStats:
@@ -207,7 +228,7 @@ class TestCategories:
 
         assert response.status_code == 200
         assert response.json()["data"][0]["category"] == "后端"
-        mock_service.list_by_category.assert_awaited_once_with("后端")
+        mock_service.list_by_category.assert_awaited_once_with("后端", limit=200, offset=0)
 
     def test_update_category(self, mock_service: MagicMock) -> None:
         mock_service.update_category.return_value = None
@@ -227,7 +248,7 @@ class TestSearch:
 
         assert response.status_code == 200
         assert response.json()["data"][0]["id"] == 1
-        mock_service.search.assert_awaited_once_with("python")
+        mock_service.search.assert_awaited_once_with("python", limit=200, offset=0)
 
 
 class TestDownload:
@@ -318,6 +339,22 @@ class TestDocuments:
 
         assert response.json()["code"] == ErrorCode.KNOWLEDGE_BASE_NOT_FOUND.code
 
+    def test_add_document_oversized_file_returns_413(self, mock_service: MagicMock) -> None:
+        mock_service.add_document.return_value = _document_dto(doc_id=11)
+
+        with patch("app.api.routers.knowledgebase.settings") as mock_settings:
+            mock_settings.knowledge_base_max_file_size = 10  # 10 bytes
+            response = client.post(
+                "/api/knowledgebase/1/documents",
+                files={"file": ("big.md", b"x" * 100, "text/markdown")},
+            )
+
+        # 异常处理器将 HTTPException 转为 200 + Result.error
+        body = response.json()
+        assert body["code"] != 200
+        assert "文件大小超过限制" in body["message"]
+        mock_service.add_document.assert_not_awaited()
+
     def test_list_documents_returns_items(self, mock_service: MagicMock) -> None:
         mock_service.list_documents.return_value = [_document_dto(doc_id=11), _document_dto(doc_id=12)]
 
@@ -326,7 +363,7 @@ class TestDocuments:
         body = response.json()
         assert body["code"] == 200
         assert [d["id"] for d in body["data"]] == [11, 12]
-        mock_service.list_documents.assert_awaited_once_with(1)
+        mock_service.list_documents.assert_awaited_once_with(1, limit=200, offset=0)
 
     def test_delete_document_success(self, mock_service: MagicMock) -> None:
         mock_service.delete_document.return_value = None

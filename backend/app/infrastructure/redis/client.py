@@ -106,5 +106,9 @@ class RedisClient:
 def create_redis_client() -> RedisClient:
     from app.config.settings import settings
 
-    redis = Redis.from_url(settings.redis_url, decode_responses=False)
+    redis = Redis.from_url(
+        settings.redis_url,
+        decode_responses=False,
+        max_connections=settings.redis_max_connections,
+    )
     return RedisClient(redis)
