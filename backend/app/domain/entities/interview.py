@@ -113,6 +113,9 @@ MAX_QUESTION_COUNT = 20
 DEFAULT_DIFFICULTY = "mid"
 """默认难度。"""
 
+VALID_DIFFICULTIES: frozenset[str] = frozenset({"junior", "mid", "senior"})
+"""合法难度白名单。"""
+
 DEFAULT_SKILL_ID = "java-backend"
 """默认技能 ID。"""
 

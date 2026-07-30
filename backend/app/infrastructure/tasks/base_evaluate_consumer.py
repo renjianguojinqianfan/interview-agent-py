@@ -91,7 +91,8 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
                 await self._resolve_provider_id(self._llm_provider(orm))
             )
 
-            report = await self._evaluation_graph.evaluate(
+            graph = await self._resolve_evaluation_graph(orm)
+            report = await graph.evaluate(
                 chat_client=chat_client,
                 session_id=self._session_id_text(payload),
                 qa_records=qa_records,
@@ -177,6 +178,10 @@ class BaseEvaluateStreamConsumer[P, S](BaseStreamConsumer[P]):
         return None
 
     # ==================== 领域差异钩子 ====================
+
+    async def _resolve_evaluation_graph(self, orm: S) -> EvaluationGraph:
+        """按会话 ORM 选择评估子图：默认返回主 graph，子类可覆写按 source_type 分流。"""
+        return self._evaluation_graph
 
     @abstractmethod
     def _session_id_text(self, payload: P) -> str:

@@ -177,4 +177,10 @@ class KnowledgeBaseInterviewService:
 
 
 def _normalize_difficulty(difficulty: str | None) -> str:
-    return trim_to_none(difficulty) or DEFAULT_DIFFICULTY
+    from app.domain.entities.interview import VALID_DIFFICULTIES
+
+    trimmed = trim_to_none(difficulty) or DEFAULT_DIFFICULTY
+    if trimmed not in VALID_DIFFICULTIES:
+        logger.warning("非标准难度值 %r，回退为 %r", trimmed, DEFAULT_DIFFICULTY)
+        return DEFAULT_DIFFICULTY
+    return trimmed

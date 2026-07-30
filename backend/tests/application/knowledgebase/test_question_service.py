@@ -15,9 +15,28 @@ from app.application.knowledgebase.question_schemas import (
     QuestionGenStatusResponse,
     UpdateKnowledgeBaseQuestionRequest,
 )
-from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService
+from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService, _normalize_difficulty
 from app.domain.errors import BusinessException, ErrorCode
 from app.infrastructure.db.models.knowledge_base import KnowledgeBase, KnowledgeBaseQuestion
+
+
+class TestNormalizeDifficulty:
+    """_normalize_difficulty 白名单校验（issue #71）。"""
+
+    @pytest.mark.parametrize("value", ["junior", "mid", "senior"])
+    def test_valid_values_returned_as_is(self, value: str) -> None:
+        assert _normalize_difficulty(value) == value
+
+    def test_trims_whitespace(self) -> None:
+        assert _normalize_difficulty("  senior  ") == "senior"
+
+    @pytest.mark.parametrize("value", ["easy", "中级", "hard", "JUNIOR"])
+    def test_non_standard_values_fallback_to_mid(self, value: str) -> None:
+        assert _normalize_difficulty(value) == "mid"
+
+    @pytest.mark.parametrize("value", [None, "", "   "])
+    def test_blank_values_fallback_to_mid(self, value: str | None) -> None:
+        assert _normalize_difficulty(value) == "mid"
 
 
 def _make_kb(**overrides: Any) -> KnowledgeBase:

@@ -304,3 +304,61 @@ class TestDegradedReasons:
         report = await graph.evaluate(chat_client=MagicMock(), session_id="sess1", qa_records=records, resume_text="")
 
         assert report.degraded_reasons == []
+
+
+class TestEmptyQuestionEvaluations:
+    """#70：LLM 返回空 questionEvaluations 时须走重试 + 降级路径，不得静默通过。"""
+
+    def test_batch_output_accepts_empty_question_evaluations(self) -> None:
+        """#70 修复：移除 min_length=1，Pydantic 允许空列表，后置校验负责重试。"""
+        output = BatchEvaluationOutput.model_validate({"questionEvaluations": []})
+        assert output.questionEvaluations == []
+
+    def test_batch_output_missing_evaluations_uses_default(self) -> None:
+        """缺省 questionEvaluations 时 default_factory 产生空列表（Pydantic 不校验默认值）。"""
+        output = BatchEvaluationOutput.model_validate({"overallScore": 80})
+        assert output.questionEvaluations == []
+
+    async def test_empty_evaluations_retry_then_value_error_triggers_degradation(self) -> None:
+        """#70：invoker 返回空 questionEvaluations -> 重试一次仍空 -> ValueError -> 零分兜底。"""
+        records = [_qa(0, "答0"), _qa(1, "答1")]
+        invoker = MagicMock()
+        empty_output = _batch_output([])
+
+        async def return_empty(llm, system_prompt, user_prompt, output_model, error_code, error_prefix, log_context):  # noqa: ANN001
+            if output_model is BatchEvaluationOutput:
+                return empty_output
+            return _summary_output()
+
+        invoker.invoke = AsyncMock(side_effect=return_empty)
+        graph = EvaluationGraph(invoker=invoker, batch_size=8, semaphore_limit=3)
+
+        report = await graph.evaluate(chat_client=MagicMock(), session_id="sess1", qa_records=records, resume_text="")
+
+        # 重试一次仍空 -> ValueError -> 零分兜底
+        assert report.overall_score == 0
+        assert report.question_details[0].score == 0
+        assert report.question_details[1].score == 0
+        # 记录降级原因
+        assert report.degraded_reasons
+        assert "批次[0,2)" in report.degraded_reasons[0]
+        # invoker 被调用 2 次（首次 + 重试）
+        batch_calls = [
+            c for c in invoker.invoke.call_args_list if c.kwargs.get("output_model") is BatchEvaluationOutput
+        ]
+        assert len(batch_calls) == 2
+
+
+class TestKbEvaluationGraph:
+    """KB 评估图使用独立 prompt（#70）：验证 batch_system_prompt 参数生效。"""
+
+    def test_kb_graph_uses_kb_prompt(self) -> None:
+        graph = EvaluationGraph(
+            invoker=MagicMock(),
+            batch_system_prompt="kb-evaluation-system",
+        )
+        assert graph._batch_system_prompt == "kb-evaluation-system"
+
+    def test_default_graph_uses_interview_prompt(self) -> None:
+        graph = EvaluationGraph(invoker=MagicMock())
+        assert graph._batch_system_prompt == "interview-evaluation-system"

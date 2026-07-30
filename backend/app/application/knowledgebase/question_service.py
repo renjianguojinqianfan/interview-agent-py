@@ -45,7 +45,13 @@ def _require_non_blank(value: str | None, message: str) -> str:
 
 
 def _normalize_difficulty(difficulty: str | None) -> str:
-    return difficulty.strip() if difficulty and difficulty.strip() else _DEFAULT_DIFFICULTY
+    from app.domain.entities.interview import VALID_DIFFICULTIES
+
+    trimmed = difficulty.strip() if difficulty and difficulty.strip() else _DEFAULT_DIFFICULTY
+    if trimmed not in VALID_DIFFICULTIES:
+        logger.warning("非标准难度值 %r，回退为 %r", trimmed, _DEFAULT_DIFFICULTY)
+        return _DEFAULT_DIFFICULTY
+    return trimmed
 
 
 def _write_string_list(values: list[str] | None) -> str:
@@ -95,6 +101,9 @@ class KnowledgeBaseQuestionService:
         category: str | None,
         difficulty: str | None,
         keyword: str | None,
+        *,
+        limit: int = 200,
+        offset: int = 0,
     ) -> list[KnowledgeBaseQuestionDTO]:
         questions = await self._question_repository.list_by_knowledge_base(self._session, kb_id, status=status)
         category_filter = trim_to_none(category)
@@ -102,13 +111,14 @@ class KnowledgeBaseQuestionService:
         keyword_filter = trim_to_none(keyword)
         kb = await self._kb_repository.get_by_id(self._session, kb_id)
         kb_name = self._kb_name(kb)
-        return [
+        items = [
             self._to_dto(q, kb_name)
             for q in questions
             if (category_filter is None or q.category == category_filter)
             and (difficulty_filter is None or q.difficulty == difficulty_filter)
             and (keyword_filter is None or self._contains_keyword(q, keyword_filter))
         ]
+        return items[offset : offset + limit]
 
     async def list_categories(self, kb_id: int) -> list[CategoryCountDTO]:
         counts = await self._question_repository.category_counts(self._session, kb_id)

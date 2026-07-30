@@ -112,6 +112,7 @@ def _make_consumer(
     answers: list[InterviewAnswerORM] | None = None,
     report: EvaluationReport | None = None,
     resume: Resume | None = None,
+    kb_evaluation_graph: MagicMock | None = None,
 ) -> tuple[EvaluateStreamConsumer, dict[str, MagicMock]]:
     factory, _ = _make_session_factory()
     repository = MagicMock()
@@ -139,12 +140,14 @@ def _make_consumer(
         resume_repository=resume_repository,
         llm_registry=llm_registry,
         evaluation_graph=evaluation_graph,
+        kb_evaluation_graph=kb_evaluation_graph,
     )
     return consumer, {
         "repository": repository,
         "resume_repository": resume_repository,
         "llm_registry": llm_registry,
         "evaluation_graph": evaluation_graph,
+        "kb_evaluation_graph": kb_evaluation_graph,
     }
 
 
@@ -353,3 +356,50 @@ class TestQuestionBankReference:
         # answers 回写同样采用覆盖后的参考
         first_update = mocks["repository"].update_answer_evaluation.call_args_list[0]
         assert first_update.kwargs["reference_answer"] == "题库答案0"
+
+
+class TestKbEvaluationGraphSelection:
+    """知识库面试使用 KB 专用评估图，普通面试使用默认图（#70）。"""
+
+    async def test_kb_session_uses_kb_evaluation_graph(self) -> None:
+        orm = _make_session_orm(source_type="KNOWLEDGE_BASE")
+        kb_graph = MagicMock()
+        kb_graph.evaluate = AsyncMock(return_value=_make_report())
+        consumer, deps = _make_consumer(session_orm=orm, kb_evaluation_graph=kb_graph)
+
+        await consumer.process_business(EvaluatePayload(session_id="sess123"))
+
+        kb_graph.evaluate.assert_awaited_once()
+        deps["evaluation_graph"].evaluate.assert_not_awaited()
+
+    async def test_normal_session_uses_default_evaluation_graph(self) -> None:
+        orm = _make_session_orm(source_type="NORMAL")
+        kb_graph = MagicMock()
+        kb_graph.evaluate = AsyncMock(return_value=_make_report())
+        consumer, deps = _make_consumer(session_orm=orm, kb_evaluation_graph=kb_graph)
+
+        await consumer.process_business(EvaluatePayload(session_id="sess123"))
+
+        deps["evaluation_graph"].evaluate.assert_awaited_once()
+        kb_graph.evaluate.assert_not_awaited()
+
+    async def test_kb_session_falls_back_to_default_when_no_kb_graph(self) -> None:
+        """未传入 kb_evaluation_graph 时，KB 面试回退默认图。"""
+        orm = _make_session_orm(source_type="KNOWLEDGE_BASE")
+        consumer, deps = _make_consumer(session_orm=orm)
+
+        await consumer.process_business(EvaluatePayload(session_id="sess123"))
+
+        deps["evaluation_graph"].evaluate.assert_awaited_once()
+
+    async def test_null_source_type_treated_as_normal(self) -> None:
+        """source_type 为 None 时视为普通面试。"""
+        orm = _make_session_orm(source_type=None)
+        kb_graph = MagicMock()
+        kb_graph.evaluate = AsyncMock(return_value=_make_report())
+        consumer, deps = _make_consumer(session_orm=orm, kb_evaluation_graph=kb_graph)
+
+        await consumer.process_business(EvaluatePayload(session_id="sess123"))
+
+        deps["evaluation_graph"].evaluate.assert_awaited_once()
+        kb_graph.evaluate.assert_not_awaited()

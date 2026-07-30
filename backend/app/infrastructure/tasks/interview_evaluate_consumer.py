@@ -40,12 +40,20 @@ class EvaluateStreamConsumer(BaseEvaluateStreamConsumer[EvaluatePayload, Intervi
         resume_repository: ResumeRepository,
         llm_registry: LlmProviderRegistry,
         evaluation_graph: EvaluationGraph,
+        kb_evaluation_graph: EvaluationGraph | None = None,
     ) -> None:
         super().__init__(redis_client, config, session_factory, resume_repository, llm_registry, evaluation_graph)
         self._repository = repository
+        self._kb_evaluation_graph = kb_evaluation_graph
 
     def task_display_name(self) -> str:
         return "面试评估"
+
+    async def _resolve_evaluation_graph(self, orm: InterviewSessionORM) -> EvaluationGraph:
+        """知识库面试使用 KB 专用评估图（通用技术角色），普通面试使用默认图（Java 角色）。"""
+        if (orm.source_type or "NORMAL") == "KNOWLEDGE_BASE" and self._kb_evaluation_graph is not None:
+            return self._kb_evaluation_graph
+        return self._evaluation_graph
 
     def parse_payload(self, msg_id: str, data: dict[bytes, bytes]) -> EvaluatePayload | None:
         raw = data.get(self._config.id_field.encode())

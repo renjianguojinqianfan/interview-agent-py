@@ -95,6 +95,7 @@ _interview_session_cache: InterviewSessionCache | None = None
 _evaluate_producer: EvaluateStreamProducer | None = None
 _question_service: QuestionService | None = None
 _evaluation_graph: EvaluationGraph | None = None
+_kb_evaluation_graph: EvaluationGraph | None = None
 _interview_evaluate_consumer: EvaluateStreamConsumer | None = None
 _kb_vectorize_producer: VectorizeStreamProducer | None = None
 _kb_vectorize_consumer: VectorizeStreamConsumer | None = None
@@ -393,6 +394,16 @@ def get_evaluation_graph() -> EvaluationGraph:
     return _evaluation_graph
 
 
+def get_kb_evaluation_graph() -> EvaluationGraph:
+    global _kb_evaluation_graph
+    if _kb_evaluation_graph is None:
+        _kb_evaluation_graph = EvaluationGraph(
+            invoker=StructuredOutputInvoker(),
+            batch_system_prompt="kb-evaluation-system",
+        )
+    return _kb_evaluation_graph
+
+
 async def start_interview_evaluate_consumer() -> EvaluateStreamConsumer | None:
     global _interview_evaluate_consumer
     try:
@@ -404,6 +415,7 @@ async def start_interview_evaluate_consumer() -> EvaluateStreamConsumer | None:
             resume_repository=ResumeRepository(),
             llm_registry=get_llm_registry(),
             evaluation_graph=get_evaluation_graph(),
+            kb_evaluation_graph=get_kb_evaluation_graph(),
         )
         await _interview_evaluate_consumer.start()
         return _interview_evaluate_consumer

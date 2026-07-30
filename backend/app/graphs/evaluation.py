@@ -215,6 +215,7 @@ class EvaluationGraph:
         reference_context = state.get("reference_context", "")
         chat_client = config["configurable"][_CONFIG_CHAT_CLIENT]
         semaphore: asyncio.Semaphore = config["configurable"][_CONFIG_SEMAPHORE]
+        output: BatchEvaluationOutput | None = None
 
         try:
             system_tpl = await load_prompt(self._batch_system_prompt)
@@ -226,7 +227,7 @@ class EvaluationGraph:
                 referenceContext=reference_context if reference_context else "无",
             )
             async with semaphore:
-                output: BatchEvaluationOutput = await self._invoker.invoke(
+                output = await self._invoker.invoke(
                     llm=chat_client,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
@@ -235,9 +236,43 @@ class EvaluationGraph:
                     error_prefix="批次评估失败：",
                     log_context="批次评估",
                 )
+            logger.debug(
+                "#70: LLM 评估结果 batch [%d, %d): %d evaluations, scores=%s",
+                batch.start_index,
+                batch.end_index,
+                len(output.questionEvaluations),
+                [e.score for e in output.questionEvaluations],
+            )
+            # #70：LLM 可能偶尔返回空 questionEvaluations，重试一次
+            if not output.questionEvaluations:
+                logger.warning(
+                    "#70: LLM 返回空 questionEvaluations (batch [%d, %d))，重试一次",
+                    batch.start_index,
+                    batch.end_index,
+                )
+                async with semaphore:
+                    output = await self._invoker.invoke(
+                        llm=chat_client,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        output_model=BatchEvaluationOutput,
+                        error_code=ErrorCode.INTERVIEW_EVALUATION_FAILED,
+                        error_prefix="批次评估失败（重试）：",
+                        log_context="批次评估重试",
+                    )
+                if not output.questionEvaluations:
+                    raise ValueError(
+                        f"LLM 重试后仍返回空 questionEvaluations (batch [{batch.start_index}, {batch.end_index}))"
+                    )
             report = self._to_batch_report(output, start_index=batch.start_index)
         except Exception as e:
             # 第一级降级：LLM 调用/解析/网络失败 -> 整批零分兜底；原因透出供 evaluate_error 排障（#56）
+            logger.debug(
+                "批次评估异常原始输出: start=%s, end=%s, output=%s",
+                batch.start_index,
+                batch.end_index,
+                output,
+            )
             logger.warning(
                 "批次评估失败，零分兜底: start=%s, end=%s, error=%s",
                 batch.start_index,
