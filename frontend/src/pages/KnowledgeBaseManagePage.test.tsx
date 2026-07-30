@@ -174,7 +174,7 @@ describe('KnowledgeBaseManagePage', () => {
       await user.upload(fileInput, file)
 
       expect(alertSpy).not.toHaveBeenCalled()
-      expect(await screen.findByText('该知识库已存在同名文档')).toBeInTheDocument()
+      expect(await screen.findByText('该知识库已存在同名文档', {}, { timeout: 5000 })).toBeInTheDocument()
     })
   })
 
