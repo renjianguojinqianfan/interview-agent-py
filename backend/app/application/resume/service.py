@@ -114,7 +114,7 @@ class ResumeService:
             duplicate=False,
         )
 
-    async def list_resumes(self) -> list[ResumeListItemDTO]:
+    async def list_resumes(self, *, limit: int = 200, offset: int = 0) -> list[ResumeListItemDTO]:
         resumes = await self._repository.list_all(self._session)
         interview_counts = await self._interview_repository.count_by_resume_ids(
             self._session, [resume.id for resume in resumes]
@@ -136,7 +136,7 @@ class ResumeService:
                     analyze_error=resume.analyze_error,
                 )
             )
-        return items
+        return items[offset : offset + limit]
 
     async def get_statistics(self) -> ResumeStatsDTO:
         total_count = await self._repository.count_all(self._session)

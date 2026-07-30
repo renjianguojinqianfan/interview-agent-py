@@ -38,9 +38,11 @@ async def create_session(
 async def list_sessions(
     user_id: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: VoiceSessionService = Depends(get_voice_session_service),
 ) -> Result[list[VoiceSessionMetaDTO]]:
-    return Result.success(data=await service.list_sessions(user_id=user_id, status=status))
+    return Result.success(data=await service.list_sessions(user_id=user_id, status=status, limit=limit, offset=offset))
 
 
 @router.get("/sessions/{session_id}", response_model=Result[VoiceSessionDTO])
@@ -92,9 +94,11 @@ async def delete_session(
 @router.get("/sessions/{session_id}/messages", response_model=Result[list[VoiceMessageDTO]])
 async def get_messages(
     session_id: int,
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: VoiceSessionService = Depends(get_voice_session_service),
 ) -> Result[list[VoiceMessageDTO]]:
-    return Result.success(data=await service.get_messages(session_id))
+    return Result.success(data=await service.get_messages(session_id, limit=limit, offset=offset))
 
 
 @router.get("/sessions/{session_id}/evaluation", response_model=Result[VoiceEvaluationStatusDTO])

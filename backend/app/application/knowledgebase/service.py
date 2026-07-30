@@ -169,27 +169,32 @@ class KnowledgeBaseService:
         )
 
     async def list_knowledge_bases(
-        self, sort_by: str | None = None, vector_status: str | None = None
+        self, sort_by: str | None = None, vector_status: str | None = None, *, limit: int = 200, offset: int = 0
     ) -> list[KnowledgeBaseListItemDTO]:
         kbs = await self._repository.list_all(self._session, vector_status)
         agg_map = await self._batch_aggregate(kbs)
         sorted_kbs = self._sort_with_aggregate(kbs, sort_by, agg_map)
-        return [self._to_list_item_with_agg(kb, agg_map.get(kb.id)) for kb in sorted_kbs]
+        items = [self._to_list_item_with_agg(kb, agg_map.get(kb.id)) for kb in sorted_kbs]
+        return items[offset : offset + limit]
 
-    async def list_by_category(self, category: str | None) -> list[KnowledgeBaseListItemDTO]:
+    async def list_by_category(
+        self, category: str | None, *, limit: int = 200, offset: int = 0
+    ) -> list[KnowledgeBaseListItemDTO]:
         kbs = await self._repository.list_by_category(self._session, _normalize_category(category))
         agg_map = await self._batch_aggregate(kbs)
-        return [self._to_list_item_with_agg(kb, agg_map.get(kb.id)) for kb in kbs]
+        items = [self._to_list_item_with_agg(kb, agg_map.get(kb.id)) for kb in kbs]
+        return items[offset : offset + limit]
 
     async def list_categories(self) -> list[str]:
         return await self._repository.list_categories(self._session)
 
-    async def search(self, keyword: str) -> list[KnowledgeBaseListItemDTO]:
+    async def search(self, keyword: str, *, limit: int = 200, offset: int = 0) -> list[KnowledgeBaseListItemDTO]:
         if not keyword or not keyword.strip():
-            return await self.list_knowledge_bases()
+            return await self.list_knowledge_bases(limit=limit, offset=offset)
         kbs = await self._repository.search(self._session, keyword.strip())
         agg_map = await self._batch_aggregate(kbs)
-        return [self._to_list_item_with_agg(kb, agg_map.get(kb.id)) for kb in kbs]
+        items = [self._to_list_item_with_agg(kb, agg_map.get(kb.id)) for kb in kbs]
+        return items[offset : offset + limit]
 
     async def update_category(self, kb_id: int, category: str | None) -> None:
         kb = await self._repository.get_by_id(self._session, kb_id)
@@ -317,12 +322,13 @@ class KnowledgeBaseService:
         await self._enqueue_vectorize(kb_id, doc.id)
         return self._to_document_dto(doc)
 
-    async def list_documents(self, kb_id: int) -> list[KnowledgeBaseDocumentDTO]:
+    async def list_documents(self, kb_id: int, *, limit: int = 200, offset: int = 0) -> list[KnowledgeBaseDocumentDTO]:
         kb = await self._repository.get_by_id(self._session, kb_id)
         if kb is None:
             raise BusinessException(ErrorCode.KNOWLEDGE_BASE_NOT_FOUND)
         docs = await self._document_repository.list_by_kb(self._session, kb_id)
-        return [self._to_document_dto(doc) for doc in docs]
+        items = [self._to_document_dto(doc) for doc in docs]
+        return items[offset : offset + limit]
 
     async def delete_document(self, kb_id: int, document_id: int) -> None:
         """删除单个文档：清其向量（走 document_id 索引）+ 删行 + 重算 KB 聚合。"""

@@ -97,7 +97,7 @@ class TestListQuestions:
     def test_passes_filters_to_service(self, mock_service: MagicMock) -> None:
         client.get("/api/knowledgebase/1/questions?status=DRAFT&category=Redis&difficulty=mid&keyword=cap")
 
-        mock_service.list_questions.assert_awaited_once_with(1, "DRAFT", "Redis", "mid", "cap")
+        mock_service.list_questions.assert_awaited_once_with(1, "DRAFT", "Redis", "mid", "cap", limit=200, offset=0)
 
     def test_invalid_status_rejected(self, mock_service: MagicMock) -> None:
         resp = client.get("/api/knowledgebase/1/questions?status=BOGUS")

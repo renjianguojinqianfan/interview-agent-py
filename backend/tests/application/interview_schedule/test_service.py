@@ -179,6 +179,27 @@ class TestListSchedules:
         assert len(dtos) == 1
         mock_repository.list_by_time_range.assert_called_once()
 
+    async def test_default_pagination_returns_all(self, service: ScheduleService, mock_repository: MagicMock) -> None:
+        mock_repository.list_all.return_value = [_make_schedule(i) for i in range(1, 6)]
+
+        dtos = await service.list_schedules(status=None, start=None, end=None)
+
+        assert len(dtos) == 5
+
+    async def test_limit_restricts_count(self, service: ScheduleService, mock_repository: MagicMock) -> None:
+        mock_repository.list_all.return_value = [_make_schedule(i) for i in range(1, 6)]
+
+        dtos = await service.list_schedules(status=None, start=None, end=None, limit=2)
+
+        assert len(dtos) == 2
+
+    async def test_offset_skips_items(self, service: ScheduleService, mock_repository: MagicMock) -> None:
+        mock_repository.list_all.return_value = [_make_schedule(i) for i in range(1, 6)]
+
+        dtos = await service.list_schedules(status=None, start=None, end=None, limit=2, offset=3)
+
+        assert len(dtos) == 2
+
 
 class TestUpdateSchedule:
     async def test_update_success(self, service: ScheduleService, mock_repository: MagicMock) -> None:

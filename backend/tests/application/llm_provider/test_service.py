@@ -195,6 +195,45 @@ class TestListProviders:
         assert dtos[1].default_chat_provider is False
         assert dtos[1].default_embedding_provider is False
 
+    async def test_default_pagination_returns_all(
+        self, service, mock_provider_repo, mock_global_setting_repo, encryption_service
+    ) -> None:
+        providers = [
+            _make_provider(provider_id=i, api_key_cipher=encryption_service.encrypt(f"sk-key{i}")) for i in range(1, 6)
+        ]
+        mock_provider_repo.list_all = AsyncMock(return_value=providers)
+        mock_global_setting_repo.get_singleton = AsyncMock(return_value=_make_global_setting(chat_id=1, emb_id=1))
+
+        dtos = await service.list_providers()
+
+        assert len(dtos) == 5
+
+    async def test_limit_restricts_count(
+        self, service, mock_provider_repo, mock_global_setting_repo, encryption_service
+    ) -> None:
+        providers = [
+            _make_provider(provider_id=i, api_key_cipher=encryption_service.encrypt(f"sk-key{i}")) for i in range(1, 6)
+        ]
+        mock_provider_repo.list_all = AsyncMock(return_value=providers)
+        mock_global_setting_repo.get_singleton = AsyncMock(return_value=_make_global_setting(chat_id=1, emb_id=1))
+
+        dtos = await service.list_providers(limit=2)
+
+        assert len(dtos) == 2
+
+    async def test_offset_skips_items(
+        self, service, mock_provider_repo, mock_global_setting_repo, encryption_service
+    ) -> None:
+        providers = [
+            _make_provider(provider_id=i, api_key_cipher=encryption_service.encrypt(f"sk-key{i}")) for i in range(1, 6)
+        ]
+        mock_provider_repo.list_all = AsyncMock(return_value=providers)
+        mock_global_setting_repo.get_singleton = AsyncMock(return_value=_make_global_setting(chat_id=1, emb_id=1))
+
+        dtos = await service.list_providers(limit=2, offset=3)
+
+        assert len(dtos) == 2
+
 
 class TestUpdateProvider:
     async def test_update_provider_partial_update(self, service, mock_provider_repo, encryption_service) -> None:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.deps import get_llm_provider_service
 from app.api.rate_limit import global_key, limiter
@@ -44,9 +44,11 @@ async def reload_providers(
 @limiter.limit("30/second", key_func=global_key)
 async def list_providers(
     request: Request,  # noqa: ARG001
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: LlmProviderService = Depends(get_llm_provider_service),
 ) -> Result[list[ProviderDTO]]:
-    return Result.success(data=await service.list_providers())
+    return Result.success(data=await service.list_providers(limit=limit, offset=offset))
 
 
 @router.get("/default-provider", response_model=Result[DefaultProviderDTO])

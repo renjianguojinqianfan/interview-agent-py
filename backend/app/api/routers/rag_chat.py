@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_rag_chat_service
@@ -28,9 +28,11 @@ async def create_session(
 
 @router.get("", response_model=Result[list[RagSessionListItemDTO]])
 async def list_sessions(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: RagChatService = Depends(get_rag_chat_service),
 ) -> Result[list[RagSessionListItemDTO]]:
-    data = await service.list_sessions()
+    data = await service.list_sessions(limit=limit, offset=offset)
     return Result.success(data=data)
 
 

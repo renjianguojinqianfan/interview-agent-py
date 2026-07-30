@@ -124,6 +124,14 @@ class TestListSessions:
         assert item["knowledgeBaseNames"] == ["知识库A", "知识库B"]
         assert item["isPinned"] is True
 
+    def test_passes_default_pagination(self, mock_service: MagicMock) -> None:
+        client.get("/api/rag-chat/sessions")
+        mock_service.list_sessions.assert_awaited_once_with(limit=200, offset=0)
+
+    def test_passes_custom_pagination(self, mock_service: MagicMock) -> None:
+        client.get("/api/rag-chat/sessions?limit=2&offset=5")
+        mock_service.list_sessions.assert_awaited_once_with(limit=2, offset=5)
+
 
 class TestGetSession:
     def test_returns_detail_with_typed_messages(self, mock_service: MagicMock) -> None:

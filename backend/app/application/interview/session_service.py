@@ -278,9 +278,10 @@ class InterviewSessionService:
             raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND, "未找到未完成的面试会话")
         return dto
 
-    async def list_sessions(self) -> list[SessionListItemDTO]:
+    async def list_sessions(self, *, limit: int = 200, offset: int = 0) -> list[SessionListItemDTO]:
         sessions = await self._persistence.find_all()
-        return [self._orm_to_list_item(s) for s in sessions]
+        items = [self._orm_to_list_item(s) for s in sessions]
+        return items[offset : offset + limit]
 
     async def delete_session(self, session_id: str) -> None:
         orm = await self._persistence.find_by_session_id_optional(session_id)

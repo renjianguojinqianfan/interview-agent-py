@@ -177,6 +177,35 @@ class TestListSessions:
 
         assert result[0].knowledge_base_names == ["未知知识库", "未知知识库"]
 
+    async def test_default_pagination_returns_all(self) -> None:
+        service, m = _make_service()
+        m["repository"].list_all.return_value = [_make_session(id=i) for i in range(5)]
+        m["repository"].count_messages.return_value = 0
+
+        result = await service.list_sessions()
+
+        assert len(result) == 5
+
+    async def test_limit_restricts_count(self) -> None:
+        service, m = _make_service()
+        m["repository"].list_all.return_value = [_make_session(id=i) for i in range(5)]
+        m["repository"].count_messages.return_value = 0
+
+        result = await service.list_sessions(limit=2)
+
+        assert len(result) == 2
+        assert [item.id for item in result] == [0, 1]
+
+    async def test_offset_skips_items(self) -> None:
+        service, m = _make_service()
+        m["repository"].list_all.return_value = [_make_session(id=i) for i in range(5)]
+        m["repository"].count_messages.return_value = 0
+
+        result = await service.list_sessions(limit=2, offset=3)
+
+        assert len(result) == 2
+        assert [item.id for item in result] == [3, 4]
+
 
 class TestGetDetail:
     async def test_returns_detail_with_kb_list_and_typed_messages(self) -> None:

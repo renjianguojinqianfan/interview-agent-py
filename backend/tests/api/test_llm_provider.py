@@ -87,6 +87,20 @@ class TestListProviders:
         assert len(data["data"]) == 2
         assert data["data"][0]["id"] == "dashscope"
 
+    def test_passes_default_pagination(self) -> None:
+        svc = AsyncMock()
+        svc.list_providers = AsyncMock(return_value=[])
+        _override_service(svc)
+        client.get("/api/llm-provider/list")
+        svc.list_providers.assert_awaited_once_with(limit=200, offset=0)
+
+    def test_passes_custom_pagination(self) -> None:
+        svc = AsyncMock()
+        svc.list_providers = AsyncMock(return_value=[])
+        _override_service(svc)
+        client.get("/api/llm-provider/list?limit=2&offset=5")
+        svc.list_providers.assert_awaited_once_with(limit=2, offset=5)
+
 
 class TestGetProvider:
     def test_get_provider(self) -> None:

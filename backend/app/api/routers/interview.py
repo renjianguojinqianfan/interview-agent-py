@@ -1,6 +1,6 @@
 """文字面试 API 路由：会话创建、问答交互、提前交卷、断线续答。"""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 
 from app.api.deps import get_interview_evaluation_service, get_interview_session_service
@@ -36,9 +36,11 @@ async def create_session(
 
 @router.get("/sessions", response_model=Result[list[SessionListItemDTO]])
 async def list_sessions(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: InterviewSessionService = Depends(get_interview_session_service),
 ) -> Result[list[SessionListItemDTO]]:
-    data = await service.list_sessions()
+    data = await service.list_sessions(limit=limit, offset=offset)
     return Result.success(data=data)
 
 

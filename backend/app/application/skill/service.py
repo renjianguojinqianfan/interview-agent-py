@@ -41,9 +41,10 @@ class SkillService:
         self._invoker = invoker
         self._sanitizer = sanitizer or PromptSanitizer()
 
-    async def list_skills(self) -> list[SkillDTO]:
+    async def list_skills(self, *, limit: int = 200, offset: int = 0) -> list[SkillDTO]:
         skills = await self._loader.load_skills()
-        return [self._to_skill_dto(s) for s in skills]
+        items = [self._to_skill_dto(s) for s in skills]
+        return items[offset : offset + limit]
 
     async def get_skill(self, skill_id: str) -> SkillDTO:
         skills = await self._loader.load_skills()

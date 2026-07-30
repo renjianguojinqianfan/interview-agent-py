@@ -40,9 +40,13 @@ async def list_schedules(
     status: str | None = Query(default=None),
     start: datetime | None = Query(default=None),
     end: datetime | None = Query(default=None),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: ScheduleService = Depends(get_schedule_service),
 ) -> Result[list[InterviewScheduleDTO]]:
-    return Result.success(data=await service.list_schedules(status=status, start=start, end=end))
+    return Result.success(
+        data=await service.list_schedules(status=status, start=start, end=end, limit=limit, offset=offset)
+    )
 
 
 @router.get("/{schedule_id}", response_model=Result[InterviewScheduleDTO])

@@ -39,9 +39,11 @@ async def list_questions(
     category: str | None = Query(None),
     difficulty: str | None = Query(None),
     keyword: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: KnowledgeBaseQuestionService = Depends(get_knowledge_base_question_service),
 ) -> Result[list[KnowledgeBaseQuestionDTO]]:
-    data = await service.list_questions(kb_id, status, category, difficulty, keyword)
+    data = await service.list_questions(kb_id, status, category, difficulty, keyword, limit=limit, offset=offset)
     return Result.success(data=data)
 
 

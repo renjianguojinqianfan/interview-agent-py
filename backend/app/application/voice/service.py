@@ -147,11 +147,15 @@ class VoiceSessionService:
         self,
         user_id: str | None = None,
         status: str | None = None,
+        *,
+        limit: int = 200,
+        offset: int = 0,
     ) -> list[VoiceSessionMetaDTO]:
         target_user = user_id if user_id is not None else DEFAULT_USER_ID
         rows = await self._repository.list_by_user(self._session, target_user, status)
         counts = await self._repository.count_messages_by_sessions(self._session, [r.id for r in rows])
-        return [_to_meta_dto(r, counts.get(r.id, 0)) for r in rows]
+        items = [_to_meta_dto(r, counts.get(r.id, 0)) for r in rows]
+        return items[offset : offset + limit]
 
     async def delete_session(self, session_id: int) -> None:
         orm = await self._load_session(session_id)
@@ -159,10 +163,11 @@ class VoiceSessionService:
         await self._session.commit()
         await self._invalidate_cache(session_id)
 
-    async def get_messages(self, session_id: int) -> list[VoiceMessageDTO]:
+    async def get_messages(self, session_id: int, *, limit: int = 200, offset: int = 0) -> list[VoiceMessageDTO]:
         orm = await self._load_session(session_id)
         messages = await self._repository.find_messages_by_session(self._session, orm.id)
-        return [_to_message_dto(m) for m in messages]
+        items = [_to_message_dto(m) for m in messages]
+        return items[offset : offset + limit]
 
     async def trigger_evaluation(self, session_id: int) -> VoiceEvaluationStatusDTO:
         orm = await self._load_session(session_id)

@@ -132,9 +132,10 @@ class RagChatService:
         logger.info("RAG 会话已创建: id=%s, kbIds=%s", entity.id, kb_ids)
         return self._to_session_dto(entity)
 
-    async def list_sessions(self) -> list[RagSessionListItemDTO]:
+    async def list_sessions(self, *, limit: int = 200, offset: int = 0) -> list[RagSessionListItemDTO]:
         sessions = await self._repository.list_all(self._session)
-        return [await self._to_list_item(s) for s in sessions]
+        items = [await self._to_list_item(s) for s in sessions]
+        return items[offset : offset + limit]
 
     async def get_detail(self, session_pk: int) -> RagSessionDetailDTO:
         sess = await self._get_or_raise(self._session, session_pk)

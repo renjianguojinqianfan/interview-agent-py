@@ -73,6 +73,9 @@ class ScheduleService:
         status: str | None,
         start: datetime | None,
         end: datetime | None,
+        *,
+        limit: int = 200,
+        offset: int = 0,
     ) -> list[InterviewScheduleDTO]:
         if start is not None and end is not None:
             schedules = await self._repository.list_by_time_range(self._session, _ensure_utc(start), _ensure_utc(end))
@@ -80,7 +83,8 @@ class ScheduleService:
             schedules = await self._repository.list_by_status(self._session, status)
         else:
             schedules = await self._repository.list_all(self._session)
-        return [self._to_dto(s) for s in schedules]
+        items = [self._to_dto(s) for s in schedules]
+        return items[offset : offset + limit]
 
     async def update(self, schedule_id: int, request: CreateScheduleRequest) -> InterviewScheduleDTO:
         schedule = await self._repository.get_by_id(self._session, schedule_id)

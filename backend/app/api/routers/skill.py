@@ -1,6 +1,6 @@
 """技能管理 API 路由：列表、详情、JD 解析。"""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.api.deps import get_skill_service
 from app.api.rate_limit import limiter
@@ -13,9 +13,11 @@ router = APIRouter(prefix="/api/interview/skills", tags=["技能管理"])
 
 @router.get("", response_model=Result[list[SkillDTO]])
 async def list_skills(
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     service: SkillService = Depends(get_skill_service),
 ) -> Result[list[SkillDTO]]:
-    data = await service.list_skills()
+    data = await service.list_skills(limit=limit, offset=offset)
     return Result.success(data=data)
 
 

@@ -137,7 +137,24 @@ class TestListSchedules:
         resp = client.get("/api/interview-schedule?status=COMPLETED")
 
         assert resp.status_code == 200
-        mock_schedule.list_schedules.assert_called_once_with(status="COMPLETED", start=None, end=None)
+        mock_schedule.list_schedules.assert_called_once_with(
+            status="COMPLETED",
+            start=None,
+            end=None,
+            limit=200,
+            offset=0,
+        )
+
+    def test_list_with_custom_pagination(self) -> None:
+        mock_schedule = AsyncMock()
+        mock_schedule.list_schedules.return_value = []
+        mock_parse = AsyncMock()
+        _override_services(mock_schedule, mock_parse)
+
+        resp = client.get("/api/interview-schedule?limit=2&offset=5")
+
+        assert resp.status_code == 200
+        mock_schedule.list_schedules.assert_called_once_with(status=None, start=None, end=None, limit=2, offset=5)
 
 
 class TestUpdateSchedule:

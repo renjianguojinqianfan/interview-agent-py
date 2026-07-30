@@ -151,12 +151,13 @@ class LlmProviderService:
         # #55：测试连接复用运行时同款 realtime 连接原语（可注入便于测试）
         self._realtime_connector = realtime_connector
 
-    async def list_providers(self) -> list[ProviderDTO]:
+    async def list_providers(self, *, limit: int = 200, offset: int = 0) -> list[ProviderDTO]:
         providers = await self._provider_repository.list_all(self._session)
         setting = await self._global_setting_repository.get_singleton(self._session)
         chat_id = setting.default_chat_provider_id if setting else None
         emb_id = setting.default_embedding_provider_id if setting else None
-        return [self._to_dto(p, chat_id, emb_id) for p in providers]
+        items = [self._to_dto(p, chat_id, emb_id) for p in providers]
+        return items[offset : offset + limit]
 
     async def get_provider(self, provider_name: str) -> ProviderDTO:
         provider = await self._provider_repository.get_by_name(self._session, provider_name)

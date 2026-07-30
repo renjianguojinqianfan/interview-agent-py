@@ -168,10 +168,10 @@ class TestListSessions:
         assert body["data"][0]["overallScore"] == 82
         assert body["data"][0]["createdAt"] == "2026-07-18T10:00:00"
 
-    def test_calls_service_without_pagination(self, mock_service: MagicMock) -> None:
+    def test_calls_service_with_default_pagination(self, mock_service: MagicMock) -> None:
         mock_service.list_sessions.return_value = []
         client.get("/api/interview/sessions")
-        mock_service.list_sessions.assert_awaited_once_with()
+        mock_service.list_sessions.assert_awaited_once_with(limit=200, offset=0)
 
 
 class TestGetSession:
