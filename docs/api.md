@@ -17,9 +17,8 @@
 - [9. RAG 问答 `/api/rag-chat/sessions`](#9-rag-问答-apirag-chatsessions)
 - [10. LLM 供应商 `/api/llm-provider`](#10-llm-供应商-apillm-provider)
 - [11. 语音面试 `/api/voice-interview`](#11-语音面试-apivoice-interview)
-- [12. WebSocket 语音链路 `/ws/voice-interview/{sessionId}`](#12-websocket-语音链路-wsvoice-interviewsessionid)
-- [13. 自适应面试 Agent `/api/agent/interview`](#13-自适应面试-agent-apiagentinterview)
-- [14. Agentic RAG `/api/agent/rag`](#14-agentic-rag-apiagentrag)
+- [12. 自适应面试 Agent `/api/agent/interview`](#12-自适应面试-agent-apiagentinterview)
+- [13. Agentic RAG `/api/agent/rag`](#13-agentic-rag-apiagentrag)
 - [附录 A：核心数据结构](#附录-a核心数据结构)
 - [附录 B：已知契约差异（待修复）](#附录-b已知契约差异待修复)
 
@@ -69,6 +68,7 @@
 - 路径参数：`{sessionId}`、`{id}` 等，类型见各接口。
 - 上传：`multipart/form-data`，文件字段名 `file`。
 - 允许上传类型：PDF / Word(doc/docx) / txt / markdown；大小上限 **10 MB**。
+- 文件大小超限（>10 MB）返回 HTTP 413（经 `Result` 包装后 `code=200` + `message` 含"文件大小超过限制"）。
 - 列表接口支持分页：`limit`（默认 200，最大 500）和 `offset`（默认 0）。响应仍为裸数组，超出 limit 的数据截断。
 
 ---
@@ -283,49 +283,25 @@
 
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
-| POST | `/api/voice-interview/sessions` | 创建语音会话 | [`CreateVoiceSessionRequest`](#createvoicesessionrequest) | [`VoiceSession`](#voicesession)（含 `webSocketUrl`） | 5/s |
+| POST | `/api/voice-interview/sessions` | 创建语音会话 | [`CreateVoiceSessionRequest`](#createvoicesessionrequest) | [`VoiceSession`](#voicesession) | 5/s |
 | GET | `/api/voice-interview/sessions` | 会话列表（**裸数组**） | query: `userId?`,`status?`,`limit?=200`,`offset?=0` | [`VoiceSessionMeta`](#voicesessionmeta)`[]` | - |
-| GET | `/api/voice-interview/sessions/{sessionId}` | 会话详情（含 `webSocketUrl`） | - | [`VoiceSession`](#voicesession) | - |
+| GET | `/api/voice-interview/sessions/{sessionId}` | 会话详情 | - | [`VoiceSession`](#voicesession) | - |
 | POST | `/api/voice-interview/sessions/{sessionId}/end` | 结束会话（触发异步评估） | - | `null` | - |
 | PUT | `/api/voice-interview/sessions/{sessionId}/pause` | 暂停会话 | `{ reason? }` | `null` | - |
-| PUT | `/api/voice-interview/sessions/{sessionId}/resume` | 恢复会话（含 `webSocketUrl`；对 IN_PROGRESS 幂等成功，#60） | - | [`VoiceSession`](#voicesession) | - |
+| PUT | `/api/voice-interview/sessions/{sessionId}/resume` | 恢复会话（对 IN_PROGRESS 幂等成功，#60） | - | [`VoiceSession`](#voicesession) | - |
 | DELETE | `/api/voice-interview/sessions/{sessionId}` | 删除会话 | - | `null` | - |
 | GET | `/api/voice-interview/sessions/{sessionId}/messages` | 会话消息列表（**裸数组**） | query: `limit?=200`, `offset?=0` | [`VoiceMessage`](#voicemessage)`[]` | - |
 | GET | `/api/voice-interview/sessions/{sessionId}/evaluation` | 获取评估状态/结果 | - | [`VoiceEvaluationStatus`](#voiceevaluationstatus) | - |
 | POST | `/api/voice-interview/sessions/{sessionId}/evaluation` | 触发异步评估 | - | [`VoiceEvaluationStatus`](#voiceevaluationstatus) | - |
 
-- `sessionId` 为**数字主键**。`webSocketUrl` 由后端按请求 scheme/host 拼出：`ws(s)://<host>/ws/voice-interview/{id}`。
+- 创建会话时返回 `webSocketUrl`，客户端通过该地址建立 WebSocket 连接（端点 `/ws/voice-interview/{sessionId}`，`sessionId` 为数字主键）。
+- WebSocket 协议：双向 JSON 文本帧。客户端上行 `audio`（Base64 PCM 16 kHz/16 bit/mono）和 `control`（`action`/`data?`）；服务端下行 `subtitle`（`text`/`isFinal`）、`audio`（Base64 WAV）、`text`（`content`/`final`）、`control`（`action`/`message?`）、`error`（`message`/`code?`）。
+- `control.action` 枚举：`asr_ready` / `session_started` / `session_ended` / `asr_reconnecting` / `audio_complete` / `pause_timeout_warning` / `pause_timeout` / `error`。
+- 并发连接上限：`VOICE_MAX_WS_CONNECTIONS`（默认 10，单 Worker），超限以 close code `4005` 拒绝。
 
 ---
 
-## 12. WebSocket 语音链路 `/ws/voice-interview/{sessionId}`
-
-- 端点：`GET (Upgrade) /ws/voice-interview/{sessionId}`（`sessionId` 数字）。
-- 由 `VoiceWsOrchestrator` 编排握手校验与 ASR/TTS 桥接。
-
-**客户端 → 服务端**（JSON 文本帧）：
-
-| type | 字段 | 说明 |
-|---|---|---|
-| `audio` | `data`(Base64), `timestamp?` | 上行音频分片 |
-| `control` | `action`, `data?`, `timestamp?` | 控制指令 |
-
-**服务端 → 客户端**（JSON 文本帧）：
-
-| type | 字段 | 说明 |
-|---|---|---|
-| `subtitle` | `text`, `isFinal` | ASR 转写字幕（`isFinal=true` 为最终结果，前端据此写入对话实录） |
-| `audio` | `data`(Base64), `text` | AI 回复音频 + 文本 |
-| `audio_chunk` | `data`(Base64 WAV), `index`, `isLast` | 分片音频 |
-| `text` | `content`, `final?` | AI 文本回复（流式为累积全文，`final=true` 收尾） |
-| `control` | `action`, `message?`, `timestamp?` | 控制响应 |
-| `error` | `message` | 错误 |
-
-服务端 `control.action` 枚举（#54）：`asr_ready`（ASR 就绪，前端解锁麦克风）、`asr_reconnecting`（ASR 重连中，暂时置灰）、`audio_complete`（本轮音频链结束）、`pause_timeout_warning` / `pause_timeout`（无活动暂停预警/已暂停）。
-
----
-
-## 13. 自适应面试 Agent `/api/agent/interview`
+## 12. 自适应面试 Agent `/api/agent/interview`
 
 > 独立于现有文字面试 API，展示 LangGraph ReAct 循环 + Tool Calling + Working Memory。
 
@@ -338,7 +314,7 @@
 
 ---
 
-## 14. Agentic RAG `/api/agent/rag`
+## 13. Agentic RAG `/api/agent/rag`
 
 > 独立于现有 RAG 问答 API，展示 Self-Correction 质量循环 + Query Planning。
 
