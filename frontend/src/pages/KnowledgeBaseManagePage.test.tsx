@@ -171,7 +171,10 @@ describe('KnowledgeBaseManagePage', () => {
       expect(fileInput).toBeTruthy()
 
       const file = new File(['test'], 'duplicate.pdf', { type: 'application/pdf' })
-      fireEvent.change(fileInput, { target: { files: [file] } })
+      // jsdom 中 fireEvent.change 的 { target: { files } } 不会被 React 正确读取，
+      // 必须用 Object.defineProperty 直接设置 input 的 files 属性
+      Object.defineProperty(fileInput, 'files', { value: [file], writable: false })
+      fireEvent.change(fileInput)
 
       expect(alertSpy).not.toHaveBeenCalled()
       await waitFor(() => {

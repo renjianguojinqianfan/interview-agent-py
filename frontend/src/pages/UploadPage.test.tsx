@@ -34,7 +34,10 @@ describe('UploadPage 简历上传交互', () => {
     const onUploadComplete = vi.fn()
     render(<UploadPage onUploadComplete={onUploadComplete} />)
 
-    fireEvent.change(fileInput(), { target: { files: [resumeFile()] } })
+    const input = fileInput()
+    const file = resumeFile()
+    Object.defineProperty(input, 'files', { value: [file], writable: false })
+    fireEvent.change(input)
     await userEvent.click(await screen.findByRole('button', { name: '开始上传' }))
 
     // 点按钮 -> 调对 API（传 File）-> 拿到 resumeId 后回调（按钮 -> 数据 -> 状态）
@@ -47,7 +50,10 @@ describe('UploadPage 简历上传交互', () => {
     const onUploadComplete = vi.fn()
     render(<UploadPage onUploadComplete={onUploadComplete} />)
 
-    fireEvent.change(fileInput(), { target: { files: [resumeFile()] } })
+    const input = fileInput()
+    const file = resumeFile()
+    Object.defineProperty(input, 'files', { value: [file], writable: false })
+    fireEvent.change(input)
     await userEvent.click(await screen.findByRole('button', { name: '开始上传' }))
 
     // 渲染对结果：错误信息上屏，且不触发成功回调
