@@ -5,7 +5,9 @@ verify: test typecheck lint format-check frontend-verify
 	@echo "✔ 验证通过"
 
 # 运行测试（本地自动切换到隔离测试库 interview_guide_test + Redis db1，见 backend/tests/conftest.py）
+# 测试前先同步 schema（幂等；已是最新则秒过），确保与 CI 环境一致
 test:
+	uv run --directory backend --frozen alembic upgrade head
 	uv run --directory backend --frozen pytest
 
 # 初始化本地隔离测试库（幂等；首次跑测试前执行一次，新迁移合入后重跑同步 schema）
