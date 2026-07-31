@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { KnowledgeBaseDocumentItem, KnowledgeBaseItem, KnowledgeBaseStats } from '../api/knowledgebase'
+import { knowledgeBaseApi, type KnowledgeBaseDocumentItem, KnowledgeBaseItem, type KnowledgeBaseStats } from '../api/knowledgebase'
 import { server } from '../test/server'
 import KnowledgeBaseManagePage from './KnowledgeBaseManagePage'
 
@@ -147,13 +147,10 @@ describe('KnowledgeBaseManagePage', () => {
     it('追加文档失败时不调用 window.alert，改用 toast 提示', async () => {
       mockWithDocuments()
 
-      server.use(
-        http.post('/api/knowledgebase/1/documents', () =>
-          HttpResponse.json(
-            { code: 409, message: '该知识库已存在同名文档' },
-            { status: 409 },
-          ),
-        ),
+      // 直接 mock addDocument 返回 rejection，绕过 MSW multipart POST
+      //（Node 20 下 MSW → axios multipart/form-data 响应不回送，导致 await 永久挂起）
+      vi.spyOn(knowledgeBaseApi, 'addDocument').mockRejectedValueOnce(
+        new Error('该知识库已存在同名文档'),
       )
 
       const user = userEvent.setup()
