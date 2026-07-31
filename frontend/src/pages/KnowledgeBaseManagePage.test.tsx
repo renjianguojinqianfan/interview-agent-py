@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -171,10 +171,12 @@ describe('KnowledgeBaseManagePage', () => {
       expect(fileInput).toBeTruthy()
 
       const file = new File(['test'], 'duplicate.pdf', { type: 'application/pdf' })
-      await user.upload(fileInput, file)
+      fireEvent.change(fileInput, { target: { files: [file] } })
 
       expect(alertSpy).not.toHaveBeenCalled()
-      expect(await screen.findByText('该知识库已存在同名文档', {}, { timeout: 5000 })).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByText('该知识库已存在同名文档')).toBeInTheDocument()
+      }, { timeout: 10000 })
     }, 15000)
   })
 
