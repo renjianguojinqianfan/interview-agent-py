@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -34,7 +34,7 @@ describe('UploadPage 简历上传交互', () => {
     const onUploadComplete = vi.fn()
     render(<UploadPage onUploadComplete={onUploadComplete} />)
 
-    await userEvent.upload(fileInput(), resumeFile())
+    fireEvent.change(fileInput(), { target: { files: [resumeFile()] } })
     await userEvent.click(await screen.findByRole('button', { name: '开始上传' }))
 
     // 点按钮 -> 调对 API（传 File）-> 拿到 resumeId 后回调（按钮 -> 数据 -> 状态）
@@ -47,7 +47,7 @@ describe('UploadPage 简历上传交互', () => {
     const onUploadComplete = vi.fn()
     render(<UploadPage onUploadComplete={onUploadComplete} />)
 
-    await userEvent.upload(fileInput(), resumeFile())
+    fireEvent.change(fileInput(), { target: { files: [resumeFile()] } })
     await userEvent.click(await screen.findByRole('button', { name: '开始上传' }))
 
     // 渲染对结果：错误信息上屏，且不触发成功回调

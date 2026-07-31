@@ -55,6 +55,7 @@ export default defineConfig(({ mode }) => {
       setupFiles: ['./src/test/setup.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
       css: false,
+      testTimeout: 15000,
     },
   }
 });
