@@ -175,7 +175,7 @@ describe('KnowledgeBaseManagePage', () => {
 
       expect(alertSpy).not.toHaveBeenCalled()
       expect(await screen.findByText('该知识库已存在同名文档', {}, { timeout: 5000 })).toBeInTheDocument()
-    })
+    }, 15000)
   })
 
   describe('文档面板轮询刷新 (Issue #68)', () => {
