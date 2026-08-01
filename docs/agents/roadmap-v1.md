@@ -129,7 +129,7 @@ generate_question_tool = StructuredTool.from_schema(
 
 ## P1：Agent 能力深化
 
-### P1-1：LangGraph Subgraph 聚合（0.11.0）
+### ✅ P1-1：LangGraph Subgraph 聚合（0.11.0）
 
 **现状**：三个图（评估图 DAG、ReAct 循环 Agent、RAG 自纠错）各自独立，无组合关系。
 
@@ -377,7 +377,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 验证：前端 SSE 收到 Agent 中间事件
 ```
 
-### 0.11.0（P1-1，2-3 天）
+### ✅ 0.11.0（P1-1，2-3 天）
 
 ```markdown
 目标：RAG Agent 作为 ReAct Agent 的子图工具
