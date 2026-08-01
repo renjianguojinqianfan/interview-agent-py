@@ -1,6 +1,6 @@
 import logging
 from collections.abc import AsyncGenerator, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -728,6 +728,30 @@ async def stop_scheduler() -> None:
 
 # ==================== Agent 模块工厂 ====================
 
+_agent_checkpointer: Any | None = None
+_agent_checkpointer_cm: Any | None = None
+
+
+def get_agent_checkpointer() -> Any | None:
+    """LangGraph Checkpointer 单例（RedisSaver），用于 Agent 会话持久化。
+
+    当 Redis 不可用时返回 None，服务降级为无 checkpointer 模式。
+    """
+    global _agent_checkpointer, _agent_checkpointer_cm
+    if _agent_checkpointer is None:
+        try:
+            from langgraph.checkpoint.redis import RedisSaver
+
+            _agent_checkpointer_cm = RedisSaver.from_conn_string(settings.redis_url)
+            _agent_checkpointer = _agent_checkpointer_cm.__enter__()
+            _agent_checkpointer.setup()
+            logger.info("Agent checkpointer 已初始化: RedisSaver -> %s", settings.redis_url)
+        except Exception:
+            logger.warning("Agent checkpointer 初始化失败，降级为无持久化模式")
+            _agent_checkpointer = None
+    return _agent_checkpointer
+
+
 _agent_interview_service: "AdaptiveInterviewService | None" = None
 
 
@@ -743,7 +767,7 @@ def get_agent_interview_service() -> "AdaptiveInterviewService":
             llm_registry=get_llm_registry(),
             invoker=StructuredOutputInvoker(),
             reference_loader=ReferenceLoader(),
-            graph=AdaptiveInterviewGraph(),
+            graph=AdaptiveInterviewGraph(checkpointer=get_agent_checkpointer()),
         )
     return _agent_interview_service
 
