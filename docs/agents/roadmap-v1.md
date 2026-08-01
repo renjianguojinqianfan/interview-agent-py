@@ -156,7 +156,7 @@ adaptive_interview Agent
 
 ---
 
-### P1-2：Human-in-the-Loop（0.11.1）
+### ✅ P1-2：Human-in-the-Loop（0.11.1）
 
 **现状**：ReAct Agent 完全自动，无人工干预点。`_MAX_AGENT_STEPS=30` 是硬上限。
 
@@ -388,7 +388,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 验证：Agent 在需要查资料时自动调用 RAG 子图
 ```
 
-### 0.11.1（P1-2，1-2 天）
+### ✅ 0.11.1（P1-2，1-2 天）
 
 ```markdown
 目标：关键节点人工审批（generate_question 前）
