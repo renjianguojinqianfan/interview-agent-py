@@ -6,6 +6,7 @@
 
 import logging
 import uuid
+from collections.abc import AsyncIterator
 
 from app.application.agent.schemas import (
     AdaptiveAnswerResultDTO,
@@ -152,6 +153,80 @@ class AdaptiveInterviewService:
             difficulty_changed=new_difficulty != old_difficulty,
             new_difficulty=new_difficulty if new_difficulty != old_difficulty else None,
         )
+
+    async def stream_answer(self, session_id: str, answer: str) -> AsyncIterator[dict[str, object]]:
+        """流式提交答案，yield SSE 事件给前端。
+
+        事件类型:
+        - on_chain_start: 节点开始执行
+        - on_chain_end: 节点执行完毕
+        - on_llm_stream: LLM 逐 token 输出
+        - on_tool_start: 工具开始执行
+        - on_tool_end: 工具执行完毕
+        - on_result: 最终结果（AdaptiveAnswerResultDTO）
+        """
+        state = await self._get_state(session_id)
+        if state.get("finished"):
+            raise BusinessException(ErrorCode.INTERVIEW_ALREADY_COMPLETED, "面试已结束")
+
+        # 操作副本，graph 成功后再写回（防止异常时脏数据残留）
+        working_state: AdaptiveInterviewState = {**state}
+        qa_history: list[QARecord] = list(working_state.get("qa_history", []))
+        current_q = working_state.get("current_question") or ""
+        current_cat = working_state.get("current_category") or "通用"
+        qa_history.append(
+            {
+                "question_index": working_state.get("turn_count", 0),
+                "question": current_q,
+                "category": current_cat,
+                "difficulty": working_state.get("difficulty", "mid"),
+                "answer": answer,
+                "score": None,
+                "feedback": None,
+            }
+        )
+        working_state["qa_history"] = qa_history
+
+        chat_client = await self._llm_registry.get_chat_client()
+        old_difficulty = working_state.get("difficulty", "mid")
+
+        async for event_type, event_data in self._graph.stream_next_turn(
+            chat_client=chat_client,
+            invoker=self._invoker,
+            reference_loader=self._reference_loader,
+            state=working_state,
+            user_answer=answer,
+            thread_id=session_id,
+        ):
+            if event_type == "on_final_result":
+                # 提取最终结果并 yield on_result
+                working_state = event_data["state"]
+                new_difficulty: str = working_state.get("difficulty", "mid")
+                latest_qa: list[QARecord] = working_state.get("qa_history", [])
+                last_score: int | None = latest_qa[-1]["score"] if latest_qa else None
+                last_feedback: str | None = latest_qa[-1]["feedback"] if latest_qa else None
+
+                next_question = None
+                next_q_text = working_state.get("current_question")
+                if not working_state.get("finished") and next_q_text:
+                    next_question = AdaptiveQuestionDTO(
+                        question=next_q_text,
+                        category=working_state.get("current_category") or "通用",
+                        difficulty=new_difficulty,
+                        question_index=working_state.get("turn_count", 0),
+                    )
+
+                result = AdaptiveAnswerResultDTO(
+                    score=last_score,
+                    feedback=last_feedback,
+                    next_question=next_question,
+                    finished=bool(working_state.get("finished", False)),
+                    difficulty_changed=new_difficulty != old_difficulty,
+                    new_difficulty=new_difficulty if new_difficulty != old_difficulty else None,
+                )
+                yield {"event": "on_result", "data": result.model_dump(mode="json")}
+            else:
+                yield {"event": event_type, "data": event_data}
 
     async def get_report(self, session_id: str) -> AdaptiveReportDTO:
         """获取面试最终报告。"""

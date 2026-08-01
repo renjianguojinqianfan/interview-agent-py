@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import AsyncIterator
 from typing import Any, TypedDict, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -144,6 +145,81 @@ class AdaptiveInterviewGraph:
         if snapshot is None:
             return None
         return cast("AdaptiveInterviewState", snapshot.values)
+
+    async def stream_next_turn(
+        self,
+        chat_client: ChatOpenAI,
+        invoker: StructuredOutputInvoker,
+        reference_loader: ReferenceLoader,
+        state: AdaptiveInterviewState,
+        user_answer: str | None = None,
+        thread_id: str | None = None,
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        """流式执行一轮 Agent 循环，yield (event_type, data) 事件。
+
+        事件类型:
+        - on_chain_start: 节点开始执行
+        - on_chain_end: 节点执行完毕
+        - on_llm_stream: LLM 逐 token 输出
+        - on_tool_start: 工具开始执行
+        - on_tool_end: 工具执行完毕
+        - on_final_result: 本轮循环结束，data 包含最终 state
+        """
+        configurable: dict[str, Any] = {
+            _CONFIG_CHAT_CLIENT: chat_client,
+            _CONFIG_INVOKER: invoker,
+            _CONFIG_REFERENCE_LOADER: reference_loader,
+        }
+        if thread_id:
+            configurable["thread_id"] = thread_id
+        config: RunnableConfig = {"configurable": configurable}
+
+        if user_answer is not None:
+            state = dict(state)  # type: ignore[assignment]
+            user_msg = f"候选人回答了：\n{user_answer}\n\n请先评估这个回答，然后决定下一步。"
+            state["messages"] = list(state.get("messages", [])) + [HumanMessage(content=user_msg)]
+
+        # 收集最终 state 用于 on_final_result
+        final_state: AdaptiveInterviewState | None = None
+
+        async for event in self._compiled.astream_events(state, config, version="v2"):
+            event_name = event["event"]
+            name = event.get("name", "")
+            data = event.get("data", {})
+
+            if event_name == "on_chain_start" and name in ("init_context", "agent_loop", "execute_tool", "finalize"):
+                yield ("on_chain_start", {"node": name})
+
+            elif event_name == "on_chain_end":
+                if name == "finalize":
+                    yield ("on_chain_end", {"node": name, "result": "finalize_complete"})
+                elif name in ("init_context", "agent_loop", "execute_tool"):
+                    yield ("on_chain_end", {"node": name})
+
+            elif event_name == "on_chat_model_stream":
+                chunk = data.get("chunk")
+                if chunk is not None and hasattr(chunk, "content"):
+                    content = chunk.content
+                    if isinstance(content, str) and content:
+                        yield ("on_llm_stream", {"token": content})
+
+            elif event_name == "on_tool_start":
+                tool_input = data.get("input", {})
+                yield ("on_tool_start", {"name": name, "args": str(tool_input)[:300]})
+
+            elif event_name == "on_tool_end":
+                tool_output = data.get("output", "")
+                yield ("on_tool_end", {"name": name, "result": str(tool_output)[:200]})
+
+            # 捕获根 graph 的 output（最终状态快照）
+            if event_name == "on_chain_end" and not name:
+                output = data.get("output")
+                if isinstance(output, dict):
+                    final_state = cast(AdaptiveInterviewState, output)
+
+        if final_state is None:
+            final_state = state
+        yield ("on_final_result", {"state": final_state})
 
     def _build(self) -> Any:
         builder: StateGraph[AdaptiveInterviewState] = StateGraph(AdaptiveInterviewState)

@@ -1,6 +1,10 @@
 """自适应面试 Agent API 路由：独立于现有面试 API，展示 ReAct Agent 循环。"""
 
+import json
+from collections.abc import AsyncIterator
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_agent_interview_service
 from app.api.responses import Result
@@ -45,6 +49,21 @@ async def submit_adaptive_answer(
     """提交答案。Agent 自动评估并决定下一步（出题/追问/调难度/结束）。"""
     data = await service.submit_answer(session_id, body.answer)
     return Result.success(data=data)
+
+
+@router.post("/sessions/{session_id}/answer/stream")
+async def submit_adaptive_answer_stream(
+    session_id: str,
+    body: SubmitAdaptiveAnswerRequest,
+    service: AdaptiveInterviewService = Depends(get_agent_interview_service),
+) -> StreamingResponse:
+    """流式提交答案。Agent 思考过程以 SSE 事件流推送给前端。"""
+
+    async def event_stream() -> AsyncIterator[str]:
+        async for event in service.stream_answer(session_id, body.answer):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/sessions/{session_id}/result", response_model=Result[AdaptiveReportDTO])
