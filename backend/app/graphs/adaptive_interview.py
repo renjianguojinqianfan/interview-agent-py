@@ -14,6 +14,7 @@ agent_loop -> finalize -> END (当 Agent 决定结束)
 import asyncio
 import json
 import logging
+import time
 from typing import Any, TypedDict, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -77,6 +78,10 @@ class AdaptiveInterviewState(TypedDict, total=False):
 
     # 最终输出
     final_report: dict[str, Any] | None
+
+    # Agent 决策追踪
+    decision_trace: list[dict[str, Any]]
+    # {"step": 1, "action": "generate_question", "args": {...}, "result": {...}, "duration_ms": 120}
 
 
 # ==================== Config 键 ====================
@@ -181,6 +186,15 @@ class AdaptiveInterviewGraph:
             "messages": messages,
             "agent_step_count": 0,
             "finished": False,
+            "decision_trace": [
+                {
+                    "step": 0,
+                    "action": "init_context",
+                    "args": {"skill_id": skill_id, "difficulty": difficulty, "max_turns": max_turns},
+                    "result": {},
+                    "duration_ms": 0,
+                }
+            ],
         }
 
     async def _agent_loop(self, state: AdaptiveInterviewState, config: RunnableConfig) -> dict[str, Any]:
@@ -218,18 +232,32 @@ class AdaptiveInterviewGraph:
 
         # 追加 AI 回复到 messages
         new_messages = list(messages) + [response]
+        trace = list(state.get("decision_trace", []))
+        tool_calls_info = []
+        if response.tool_calls:
+            tool_calls_info = [{"name": tc["name"], "args": tc["args"]} for tc in response.tool_calls]
+        trace_entry = {
+            "step": step_count + 1,
+            "action": "agent_loop",
+            "args": {"tool_calls": tool_calls_info},
+            "result": {},
+            "duration_ms": 0,
+        }
 
         # 检查是否要结束
         content = response.content if isinstance(response.content, str) else ""
         if _END_SIGNAL in content:
-            return {"messages": new_messages, "finished": True}
+            decision_trace = trace + [{**trace_entry, "result": {"signal": "END_INTERVIEW"}}]
+            return {"messages": new_messages, "finished": True, "decision_trace": decision_trace}
 
         # 检查是否有 tool calls
         if not response.tool_calls:
             # 没有工具调用也没有结束信号 -> 当作结束
-            return {"messages": new_messages, "finished": True}
+            decision_trace = trace + [{**trace_entry, "result": {"signal": "no_tool_calls"}}]
+            return {"messages": new_messages, "finished": True, "decision_trace": decision_trace}
 
-        return {"messages": new_messages, "agent_step_count": step_count + 1}
+        decision_trace = trace + [trace_entry]
+        return {"messages": new_messages, "agent_step_count": step_count + 1, "decision_trace": decision_trace}
 
     async def _execute_tool(self, state: AdaptiveInterviewState, config: RunnableConfig) -> dict[str, Any]:
         """执行 Agent 选择的工具，将结果追加到 messages。"""
@@ -255,25 +283,50 @@ class AdaptiveInterviewGraph:
 
         new_messages = list(messages)
         updated_state: dict[str, Any] = {}
+        trace = list(state.get("decision_trace", []))
+        step = max((e.get("step", 0) for e in trace), default=0)
 
         for tool_call in last_msg.tool_calls:
             tool_name = tool_call["name"]
             tool_args = tool_call["args"]
             tool_id = tool_call.get("id", "")
 
+            t0 = time.monotonic()
             try:
                 result = await self._dispatch_tool(tool_name, tool_args, tool_ctx, state)
+                duration_ms = int((time.monotonic() - t0) * 1000)
                 new_messages.append(ToolMessage(content=str(result), tool_call_id=tool_id))
 
                 # 根据工具结果更新状态
                 side_effects = self._apply_tool_side_effects(tool_name, tool_args, result, state)
                 updated_state.update(side_effects)
 
+                trace.append(
+                    {
+                        "step": step + 1,
+                        "action": tool_name,
+                        "args": tool_args,
+                        "result": str(result)[:200],
+                        "duration_ms": duration_ms,
+                    }
+                )
+
             except Exception as e:
+                duration_ms = int((time.monotonic() - t0) * 1000)
                 logger.warning("Agent 工具执行失败: tool=%s, error=%s", tool_name, e)
                 new_messages.append(ToolMessage(content=f"工具执行失败: {e}", tool_call_id=tool_id))
+                trace.append(
+                    {
+                        "step": step + 1,
+                        "action": tool_name,
+                        "args": tool_args,
+                        "result": f"error: {e}",
+                        "duration_ms": duration_ms,
+                    }
+                )
 
         updated_state["messages"] = new_messages
+        updated_state["decision_trace"] = trace
         return updated_state
 
     async def _finalize(self, state: AdaptiveInterviewState, config: RunnableConfig) -> dict[str, Any]:
@@ -293,7 +346,17 @@ class AdaptiveInterviewGraph:
             "questions": qa_history,
             "difficulty_progression": state.get("difficulty", "mid"),
         }
-        return {"final_report": report, "finished": True}
+        trace = list(state.get("decision_trace", []))
+        trace.append(
+            {
+                "step": max((e.get("step", 0) for e in trace), default=0) + 1,
+                "action": "finalize",
+                "args": {},
+                "result": {"total_questions": len(qa_history), "overall_score": overall_score},
+                "duration_ms": 0,
+            }
+        )
+        return {"final_report": report, "finished": True, "decision_trace": trace}
 
     # ==================== 路由函数 ====================
 

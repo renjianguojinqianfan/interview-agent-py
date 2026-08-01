@@ -43,6 +43,7 @@ class AdaptiveSessionDTO(BaseModel):
     current_question: AdaptiveQuestionDTO | None = None
     finished: bool = False
     category_scores: dict[str, float] = Field(default_factory=dict)
+    decision_trace: list[dict[str, object]] | None = None
 
 
 class AdaptiveAnswerResultDTO(BaseModel):

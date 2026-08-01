@@ -67,6 +67,7 @@ class AdaptiveInterviewService:
             "agent_step_count": 0,
             "finished": False,
             "final_report": None,
+            "decision_trace": [],
         }
 
         # 获取 LLM 客户端
@@ -220,4 +221,5 @@ class AdaptiveInterviewService:
             current_question=current_question,
             finished=state.get("finished", False),
             category_scores=avg_scores,
+            decision_trace=state.get("decision_trace"),
         )
