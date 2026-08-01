@@ -14,6 +14,7 @@ from app.application.agent.schemas import (
     AdaptiveReportDTO,
     AdaptiveSessionDTO,
     CreateAdaptiveSessionRequest,
+    ResumeSessionRequest,
     SubmitAdaptiveAnswerRequest,
 )
 
@@ -73,4 +74,15 @@ async def get_adaptive_result(
 ) -> Result[AdaptiveReportDTO]:
     """获取面试结果报告。"""
     data = await service.get_report(session_id)
+    return Result.success(data=data)
+
+
+@router.post("/sessions/{session_id}/resume", response_model=Result[AdaptiveAnswerResultDTO])
+async def resume_adaptive_session(
+    session_id: str,
+    body: ResumeSessionRequest,
+    service: AdaptiveInterviewService = Depends(get_agent_interview_service),
+) -> Result[AdaptiveAnswerResultDTO]:
+    """恢复被 interrupt 暂停的 Agent 会话（Human-in-the-Loop 审批）。"""
+    data = await service.resume_session(session_id, body)
     return Result.success(data=data)

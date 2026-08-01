@@ -22,6 +22,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 
 from app.domain.services.adaptive_strategy import should_end_interview
 from app.graphs.rag_agent import RagAgentGraph
@@ -88,6 +89,9 @@ class AdaptiveInterviewState(TypedDict, total=False):
     decision_trace: list[dict[str, Any]]
     # {"step": 1, "action": "generate_question", "args": {...}, "result": {...}, "duration_ms": 120}
 
+    # Human-in-the-Loop 审批
+    pending_approval: dict[str, Any]  # {"question": "...", "type": "generate_question_approval"}
+
 
 # ==================== Config 键 ====================
 
@@ -143,6 +147,30 @@ class AdaptiveInterviewGraph:
             state["messages"] = list(state.get("messages", [])) + [HumanMessage(content=user_msg)]
 
         result = await self._compiled.ainvoke(state, config=config)
+        return cast("AdaptiveInterviewState", result)
+
+    async def resume_turn(
+        self,
+        chat_client: ChatOpenAI,
+        invoker: StructuredOutputInvoker,
+        reference_loader: ReferenceLoader,
+        llm_registry: LlmProviderRegistry,
+        vector_repository: VectorRepository,
+        thread_id: str,
+        approved: bool,
+    ) -> AdaptiveInterviewState:
+        """从 interrupt 点恢复 Agent 执行。"""
+        configurable: dict[str, Any] = {
+            _CONFIG_CHAT_CLIENT: chat_client,
+            _CONFIG_INVOKER: invoker,
+            _CONFIG_REFERENCE_LOADER: reference_loader,
+            _CONFIG_LLM_REGISTRY: llm_registry,
+            _CONFIG_VECTOR_REPO: vector_repository,
+            "thread_id": thread_id,
+        }
+        config: RunnableConfig = {"configurable": configurable}
+        command: Command[Any] = Command(resume={"approved": approved})
+        result = await self._compiled.ainvoke(command, config=config)
         return cast("AdaptiveInterviewState", result)
 
     async def aget_state(self, thread_id: str) -> AdaptiveInterviewState | None:
@@ -502,10 +530,33 @@ class AdaptiveInterviewGraph:
                 context=tool_args.get("context", ""),
                 tool_ctx=tool_ctx,
             )
-            return json.dumps(
+            question_json = json.dumps(
                 {"question": result.question, "type": result.type, "category": result.category},
                 ensure_ascii=False,
             )
+            # Human-in-the-Loop：暂停等待人工审批
+            approval = interrupt(
+                {
+                    "question": result.question,
+                    "category": result.category,
+                    "type": "generate_question_approval",
+                    "prompt": "这道题是否合适？",
+                }
+            )
+            if isinstance(approval, dict) and approval.get("approved") is False:
+                # 审批不通过，重新生成一题
+                logger.info("Agent 出题被驳回，重新生成")
+                result = await generate_question_impl(
+                    category=tool_args.get("category", "通用"),
+                    difficulty=tool_args.get("difficulty", state.get("difficulty", "mid")),
+                    context=tool_args.get("context", "") + "\n注意：上一题被驳回，请换一个角度出题。",
+                    tool_ctx=tool_ctx,
+                )
+                question_json = json.dumps(
+                    {"question": result.question, "type": result.type, "category": result.category},
+                    ensure_ascii=False,
+                )
+            return question_json
 
         if tool_name == "evaluate_answer":
             eval_result = await evaluate_answer_impl(
