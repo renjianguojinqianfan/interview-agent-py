@@ -97,7 +97,8 @@ _CONFIG_REFERENCE_LOADER = "reference_loader"
 class AdaptiveInterviewGraph:
     """自适应面试 Agent：编译一次，多会话复用。"""
 
-    def __init__(self) -> None:
+    def __init__(self, checkpointer: Any | None = None) -> None:
+        self._checkpointer = checkpointer
         self._compiled = self._build()
 
     async def run_next_turn(
@@ -107,15 +108,22 @@ class AdaptiveInterviewGraph:
         reference_loader: ReferenceLoader,
         state: AdaptiveInterviewState,
         user_answer: str | None = None,
+        thread_id: str | None = None,
     ) -> AdaptiveInterviewState:
-        """执行一轮 Agent 循环（提交答案 -> Agent 决策 -> 出题/结束）。"""
-        config: RunnableConfig = {
-            "configurable": {
-                _CONFIG_CHAT_CLIENT: chat_client,
-                _CONFIG_INVOKER: invoker,
-                _CONFIG_REFERENCE_LOADER: reference_loader,
-            }
+        """执行一轮 Agent 循环（提交答案 -> Agent 决策 -> 出题/结束）。
+
+        Args:
+            thread_id: 启用 checkpointer 时传入，用于持久化会话状态。
+        """
+        configurable: dict[str, Any] = {
+            _CONFIG_CHAT_CLIENT: chat_client,
+            _CONFIG_INVOKER: invoker,
+            _CONFIG_REFERENCE_LOADER: reference_loader,
         }
+        if thread_id:
+            configurable["thread_id"] = thread_id
+        config: RunnableConfig = {"configurable": configurable}
+
         # 如果有用户答案，注入到 messages
         if user_answer is not None:
             state = dict(state)  # type: ignore[assignment]
@@ -124,6 +132,18 @@ class AdaptiveInterviewGraph:
 
         result = await self._compiled.ainvoke(state, config=config)
         return cast("AdaptiveInterviewState", result)
+
+    async def aget_state(self, thread_id: str) -> AdaptiveInterviewState | None:
+        """从 checkpointer 获取指定线程的最新状态。
+
+        当 checkpointer 未启用时返回 None。
+        """
+        if self._checkpointer is None:
+            return None
+        snapshot = await self._compiled.aget_state({"configurable": {"thread_id": thread_id}})
+        if snapshot is None:
+            return None
+        return cast("AdaptiveInterviewState", snapshot.values)
 
     def _build(self) -> Any:
         builder: StateGraph[AdaptiveInterviewState] = StateGraph(AdaptiveInterviewState)
@@ -139,7 +159,7 @@ class AdaptiveInterviewGraph:
         builder.add_edge("execute_tool", "agent_loop")  # 回边！构成循环
         builder.add_edge("finalize", END)
 
-        return builder.compile()
+        return builder.compile(checkpointer=self._checkpointer)
 
     # ==================== 节点实现 ====================
 
