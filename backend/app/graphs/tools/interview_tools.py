@@ -9,7 +9,7 @@ lookup_reference 为本地文件读取（<10ms）；adjust_strategy 为纯函数
 import logging
 from dataclasses import dataclass
 
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
@@ -148,54 +148,64 @@ def adjust_strategy_impl(
     return compute_strategy_update(category_scores, current_difficulty, turn_count, max_turns)
 
 
-# ==================== LangChain Tool 包装（供 Agent bind_tools） ====================
+# ==================== 工具参数 Schemas（供 StructuredTool.from_schema） ====================
 
 
-@tool
-def generate_question(category: str, difficulty: str, context: str = "") -> str:
-    """按指定方向和难度生成一道面试题。
+class GenerateQuestionArgs(BaseModel):
+    """按指定方向和难度生成一道面试题。"""
 
-    Args:
-        category: 面试方向（如 JAVA, MYSQL, REDIS, SPRING, PROJECT）
-        difficulty: 难度级别（junior/mid/senior）
-        context: 额外上下文（如候选人上一题的表现摘要）
-    """
-    # 占位：实际由 Agent 节点内部通过 tool_ctx 调用 generate_question_impl
-    return "该工具应由 Agent 内部执行"
+    category: str = Field(description="面试方向（如 JAVA, MYSQL, REDIS, SPRING, PROJECT）")
+    difficulty: str = Field(description="难度级别（junior/mid/senior）")
+    context: str = Field(default="", description="额外上下文（如候选人上一题的表现摘要）")
 
 
-@tool
-def evaluate_answer(question: str, answer: str, category: str = "通用") -> str:
-    """即时评估候选人对某题的回答。
+class EvaluateAnswerArgs(BaseModel):
+    """即时评估候选人对某题的回答。"""
 
-    Args:
-        question: 面试问题文本
-        answer: 候选人的回答
-        category: 问题所属方向
-    """
-    return "该工具应由 Agent 内部执行"
+    question: str = Field(description="面试问题文本")
+    answer: str = Field(description="候选人的回答")
+    category: str = Field(default="通用", description="问题所属方向")
 
 
-@tool
-def lookup_reference(skill_id: str, category: str) -> str:
-    """检索面试技能参考资料。当需要了解某个技术方向的深入知识以出更好的追问时调用。
+class LookupReferenceArgs(BaseModel):
+    """检索面试技能参考资料。"""
 
-    Args:
-        skill_id: 技能标识（如 java-backend, python-backend）
-        category: 方向标识（如 JAVA, MYSQL, REDIS）
-    """
-    return "该工具应由 Agent 内部执行"
+    skill_id: str = Field(description="技能标识（如 java-backend, python-backend）")
+    category: str = Field(description="方向标识（如 JAVA, MYSQL, REDIS）")
 
 
-@tool
-def adjust_strategy(scores_summary: str) -> str:
-    """根据候选人当前各维度表现，计算下一步出题策略调整建议。
+class AdjustStrategyArgs(BaseModel):
+    """根据候选人当前各维度表现，计算下一步出题策略调整建议。"""
 
-    Args:
-        scores_summary: 当前各维度得分摘要（JSON 格式）
-    """
-    return "该工具应由 Agent 内部执行"
+    scores_summary: str = Field(description="当前各维度得分摘要（JSON 格式）")
 
+
+# ==================== StructuredTool 定义（供 Agent bind_tools） ====================
+# 不传 func → 直接调用会报错，防止误调时静默返回占位字符串
+
+generate_question_tool = StructuredTool(
+    name="generate_question",
+    description="按指定方向和难度生成一道面试题。",
+    args_schema=GenerateQuestionArgs,
+)
+
+evaluate_answer_tool = StructuredTool(
+    name="evaluate_answer",
+    description="即时评估候选人对某题的回答。",
+    args_schema=EvaluateAnswerArgs,
+)
+
+lookup_reference_tool = StructuredTool(
+    name="lookup_reference",
+    description="检索面试技能参考资料。当需要了解某个技术方向的深入知识以出更好的追问时调用。",
+    args_schema=LookupReferenceArgs,
+)
+
+adjust_strategy_tool = StructuredTool(
+    name="adjust_strategy",
+    description="根据候选人当前各维度表现，计算下一步出题策略调整建议。",
+    args_schema=AdjustStrategyArgs,
+)
 
 # 导出工具列表，供 Agent 绑定
-INTERVIEW_AGENT_TOOLS = [generate_question, evaluate_answer, lookup_reference, adjust_strategy]
+INTERVIEW_AGENT_TOOLS = [generate_question_tool, evaluate_answer_tool, lookup_reference_tool, adjust_strategy_tool]

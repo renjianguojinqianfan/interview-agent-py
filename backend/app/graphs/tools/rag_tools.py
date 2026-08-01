@@ -6,7 +6,8 @@
 import logging
 from dataclasses import dataclass
 
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
 
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.prompt_sanitizer import PromptSanitizer
@@ -87,40 +88,50 @@ async def decompose_question_impl(
     return sub_questions[:3] if sub_questions else [complex_query]
 
 
-# ==================== LangChain Tool 定义（供 Agent bind_tools） ====================
+# ==================== 工具参数 Schemas ====================
 
 
-@tool
-def search_knowledge_base(query: str, kb_ids: str = "", top_k: int = 5) -> str:
-    """向量检索知识库。返回最相关的文档片段。
+class SearchKnowledgeBaseArgs(BaseModel):
+    """向量检索知识库。"""
 
-    Args:
-        query: 搜索查询文本
-        kb_ids: 知识库 ID 列表（逗号分隔）
-        top_k: 返回结果数量上限
-    """
-    return "该工具应由 Agent 内部执行"
+    query: str = Field(description="搜索查询文本")
+    kb_ids: str = Field(default="", description="知识库 ID 列表（逗号分隔）")
+    top_k: int = Field(default=5, description="返回结果数量上限")
 
 
-@tool
-def refine_query(original_query: str, feedback: str) -> str:
-    """改写搜索查询以提升检索质量。当检索结果不够好时调用。
+class RefineQueryArgs(BaseModel):
+    """改写搜索查询以提升检索质量。"""
 
-    Args:
-        original_query: 原始用户问题
-        feedback: 为什么当前检索结果不好的原因描述
-    """
-    return "该工具应由 Agent 内部执行"
+    original_query: str = Field(description="原始用户问题")
+    feedback: str = Field(description="为什么当前检索结果不好的原因描述")
 
 
-@tool
-def decompose_question(complex_query: str) -> str:
-    """将复杂问题拆解为多个子问题。当问题涉及多个方面时调用。
+class DecomposeQuestionArgs(BaseModel):
+    """将复杂问题拆解为多个子问题。"""
 
-    Args:
-        complex_query: 需要拆解的复杂问题
-    """
-    return "该工具应由 Agent 内部执行"
+    complex_query: str = Field(description="需要拆解的复杂问题")
 
 
-RAG_AGENT_TOOLS = [search_knowledge_base, refine_query, decompose_question]
+# ==================== StructuredTool 定义（供 Agent bind_tools） ====================
+# 不传 func → 直接调用会报错，防止误调时静默返回占位字符串
+
+search_knowledge_base_tool = StructuredTool(
+    name="search_knowledge_base",
+    description="向量检索知识库。返回最相关的文档片段。",
+    args_schema=SearchKnowledgeBaseArgs,
+)
+
+refine_query_tool = StructuredTool(
+    name="refine_query",
+    description="改写搜索查询以提升检索质量。当检索结果不够好时调用。",
+    args_schema=RefineQueryArgs,
+)
+
+decompose_question_tool = StructuredTool(
+    name="decompose_question",
+    description="将复杂问题拆解为多个子问题。当问题涉及多个方面时调用。",
+    args_schema=DecomposeQuestionArgs,
+)
+
+
+RAG_AGENT_TOOLS = [search_knowledge_base_tool, refine_query_tool, decompose_question_tool]
