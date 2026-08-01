@@ -44,6 +44,7 @@ class AdaptiveSessionDTO(BaseModel):
     finished: bool = False
     category_scores: dict[str, float] = Field(default_factory=dict)
     decision_trace: list[dict[str, object]] | None = None
+    pending_approval: dict[str, Any] | None = None  # Human-in-the-Loop 待审批
 
 
 class AdaptiveAnswerResultDTO(BaseModel):
@@ -55,6 +56,13 @@ class AdaptiveAnswerResultDTO(BaseModel):
     finished: bool = False
     difficulty_changed: bool = False
     new_difficulty: str | None = None
+    pending_approval: dict[str, Any] | None = None  # Human-in-the-Loop 待审批
+
+
+class ResumeSessionRequest(BaseSchema):
+    """恢复被 interrupt 暂停的 Agent 会话请求。"""
+
+    approved: bool = True
 
 
 class AdaptiveReportDTO(BaseModel):

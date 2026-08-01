@@ -445,6 +445,7 @@ VERTICAL_UNCOVERED_ALLOWLIST: frozenset[str] = frozenset(
         "POST /api/llm-provider/{}/test",  # 连通性测试（外呼真实 LLM）
         # —— 自适应面试 Agent（流式提交答案，SSE 响应，由前端事件流测试覆盖）——
         "POST /api/agent/interview/sessions/{}/answer/stream",  # 流式提交答案（SSE）
+        "POST /api/agent/interview/sessions/{}/resume",  # Human-in-the-Loop 审批恢复（需前端交互）
         "POST /api/llm-provider/voice/asr/test",  # ASR 连通性测试（外呼）
         "POST /api/llm-provider/voice/tts/test",  # TTS 连通性测试（外呼）
         "PUT /api/llm-provider/default-provider",  # 设默认 chat 供应商（配置）

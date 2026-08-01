@@ -14,6 +14,7 @@ from app.application.agent.schemas import (
     AdaptiveReportDTO,
     AdaptiveSessionDTO,
     CreateAdaptiveSessionRequest,
+    ResumeSessionRequest,
 )
 from app.domain.errors import BusinessException, ErrorCode
 from app.graphs.adaptive_interview import AdaptiveInterviewGraph, AdaptiveInterviewState, QARecord
@@ -138,6 +139,54 @@ class AdaptiveInterviewService:
 
         # 提取最新评估结果
         latest_qa: list[QARecord] = working_state.get("qa_history", [])
+        last_score: int | None = latest_qa[-1]["score"] if latest_qa else None
+        last_feedback: str | None = latest_qa[-1]["feedback"] if latest_qa else None
+
+        # 构造下一题 DTO
+        next_question = None
+        next_q_text = working_state.get("current_question")
+        if not working_state.get("finished") and next_q_text:
+            next_question = AdaptiveQuestionDTO(
+                question=next_q_text,
+                category=working_state.get("current_category") or "通用",
+                difficulty=new_difficulty,
+                question_index=working_state.get("turn_count", 0),
+            )
+
+        return AdaptiveAnswerResultDTO(
+            score=last_score,
+            feedback=last_feedback,
+            next_question=next_question,
+            finished=bool(working_state.get("finished", False)),
+            difficulty_changed=new_difficulty != old_difficulty,
+            new_difficulty=new_difficulty if new_difficulty != old_difficulty else None,
+        )
+
+    async def resume_session(self, session_id: str, body: ResumeSessionRequest) -> AdaptiveAnswerResultDTO:
+        """从 Human-in-the-Loop interrupt 点恢复 Agent 会话。"""
+        # 检查会话是否存在
+        state = await self._get_state(session_id)
+        if state.get("finished"):
+            raise BusinessException(ErrorCode.INTERVIEW_ALREADY_COMPLETED, "面试已结束")
+
+        chat_client = await self._llm_registry.get_chat_client()
+        old_difficulty = state.get("difficulty", "mid")
+
+        # 恢复 Agent 执行
+        working_state = await self._graph.resume_turn(
+            chat_client=chat_client,
+            invoker=self._invoker,
+            reference_loader=self._reference_loader,
+            llm_registry=self._llm_registry,
+            vector_repository=self._vector_repository,
+            thread_id=session_id,
+            approved=body.approved,
+        )
+
+        new_difficulty: str = working_state.get("difficulty", "mid")
+
+        # 提取最新评估结果
+        latest_qa = working_state.get("qa_history", [])
         last_score: int | None = latest_qa[-1]["score"] if latest_qa else None
         last_feedback: str | None = latest_qa[-1]["feedback"] if latest_qa else None
 
@@ -293,4 +342,5 @@ class AdaptiveInterviewService:
             finished=state.get("finished", False),
             category_scores=avg_scores,
             decision_trace=state.get("decision_trace"),
+            pending_approval=state.get("pending_approval"),
         )
