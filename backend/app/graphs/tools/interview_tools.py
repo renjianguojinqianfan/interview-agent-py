@@ -183,25 +183,25 @@ class AdjustStrategyArgs(BaseModel):
 # ==================== StructuredTool 定义（供 Agent bind_tools） ====================
 # 不传 func → 直接调用会报错，防止误调时静默返回占位字符串
 
-generate_question_tool = StructuredTool.from_schema(
+generate_question_tool = StructuredTool(
     name="generate_question",
     description="按指定方向和难度生成一道面试题。",
     args_schema=GenerateQuestionArgs,
 )
 
-evaluate_answer_tool = StructuredTool.from_schema(
+evaluate_answer_tool = StructuredTool(
     name="evaluate_answer",
     description="即时评估候选人对某题的回答。",
     args_schema=EvaluateAnswerArgs,
 )
 
-lookup_reference_tool = StructuredTool.from_schema(
+lookup_reference_tool = StructuredTool(
     name="lookup_reference",
     description="检索面试技能参考资料。当需要了解某个技术方向的深入知识以出更好的追问时调用。",
     args_schema=LookupReferenceArgs,
 )
 
-adjust_strategy_tool = StructuredTool.from_schema(
+adjust_strategy_tool = StructuredTool(
     name="adjust_strategy",
     description="根据候选人当前各维度表现，计算下一步出题策略调整建议。",
     args_schema=AdjustStrategyArgs,

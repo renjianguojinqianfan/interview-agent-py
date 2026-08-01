@@ -50,6 +50,9 @@ KNOWN_MISSING: frozenset[str] = frozenset(
         "infrastructure/redis/rate_limit.lua",  # 限流脚本（实际改用 Python rate_limit.py）
         "infrastructure/voice/asr.py",  # Stage 7B.2 ASR 服务
         "infrastructure/voice/tts.py",  # Stage 7B.3 TTS 服务
+        # roadmap-v1.md 引用的未来版本文件
+        "app/api/routers/auth.py",  # 1.0.0（P0-2 认证模块）
+        "app/infrastructure/auth/jwt.py",  # 1.0.0（P0-2 认证模块）
         # harness 计划项 - F2/F6/F13
         "docs/agents/harness-coverage.md",  # F13
         "docs/rejected-ideas.md",  # F2

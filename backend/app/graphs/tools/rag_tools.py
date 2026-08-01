@@ -115,19 +115,19 @@ class DecomposeQuestionArgs(BaseModel):
 # ==================== StructuredTool 定义（供 Agent bind_tools） ====================
 # 不传 func → 直接调用会报错，防止误调时静默返回占位字符串
 
-search_knowledge_base_tool = StructuredTool.from_schema(
+search_knowledge_base_tool = StructuredTool(
     name="search_knowledge_base",
     description="向量检索知识库。返回最相关的文档片段。",
     args_schema=SearchKnowledgeBaseArgs,
 )
 
-refine_query_tool = StructuredTool.from_schema(
+refine_query_tool = StructuredTool(
     name="refine_query",
     description="改写搜索查询以提升检索质量。当检索结果不够好时调用。",
     args_schema=RefineQueryArgs,
 )
 
-decompose_question_tool = StructuredTool.from_schema(
+decompose_question_tool = StructuredTool(
     name="decompose_question",
     description="将复杂问题拆解为多个子问题。当问题涉及多个方面时调用。",
     args_schema=DecomposeQuestionArgs,
