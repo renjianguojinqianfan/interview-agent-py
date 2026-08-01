@@ -355,7 +355,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 验证：Agent 运行后 decision_trace 不为空
 ```
 
-### 0.10.0（P0-1，1-2 天）
+### ✅ 0.10.0（P0-1，1-2 天）
 
 ```markdown
 目标：会话状态持久化（Checkpointer）
