@@ -15,9 +15,12 @@ from pydantic import BaseModel, Field
 
 from app.domain.errors import ErrorCode
 from app.domain.services.adaptive_strategy import StrategyUpdate
+from app.graphs.rag_agent import RagAgentGraph
+from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.prompt_loader import load_prompt
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.skills.reference_loader import ReferenceLoader
+from app.infrastructure.vector.repository import VectorRepository
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,9 @@ class InterviewToolContext:
     chat_client: ChatOpenAI
     invoker: StructuredOutputInvoker
     reference_loader: ReferenceLoader
+    llm_registry: LlmProviderRegistry
+    vector_repository: VectorRepository
+    rag_agent_graph: RagAgentGraph
     skill_id: str
     resume_text: str
 
@@ -148,6 +154,27 @@ def adjust_strategy_impl(
     return compute_strategy_update(category_scores, current_difficulty, turn_count, max_turns)
 
 
+async def agentic_rag_search_impl(question: str, kb_ids: list[int], tool_ctx: InterviewToolContext) -> str:
+    """使用 Agentic RAG（带质量循环）检索知识库，返回答案摘要。"""
+    try:
+        result = await tool_ctx.rag_agent_graph.query(
+            question=question,
+            kb_ids=kb_ids if kb_ids else [1],  # 默认知识库 ID
+            llm_registry=tool_ctx.llm_registry,
+            vector_repository=tool_ctx.vector_repository,
+            top_k=5,
+        )
+        answer = result.get("answer", "")
+        sources = result.get("sources", [])
+        trace = result.get("retrieval_trace", [])
+        source_summary = f"\n\n来源: {len(sources)} 个文档片段" if sources else ""
+        trace_summary = f"\n检索过程: {' -> '.join(trace[-3:])}" if trace else ""
+        return f"{answer}{source_summary}{trace_summary}"
+    except Exception as e:
+        logger.warning("Agentic RAG 检索失败: question=%s, error=%s", question[:50], e)
+        return f"知识库检索失败: {e}"
+
+
 # ==================== 工具参数 Schemas（供 StructuredTool.from_schema） ====================
 
 
@@ -180,6 +207,13 @@ class AdjustStrategyArgs(BaseModel):
     scores_summary: str = Field(description="当前各维度得分摘要（JSON 格式）")
 
 
+class AgenticRagSearchArgs(BaseModel):
+    """使用 Agentic RAG 检索知识库参考资料（带质量循环）。"""
+
+    question: str = Field(description="检索查询，如 'Java 内存模型详解'")
+    kb_ids: list[int] = Field(default=[], description="知识库 ID 列表，为空时检索所有知识库")
+
+
 # ==================== StructuredTool 定义（供 Agent bind_tools） ====================
 # 不传 func → 直接调用会报错，防止误调时静默返回占位字符串
 
@@ -207,5 +241,20 @@ adjust_strategy_tool = StructuredTool(
     args_schema=AdjustStrategyArgs,
 )
 
+agentic_rag_search_tool = StructuredTool(
+    name="agentic_rag_search",
+    description=(
+        "使用 Agentic RAG（带质量循环和查询改写）检索知识库参考资料。"
+        "当 lookup_reference 本地文件不够用时，或需要更深入的知识库检索时调用。"
+    ),
+    args_schema=AgenticRagSearchArgs,
+)
+
 # 导出工具列表，供 Agent 绑定
-INTERVIEW_AGENT_TOOLS = [generate_question_tool, evaluate_answer_tool, lookup_reference_tool, adjust_strategy_tool]
+INTERVIEW_AGENT_TOOLS = [
+    generate_question_tool,
+    evaluate_answer_tool,
+    lookup_reference_tool,
+    adjust_strategy_tool,
+    agentic_rag_search_tool,
+]
