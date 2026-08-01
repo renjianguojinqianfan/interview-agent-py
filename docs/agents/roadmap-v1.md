@@ -345,7 +345,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 验证：uv run pytest tests/graphs/test_adaptive_interview.py
 ```
 
-### 0.9.2（P1-5，半天）
+### ✅ 0.9.2（P1-5，半天）
 
 ```markdown
 目标：Agent 决策链路可观测
