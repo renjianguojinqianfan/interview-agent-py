@@ -186,7 +186,7 @@ async def _execute_tool(state, config):
 
 ---
 
-### P1-3：Streaming 输出（0.10.1）
+### ✅ P1-3：Streaming 输出（0.10.1）
 
 **现状**：自适应面试 API 是同步的——`POST /sessions/{id}/answer` → 等 Agent 跑完 → 返回结果。用户看不到 Agent 思考过程。
 
@@ -367,7 +367,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 验证：重启服务后 session 仍可恢复
 ```
 
-### 0.10.1（P1-3，1 天）
+### ✅ 0.10.1（P1-3，1 天）
 
 ```markdown
 目标：Agent 思考过程流式输出到前端
