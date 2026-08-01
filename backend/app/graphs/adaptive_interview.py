@@ -24,15 +24,19 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
 from app.domain.services.adaptive_strategy import should_end_interview
+from app.graphs.rag_agent import RagAgentGraph
 from app.graphs.tools.interview_tools import (
     INTERVIEW_AGENT_TOOLS,
     InterviewToolContext,
+    agentic_rag_search_impl,
     evaluate_answer_impl,
     generate_question_impl,
     lookup_reference_impl,
 )
+from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.skills.reference_loader import ReferenceLoader
+from app.infrastructure.vector.repository import VectorRepository
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +94,8 @@ class AdaptiveInterviewState(TypedDict, total=False):
 _CONFIG_CHAT_CLIENT = "chat_client"
 _CONFIG_INVOKER = "invoker"
 _CONFIG_REFERENCE_LOADER = "reference_loader"
+_CONFIG_LLM_REGISTRY = "llm_registry"
+_CONFIG_VECTOR_REPO = "vector_repository"
 
 
 # ==================== Agent 图 ====================
@@ -98,8 +104,9 @@ _CONFIG_REFERENCE_LOADER = "reference_loader"
 class AdaptiveInterviewGraph:
     """自适应面试 Agent：编译一次，多会话复用。"""
 
-    def __init__(self, checkpointer: Any | None = None) -> None:
+    def __init__(self, checkpointer: Any | None = None, rag_agent: RagAgentGraph | None = None) -> None:
         self._checkpointer = checkpointer
+        self._rag_agent = rag_agent or RagAgentGraph()
         self._compiled = self._build()
 
     async def run_next_turn(
@@ -107,6 +114,8 @@ class AdaptiveInterviewGraph:
         chat_client: ChatOpenAI,
         invoker: StructuredOutputInvoker,
         reference_loader: ReferenceLoader,
+        llm_registry: LlmProviderRegistry,
+        vector_repository: VectorRepository,
         state: AdaptiveInterviewState,
         user_answer: str | None = None,
         thread_id: str | None = None,
@@ -120,6 +129,8 @@ class AdaptiveInterviewGraph:
             _CONFIG_CHAT_CLIENT: chat_client,
             _CONFIG_INVOKER: invoker,
             _CONFIG_REFERENCE_LOADER: reference_loader,
+            _CONFIG_LLM_REGISTRY: llm_registry,
+            _CONFIG_VECTOR_REPO: vector_repository,
         }
         if thread_id:
             configurable["thread_id"] = thread_id
@@ -151,6 +162,8 @@ class AdaptiveInterviewGraph:
         chat_client: ChatOpenAI,
         invoker: StructuredOutputInvoker,
         reference_loader: ReferenceLoader,
+        llm_registry: LlmProviderRegistry,
+        vector_repository: VectorRepository,
         state: AdaptiveInterviewState,
         user_answer: str | None = None,
         thread_id: str | None = None,
@@ -169,6 +182,8 @@ class AdaptiveInterviewGraph:
             _CONFIG_CHAT_CLIENT: chat_client,
             _CONFIG_INVOKER: invoker,
             _CONFIG_REFERENCE_LOADER: reference_loader,
+            _CONFIG_LLM_REGISTRY: llm_registry,
+            _CONFIG_VECTOR_REPO: vector_repository,
         }
         if thread_id:
             configurable["thread_id"] = thread_id
@@ -373,6 +388,9 @@ class AdaptiveInterviewGraph:
             chat_client=chat_client,
             invoker=invoker,
             reference_loader=reference_loader,
+            llm_registry=config["configurable"][_CONFIG_LLM_REGISTRY],
+            vector_repository=config["configurable"][_CONFIG_VECTOR_REPO],
+            rag_agent_graph=self._rag_agent,
             skill_id=state.get("skill_id", "java-backend"),
             resume_text=state.get("resume_text", ""),
         )
@@ -529,6 +547,13 @@ class AdaptiveInterviewGraph:
                     "reason": strategy_result.reason,
                 },
                 ensure_ascii=False,
+            )
+
+        if tool_name == "agentic_rag_search":
+            return await agentic_rag_search_impl(
+                question=tool_args.get("question", ""),
+                kb_ids=tool_args.get("kb_ids", []),
+                tool_ctx=tool_ctx,
             )
 
         return f"未知工具: {tool_name}"

@@ -20,6 +20,7 @@ from app.graphs.adaptive_interview import AdaptiveInterviewGraph, AdaptiveInterv
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
 from app.infrastructure.skills.reference_loader import ReferenceLoader
+from app.infrastructure.vector.repository import VectorRepository
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,13 @@ class AdaptiveInterviewService:
         llm_registry: LlmProviderRegistry,
         invoker: StructuredOutputInvoker,
         reference_loader: ReferenceLoader,
+        vector_repository: VectorRepository,
         graph: AdaptiveInterviewGraph,
     ) -> None:
         self._llm_registry = llm_registry
         self._invoker = invoker
         self._reference_loader = reference_loader
+        self._vector_repository = vector_repository
         self._graph = graph
 
     async def create_session(self, request: CreateAdaptiveSessionRequest) -> AdaptiveSessionDTO:
@@ -76,6 +79,8 @@ class AdaptiveInterviewService:
             chat_client=chat_client,
             invoker=self._invoker,
             reference_loader=self._reference_loader,
+            llm_registry=self._llm_registry,
+            vector_repository=self._vector_repository,
             state=state,
             user_answer=None,
             thread_id=session_id,
@@ -122,6 +127,8 @@ class AdaptiveInterviewService:
             chat_client=chat_client,
             invoker=self._invoker,
             reference_loader=self._reference_loader,
+            llm_registry=self._llm_registry,
+            vector_repository=self._vector_repository,
             state=working_state,
             user_answer=answer,
             thread_id=session_id,
@@ -194,6 +201,8 @@ class AdaptiveInterviewService:
             chat_client=chat_client,
             invoker=self._invoker,
             reference_loader=self._reference_loader,
+            llm_registry=self._llm_registry,
+            vector_repository=self._vector_repository,
             state=working_state,
             user_answer=answer,
             thread_id=session_id,

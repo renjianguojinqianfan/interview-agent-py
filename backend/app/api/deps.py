@@ -761,13 +761,19 @@ def get_agent_interview_service() -> "AdaptiveInterviewService":
     if _agent_interview_service is None:
         from app.application.agent.adaptive_service import AdaptiveInterviewService
         from app.graphs.adaptive_interview import AdaptiveInterviewGraph
+        from app.graphs.rag_agent import RagAgentGraph
         from app.infrastructure.skills.reference_loader import ReferenceLoader
+        from app.infrastructure.vector.repository import VectorRepository
 
         _agent_interview_service = AdaptiveInterviewService(
             llm_registry=get_llm_registry(),
             invoker=StructuredOutputInvoker(),
             reference_loader=ReferenceLoader(),
-            graph=AdaptiveInterviewGraph(checkpointer=get_agent_checkpointer()),
+            vector_repository=VectorRepository(),
+            graph=AdaptiveInterviewGraph(
+                checkpointer=get_agent_checkpointer(),
+                rag_agent=RagAgentGraph(),
+            ),
         )
     return _agent_interview_service
 
