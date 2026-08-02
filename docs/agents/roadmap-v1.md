@@ -218,7 +218,7 @@ async def submit_answer_stream(session_id, body, service):
 
 ---
 
-### P1-4：并行工具调用（0.12.0）
+### ✅ P1-4：并行工具调用（0.12.0）
 
 **现状**：路由层（`_route_agent_output`）不做 `Send` fan-out。LLM 如果返回多个 `tool_calls`，在 `_execute_tool` 中被**串行**顺序处理（[adaptive_interview.py:259](file:///workspace/backend/app/graphs/adaptive_interview.py#L259) `for tool_call in last_msg.tool_calls`）。
 
@@ -400,7 +400,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 验证：Agent 出题后暂停，等待人工确认
 ```
 
-### 0.12.0（P1-4，2 天）
+### ✅ 0.12.0（P1-4，2 天）
 
 ```markdown
 目标：多 tool_calls Send fan-out 并行执行
