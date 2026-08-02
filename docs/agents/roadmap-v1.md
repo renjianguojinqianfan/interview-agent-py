@@ -410,7 +410,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 验证：LLM 返回多 tool_calls 时并行执行
 ```
 
-### 1.0.0（P0-2，1-2 天）
+### ✅ 1.0.0（P0-2，1-2 天）
 
 ```markdown
 目标：JWT 认证
