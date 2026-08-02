@@ -27,6 +27,7 @@ from app.api.rate_limit import limiter, rate_limit_exceeded_handler
 from app.api.responses import Result
 from app.api.routers.agent_interview import router as agent_interview_router
 from app.api.routers.agent_rag import router as agent_rag_router
+from app.api.routers.auth import router as auth_router
 from app.api.routers.interview import router as interview_router
 from app.api.routers.interview_schedule import router as interview_schedule_router
 from app.api.routers.knowledgebase import router as knowledgebase_router
@@ -95,6 +96,7 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # typ
 app.add_middleware(SlowAPIASGIMiddleware)
 
 register_exception_handlers(app)
+app.include_router(auth_router)
 app.include_router(resume_router)
 app.include_router(skill_router)
 app.include_router(interview_router)

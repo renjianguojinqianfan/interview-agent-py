@@ -239,7 +239,11 @@ class AdaptiveInterviewGraph:
             data = event.get("data", {})
 
             if event_name == "on_chain_start" and name in (
-                "init_context", "agent_loop", "execute_single_tool", "merge_tool_results", "finalize",
+                "init_context",
+                "agent_loop",
+                "execute_single_tool",
+                "merge_tool_results",
+                "finalize",
             ):
                 yield ("on_chain_start", {"node": name})
 
@@ -247,7 +251,10 @@ class AdaptiveInterviewGraph:
                 if name == "finalize":
                     yield ("on_chain_end", {"node": name, "result": "finalize_complete"})
                 elif name in (
-                    "init_context", "agent_loop", "execute_single_tool", "merge_tool_results",
+                    "init_context",
+                    "agent_loop",
+                    "execute_single_tool",
+                    "merge_tool_results",
                 ):
                     yield ("on_chain_end", {"node": name})
 
@@ -576,8 +583,7 @@ class AdaptiveInterviewGraph:
         if messages and isinstance(messages[-1], AIMessage) and messages[-1].tool_calls:
             tool_calls = messages[-1].tool_calls
             return [
-                Send("execute_single_tool", {"tool_call_index": i, "tool_call": tc})
-                for i, tc in enumerate(tool_calls)
+                Send("execute_single_tool", {"tool_call_index": i, "tool_call": tc}) for i, tc in enumerate(tool_calls)
             ]
 
         return "finalize"
