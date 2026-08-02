@@ -76,13 +76,13 @@ class RedisClient:
         return int(result)
 
     async def hset(self, key: str, mapping: dict[str, str]) -> None:
-        await self._conn.hset(
-            key.encode(),
+        await self._conn.hset(  # type: ignore[misc]
+            key.encode(),  # type: ignore[arg-type]
             mapping={k.encode(): v.encode() for k, v in mapping.items()},
         )
 
     async def hgetall(self, key: str) -> dict[str, str]:
-        raw = cast(dict[bytes, bytes], await self._conn.hgetall(key.encode()))
+        raw = cast(dict[bytes, bytes], await self._conn.hgetall(key.encode()))  # type: ignore[arg-type,misc]
         return {k.decode(): v.decode() for k, v in raw.items()}
 
     async def get(self, key: str) -> str | None:
