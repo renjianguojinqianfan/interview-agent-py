@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.interview.evaluation_service import InterviewEvaluationService
@@ -28,6 +29,7 @@ from app.graphs.evaluation import EvaluationGraph
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
 from app.infrastructure.ai.structured_output import StructuredOutputInvoker
+from app.infrastructure.auth.jwt import verify_token
 from app.infrastructure.db.repositories.interview_repository import InterviewRepository
 from app.infrastructure.db.repositories.interview_schedule_repository import InterviewScheduleRepository
 from app.infrastructure.db.repositories.knowledge_base_document_repository import KnowledgeBaseDocumentRepository
@@ -794,3 +796,19 @@ def get_agentic_rag_service() -> "AgenticRagService":
             graph=RagAgentGraph(),
         )
     return _agentic_rag_service
+
+
+# ==================== JWT 认证 ====================
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+
+
+async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> str:
+    """获取当前用户 ID（JWT 认证）。
+
+    若 token 无效或未提供，返回默认 user_id（开发模式降级）。
+    """
+    if not token:
+        return "default"
+    user_id = verify_token(token)
+    return user_id or "default"
