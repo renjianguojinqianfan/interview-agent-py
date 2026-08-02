@@ -67,6 +67,8 @@ class AdaptiveInterviewService:
             "finished": False,
             "final_report": None,
             "decision_trace": [],
+            "tool_messages": [],
+            "tool_effects": [],
         }
 
         # 获取 LLM 客户端
