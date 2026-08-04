@@ -3,7 +3,10 @@
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.application.agent.adaptive_service import AdaptiveInterviewService
+from app.domain.errors import BusinessException
 
 
 class TestStreamAnswerInterrupt:
@@ -81,7 +84,7 @@ class TestPendingApprovalExposure:
     async def test_resume_result_clears_pending_approval(self) -> None:
         from app.application.agent.schemas import ResumeSessionRequest
 
-        state = self._state(None)
+        state = self._state({"question": "Q2", "type": "generate_question_approval"})
         graph = AsyncMock()
         graph.aget_state = AsyncMock(return_value=state)
 
@@ -102,6 +105,26 @@ class TestPendingApprovalExposure:
         result = await service.resume_session("s1", ResumeSessionRequest())
 
         assert result.pending_approval is None
+
+    async def test_resume_without_pending_approval_rejects(self) -> None:
+        from app.application.agent.schemas import ResumeSessionRequest
+
+        graph = AsyncMock()
+        graph.aget_state = AsyncMock(return_value=self._state(None))
+        llm_registry = AsyncMock()
+        llm_registry.get_chat_client = AsyncMock(return_value=None)
+        service = AdaptiveInterviewService(
+            llm_registry=llm_registry,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            graph=graph,  # type: ignore[arg-type]
+        )
+
+        with pytest.raises(BusinessException) as exc_info:
+            await service.resume_session("s1", ResumeSessionRequest())
+
+        assert exc_info.value.error_code.code == 400
 
 
 class TestNoCheckpointerMemoryCache:

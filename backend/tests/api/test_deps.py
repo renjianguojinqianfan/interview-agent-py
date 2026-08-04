@@ -35,6 +35,28 @@ class TestGetRedisClient:
         deps._redis_client = None
 
 
+class TestGetAgentCheckpointer:
+    def test_failure_sentinel_prevents_retry(self) -> None:
+        from unittest.mock import patch
+
+        import app.api.deps as deps
+
+        deps._agent_checkpointer = None
+        deps._agent_checkpointer_cm = None
+        deps._agent_checkpointer_failed = False
+        try:
+            with patch("langgraph.checkpoint.redis.RedisSaver") as mock_saver:
+                mock_saver.from_conn_string.side_effect = RuntimeError("redis down")
+
+                assert deps.get_agent_checkpointer() is None
+                assert deps.get_agent_checkpointer() is None
+                assert mock_saver.from_conn_string.call_count == 1
+        finally:
+            deps._agent_checkpointer = None
+            deps._agent_checkpointer_cm = None
+            deps._agent_checkpointer_failed = False
+
+
 class TestGetS3StorageService:
     @patch("app.api.deps.create_s3_storage_service")
     def test_returns_s3_storage_service(self, mock_create: object) -> None:

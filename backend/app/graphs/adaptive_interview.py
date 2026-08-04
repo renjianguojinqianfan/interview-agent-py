@@ -646,7 +646,14 @@ class AdaptiveInterviewGraph:
                 "duration_ms": 0,
             }
         )
-        return {"final_report": report, "finished": True, "decision_trace": trace}
+        # 清理 Send fan-out 瞬态载荷（SOFT #86）
+        return {
+            "final_report": report,
+            "finished": True,
+            "decision_trace": trace,
+            "tool_call": {},
+            "tool_call_index": -1,
+        }
 
     # ==================== 路由函数 ====================
 
