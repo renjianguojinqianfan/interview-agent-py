@@ -297,7 +297,15 @@ class AdaptiveInterviewGraph:
                 if isinstance(output, dict):
                     final_state = cast(AdaptiveInterviewState, output)
 
-        if final_state is None:
+        # 优先从 checkpointer 取权威 final state（HARD #7：不依赖根事件 name 为空）
+        if thread_id:
+            checkpoint_state = await self.aget_state(thread_id)
+            if checkpoint_state is not None:
+                final_state = checkpoint_state
+
+        # 无 checkpointer 或未取到时，校验根 output 是否完整；不完整则回退输入 state
+        if final_state is None or "qa_history" not in final_state or "messages" not in final_state:
+            logger.warning("stream_next_turn 未能获取完整最终状态，回退到输入 state")
             final_state = state
         yield ("on_final_result", {"state": final_state})
 
