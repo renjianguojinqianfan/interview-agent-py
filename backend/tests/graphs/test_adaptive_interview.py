@@ -1,5 +1,7 @@
 """自适应面试 Agent 图单元测试：验证 StateGraph 编译和基本路由逻辑。"""
 
+from unittest.mock import AsyncMock, patch
+
 from app.domain.services.adaptive_strategy import (
     compute_strategy_update,
     should_end_interview,
@@ -45,6 +47,125 @@ class TestAdaptiveStrategy:
 
     def test_should_end_at_max_turns(self) -> None:
         assert should_end_interview(6, 6, {"JAVA": [5, 6], "MYSQL": [5, 6]}) is True
+
+
+class TestMergeToolResults:
+    """HARD #3：并行工具副作用合并必须按 tool_call_index 顺序应用到同一 base。"""
+
+    def _base_state(self) -> dict[str, object]:
+        return {
+            "qa_history": [
+                {
+                    "question_index": 0,
+                    "question": "Q1",
+                    "category": "JAVA",
+                    "difficulty": "mid",
+                    "answer": "A",
+                    "score": None,
+                    "feedback": None,
+                }
+            ],
+            "category_scores": {},
+            "turn_count": 0,
+            "current_category": "JAVA",
+            "messages": [],
+            "decision_trace": [],
+            "tool_messages": [],
+            "tool_effects": [],
+        }
+
+    async def test_two_evaluate_effects_accumulate_scores_and_turn_count(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = self._base_state()
+        state["tool_effects"] = [
+            {
+                "tool_call_index": 0,
+                "side_effect": {
+                    "qa_patch": {"question_index": 0, "score": 8, "feedback": "good"},
+                    "category_scores_delta": {"JAVA": [8]},
+                    "turn_count_delta": 1,
+                },
+                "trace_entry": {"step": 1, "action": "evaluate_answer"},
+            },
+            {
+                "tool_call_index": 1,
+                "side_effect": {
+                    "qa_patch": {"question_index": 0, "score": 6, "feedback": "average"},
+                    "category_scores_delta": {"JAVA": [6]},
+                    "turn_count_delta": 1,
+                },
+                "trace_entry": {"step": 1, "action": "evaluate_answer"},
+            },
+        ]
+
+        result = await graph._merge_tool_results(state, {})
+
+        assert result["turn_count"] == 2
+        assert result["category_scores"] == {"JAVA": [8, 6]}
+        assert result["qa_history"][-1]["score"] == 6
+        assert result["qa_history"][-1]["feedback"] == "average"
+
+    async def test_evaluate_and_generate_effects_both_apply(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = self._base_state()
+        state["tool_effects"] = [
+            {
+                "tool_call_index": 0,
+                "side_effect": {"current_question": "Q2", "current_category": "MYSQL"},
+                "trace_entry": {"step": 1, "action": "generate_question"},
+            },
+            {
+                "tool_call_index": 1,
+                "side_effect": {
+                    "qa_patch": {"question_index": 0, "score": 9, "feedback": "great"},
+                    "category_scores_delta": {"JAVA": [9]},
+                    "turn_count_delta": 1,
+                },
+                "trace_entry": {"step": 1, "action": "evaluate_answer"},
+            },
+        ]
+
+        result = await graph._merge_tool_results(state, {})
+
+        assert result["current_question"] == "Q2"
+        assert result["current_category"] == "MYSQL"
+        assert result["category_scores"] == {"JAVA": [9]}
+        assert result["turn_count"] == 1
+        assert result["qa_history"][-1]["score"] == 9
+
+
+class TestExecuteSingleToolIndex:
+    async def test_tool_effect_carries_tool_call_index(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = {
+            "tool_call": {"name": "evaluate_answer", "args": {}, "id": "call_1"},
+            "tool_call_index": 3,
+            "skill_id": "java-backend",
+            "resume_text": "",
+            "agent_step_count": 1,
+            "difficulty": "mid",
+            "current_category": "JAVA",
+            "qa_history": [],
+            "category_scores": {},
+            "turn_count": 0,
+        }
+        config = {
+            "configurable": {
+                "chat_client": None,
+                "invoker": None,
+                "reference_loader": None,
+                "llm_registry": None,
+                "vector_repository": None,
+            }
+        }
+        with patch.object(
+            graph,
+            "_dispatch_tool",
+            new=AsyncMock(return_value='{"score": 7, "feedback": "ok"}'),
+        ):
+            result = await graph._execute_single_tool(state, config)
+
+        assert result["tool_effects"][0]["tool_call_index"] == 3
 
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False
