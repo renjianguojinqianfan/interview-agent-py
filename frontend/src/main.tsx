@@ -1,7 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import { setUnauthorizedHandler } from './api/request'
 import './index.css'
+
+// 401 时统一跳登录（HTTP 200 + Result.code=401 语义）
+setUnauthorizedHandler(() => {
+    window.location.assign('/login');
+});
 
 // 初始化深色模式（避免页面闪烁）
 (function initTheme() {

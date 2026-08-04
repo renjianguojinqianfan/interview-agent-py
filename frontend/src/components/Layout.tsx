@@ -87,6 +87,7 @@ export default function Layout() {
       items: [
         { id: 'resumes', path: '/history', label: '简历管理', icon: FileStack, description: '管理简历，AI 分析' },
         { id: 'interview-hub', path: '/interview-hub', label: '模拟面试', icon: Sparkles, description: '文字/语音面试练习' },
+        { id: 'agent-interview', path: '/agent-interview', label: 'Agent 面试', icon: Sparkles, description: '自适应 AI 面试' },
         { id: 'interviews', path: '/interviews', label: '面试记录', icon: Users, description: '查看面试历史' },
         { id: 'interview-schedule', path: '/interview-schedule', label: '面试日程', icon: Calendar, description: '管理面试安排' },
       ],
@@ -122,7 +123,8 @@ export default function Layout() {
       return currentPath === '/interview-hub'
         || currentPath === '/interview'
         || currentPath.startsWith('/interview/')
-        || currentPath.startsWith('/voice-interview');
+        || currentPath.startsWith('/voice-interview')
+        || currentPath.startsWith('/agent-interview');
     }
     if (path === '/knowledgebase') {
       return currentPath === '/knowledgebase' || currentPath === '/knowledgebase/upload';
