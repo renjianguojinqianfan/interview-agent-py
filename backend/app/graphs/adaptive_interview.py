@@ -469,7 +469,13 @@ class AdaptiveInterviewGraph:
 
             return {
                 "tool_messages": [tool_message],
-                "tool_effects": [{"side_effect": side_effect, "trace_entry": trace_entry}],
+                "tool_effects": [
+                    {
+                        "tool_call_index": state.get("tool_call_index", 0),
+                        "side_effect": side_effect,
+                        "trace_entry": trace_entry,
+                    }
+                ],
             }
 
         except Exception as e:
@@ -485,7 +491,13 @@ class AdaptiveInterviewGraph:
             }
             return {
                 "tool_messages": [tool_message],
-                "tool_effects": [{"side_effect": {}, "trace_entry": error_trace_entry}],
+                "tool_effects": [
+                    {
+                        "tool_call_index": state.get("tool_call_index", 0),
+                        "side_effect": {},
+                        "trace_entry": error_trace_entry,
+                    }
+                ],
             }
 
     async def _merge_tool_results(
@@ -506,31 +518,45 @@ class AdaptiveInterviewGraph:
         # 追加 tool messages 到对话历史
         new_messages.extend(tool_messages)
 
-        # 合并副作用
-        merged_effects: dict[str, Any] = {}
-        for item in tool_effects:
+        # 副作用合并：以 base 为起点，按 tool_call_index 顺序应用增量补丁，
+        # 避免并行结果互相覆盖（HARD #3）。
+        merged_qa: list[dict[str, Any]] = [dict(q) for q in state.get("qa_history", [])]
+        merged_scores: dict[str, list[int]] = {
+            cat: list(scores) for cat, scores in state.get("category_scores", {}).items()
+        }
+        merged_turn_count = state.get("turn_count", 0)
+        merged_effects: dict[str, Any] = {
+            "qa_history": merged_qa,
+            "category_scores": merged_scores,
+            "turn_count": merged_turn_count,
+        }
+
+        for item in sorted(tool_effects, key=lambda e: e.get("tool_call_index", 0)):
             side_effect = item.get("side_effect", {})
             trace_entry = item.get("trace_entry", {})
             if trace_entry:
                 trace.append(trace_entry)
-            for k, v in side_effect.items():
-                if k == "qa_history":
-                    # qa_history 需要累积
-                    existing = merged_effects.get(k, list(state.get("qa_history", [])))
-                    merged_effects[k] = v
-                elif k == "category_scores":
-                    # category_scores 需要合并
-                    existing = dict(merged_effects.get(k, state.get("category_scores", {})))
-                    for cat, scores in v.items():
-                        if cat in existing:
-                            existing[cat] = list(existing[cat]) + list(scores)
-                        else:
-                            existing[cat] = list(scores)
-                    merged_effects[k] = existing
-                elif k == "turn_count":
-                    merged_effects[k] = state.get("turn_count", 0) + 1
+
+            qa_patch = side_effect.get("qa_patch")
+            if isinstance(qa_patch, dict):
+                index = qa_patch.get("question_index")
+                record = next((q for q in merged_qa if q.get("question_index") == index), None)
+                if record is not None:
+                    record.update({k: v for k, v in qa_patch.items() if k != "question_index"})
                 else:
-                    merged_effects[k] = v
+                    merged_qa.append(qa_patch)
+
+            for cat, scores in side_effect.get("category_scores_delta", {}).items():
+                merged_scores.setdefault(cat, []).extend(scores)
+
+            merged_turn_count += int(side_effect.get("turn_count_delta", 0))
+
+            for k, v in side_effect.items():
+                if k in ("qa_patch", "category_scores_delta", "turn_count_delta"):
+                    continue
+                merged_effects[k] = v
+
+        merged_effects["turn_count"] = merged_turn_count
 
         return {
             "messages": new_messages,
@@ -709,21 +735,16 @@ class AdaptiveInterviewGraph:
                 feedback = parsed.get("feedback", "")
                 category = state.get("current_category") or "通用"
 
-                # 更新 qa_history
+                # 增量补丁：qa_patch 更新对应 QA 记录；category_scores_delta/turn_count_delta 由合并节点累加
                 qa_history = list(state.get("qa_history", []))
-                if qa_history and qa_history[-1].get("score") is None:
-                    qa_history[-1] = {**qa_history[-1], "score": score, "feedback": feedback}
-                effects["qa_history"] = qa_history
-
-                # 更新 category_scores
-                category_scores = dict(state.get("category_scores", {}))
-                if category not in category_scores:
-                    category_scores[category] = []
-                category_scores[category] = list(category_scores[category]) + [score]
-                effects["category_scores"] = category_scores
-
-                # 更新 turn_count
-                effects["turn_count"] = state.get("turn_count", 0) + 1
+                question_index = qa_history[-1]["question_index"] if qa_history else 0
+                effects["qa_patch"] = {
+                    "question_index": question_index,
+                    "score": score,
+                    "feedback": feedback,
+                }
+                effects["category_scores_delta"] = {category: [score]}
+                effects["turn_count_delta"] = 1
 
             except (json.JSONDecodeError, TypeError):
                 pass
