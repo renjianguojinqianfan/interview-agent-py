@@ -102,3 +102,89 @@ class TestPendingApprovalExposure:
         result = await service.resume_session("s1", ResumeSessionRequest())
 
         assert result.pending_approval is None
+
+
+class TestNoCheckpointerMemoryCache:
+    """HARD #8：无 checkpointer 时服务用内存缓存（LRU）维持 create/get/submit/stream 全链路。"""
+
+    def _state(self, session_id: str, turn_count: int = 0) -> dict[str, object]:
+        return {
+            "session_id": session_id,
+            "skill_id": "java-backend",
+            "difficulty": "mid",
+            "turn_count": turn_count,
+            "max_turns": 6,
+            "current_question": None,
+            "current_category": "JAVA",
+            "finished": False,
+            "category_scores": {},
+            "decision_trace": [],
+            "pending_approval": None,
+            "qa_history": [
+                {
+                    "question_index": 0,
+                    "question": "Q",
+                    "category": "JAVA",
+                    "difficulty": "mid",
+                    "answer": "A",
+                    "score": 5,
+                    "feedback": "ok",
+                }
+            ],
+            "messages": [],
+            "tool_messages": [],
+            "tool_effects": [],
+        }
+
+    def _service(self, states: dict[str, dict[str, object]]) -> AdaptiveInterviewService:
+
+        graph = AsyncMock()
+        graph.checkpointer = None
+
+        async def fake_run_next_turn(**kwargs: object) -> dict[str, object]:
+            sid = str(kwargs["thread_id"])
+            state = self._state(sid, turn_count=1)
+            states[sid] = state
+            return state
+
+        async def fake_stream(**kwargs: object) -> AsyncIterator[tuple[str, dict[str, object]]]:
+            sid = str(kwargs["thread_id"])
+            state = self._state(sid, turn_count=2)
+            states[sid] = state
+            yield ("on_final_result", {"state": state})
+
+        graph.run_next_turn = fake_run_next_turn
+        graph.stream_next_turn = fake_stream
+        llm_registry = AsyncMock()
+        llm_registry.get_chat_client = AsyncMock(return_value=None)
+        return AdaptiveInterviewService(
+            llm_registry=llm_registry,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            graph=graph,  # type: ignore[arg-type]
+        )
+
+    async def test_full_chain_works_without_checkpointer_and_sessions_isolated(self) -> None:
+        from app.application.agent.schemas import CreateAdaptiveSessionRequest
+
+        states: dict[str, dict[str, object]] = {}
+        service = self._service(states)
+
+        dto = await service.create_session(CreateAdaptiveSessionRequest())
+        s1 = dto.session_id
+        assert (await service.get_session(s1)).session_id == s1
+
+        result = await service.submit_answer(s1, "answer")
+        assert result.score == 5
+        assert (await service.get_session(s1)).turn_count == 1
+
+        events = [event async for event in service.stream_answer(s1, "answer")]
+        assert events[-1]["event"] == "on_result"
+        assert (await service.get_session(s1)).turn_count == 2
+
+        dto2 = await service.create_session(CreateAdaptiveSessionRequest())
+        s2 = dto2.session_id
+        assert s2 != s1
+        assert (await service.get_session(s1)).session_id == s1
+        assert (await service.get_session(s2)).session_id == s2

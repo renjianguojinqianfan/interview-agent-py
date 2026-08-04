@@ -6,6 +6,7 @@
 
 import logging
 import uuid
+from collections import OrderedDict
 from collections.abc import AsyncIterator
 
 from app.application.agent.schemas import (
@@ -24,6 +25,8 @@ from app.infrastructure.skills.reference_loader import ReferenceLoader
 from app.infrastructure.vector.repository import VectorRepository
 
 logger = logging.getLogger(__name__)
+
+_MEMORY_CACHE_MAXSIZE = 500  # 无 checkpointer 降级模式的 LRU 上限（HARD #8）
 
 
 class AdaptiveInterviewService:
@@ -45,6 +48,7 @@ class AdaptiveInterviewService:
         self._reference_loader = reference_loader
         self._vector_repository = vector_repository
         self._graph = graph
+        self._memory_cache: OrderedDict[str, AdaptiveInterviewState] = OrderedDict()
 
     async def create_session(self, request: CreateAdaptiveSessionRequest) -> AdaptiveSessionDTO:
         """创建自适应面试会话并触发 Agent 生成第一题。"""
@@ -89,6 +93,7 @@ class AdaptiveInterviewService:
             thread_id=session_id,
         )
 
+        self._cache_state(session_id, state)
         logger.info("创建自适应面试会话: sessionId=%s, skill=%s", session_id, request.skill_id)
         return self._to_session_dto(state)
 
@@ -138,6 +143,7 @@ class AdaptiveInterviewService:
         )
 
         new_difficulty: str = working_state.get("difficulty", "mid")
+        self._cache_state(session_id, working_state)
 
         # 提取最新评估结果
         latest_qa: list[QARecord] = working_state.get("qa_history", [])
@@ -186,6 +192,7 @@ class AdaptiveInterviewService:
         )
 
         new_difficulty: str = working_state.get("difficulty", "mid")
+        self._cache_state(session_id, working_state)
 
         # 提取最新评估结果
         latest_qa = working_state.get("qa_history", [])
@@ -261,6 +268,7 @@ class AdaptiveInterviewService:
             if event_type == "on_final_result":
                 # 提取最终结果并 yield on_result
                 working_state = event_data["state"]
+                self._cache_state(session_id, working_state)
                 new_difficulty: str = working_state.get("difficulty", "mid")
                 latest_qa: list[QARecord] = working_state.get("qa_history", [])
                 last_score: int | None = latest_qa[-1]["score"] if latest_qa else None
@@ -310,14 +318,26 @@ class AdaptiveInterviewService:
         return AdaptiveReportDTO(**report)
 
     async def _get_state(self, session_id: str) -> AdaptiveInterviewState:
-        """获取会话状态，优先从 checkpointer 读取，不存在则抛异常。
+        """获取会话状态：checkpointer → 内存缓存（仅无 checkpointer 时）→ 404。"""
+        if self._graph.checkpointer is not None:
+            state = await self._graph.aget_state(session_id)
+            if state is not None:
+                return state
+        else:
+            cached = self._memory_cache.get(session_id)
+            if cached is not None:
+                self._memory_cache.move_to_end(session_id)
+                return cached
+        raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND, f"Agent 面试会话不存在: {session_id}")
 
-        当 checkpointer 未启用时 fallback 到 graph 返回的最近一次状态。
-        """
-        state = await self._graph.aget_state(session_id)
-        if state is None:
-            raise BusinessException(ErrorCode.INTERVIEW_SESSION_NOT_FOUND, f"Agent 面试会话不存在: {session_id}")
-        return state
+    def _cache_state(self, session_id: str, state: AdaptiveInterviewState) -> None:
+        """无 checkpointer 时写入内存缓存（LRU），保证降级模式会话可读。"""
+        if self._graph.checkpointer is not None:
+            return
+        self._memory_cache[session_id] = state
+        self._memory_cache.move_to_end(session_id)
+        if len(self._memory_cache) > _MEMORY_CACHE_MAXSIZE:
+            self._memory_cache.popitem(last=False)
 
     def _to_session_dto(self, state: AdaptiveInterviewState) -> AdaptiveSessionDTO:
         """将内部状态转换为 DTO。"""
