@@ -346,6 +346,31 @@ class TestStreamInterrupt:
         assert events[-1] == ("on_interrupt", {"payload": payload})
         assert all(event[0] != "on_final_result" for event in events)
 
+
+class TestPendingApproval:
+    """HARD #5：aget_state 从 checkpoint snapshot 的 interrupts 提取 pending_approval。"""
+
+    async def test_aget_state_extracts_interrupt_payload(self) -> None:
+        graph = AdaptiveInterviewGraph(checkpointer=MemorySaver())
+        payload = {"question": "Q2", "type": "generate_question_approval"}
+        graph._compiled.aget_state = AsyncMock(
+            return_value=SimpleNamespace(values={"session_id": "s1"}, interrupts=(SimpleNamespace(value=payload),))
+        )
+
+        state = await graph.aget_state("s1")
+
+        assert state is not None
+        assert state["pending_approval"] == payload
+
+    async def test_aget_state_sets_none_without_interrupts(self) -> None:
+        graph = AdaptiveInterviewGraph(checkpointer=MemorySaver())
+        graph._compiled.aget_state = AsyncMock(return_value=SimpleNamespace(values={"session_id": "s1"}, interrupts=()))
+
+        state = await graph.aget_state("s1")
+
+        assert state is not None
+        assert state["pending_approval"] is None
+
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False
 

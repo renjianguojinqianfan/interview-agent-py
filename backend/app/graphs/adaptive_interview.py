@@ -209,7 +209,10 @@ class AdaptiveInterviewGraph:
         snapshot = await self._compiled.aget_state({"configurable": {"thread_id": thread_id}})
         if snapshot is None:
             return None
-        return cast("AdaptiveInterviewState", snapshot.values)
+        values: dict[str, Any] = dict(snapshot.values)
+        # HARD #5：从 checkpoint snapshot 的 interrupts 暴露 pending_approval（无中断则为 None）
+        values["pending_approval"] = snapshot.interrupts[0].value if snapshot.interrupts else None
+        return cast("AdaptiveInterviewState", values)
 
     async def stream_next_turn(
         self,
