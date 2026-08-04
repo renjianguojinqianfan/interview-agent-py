@@ -17,6 +17,8 @@
 import os
 from urllib.parse import urlparse, urlunparse
 
+import pytest
+
 from app.config.settings import settings
 
 
@@ -42,3 +44,14 @@ if not os.environ.get("CI"):
     os.environ["ISOLATION_DEV_REDIS_URL"] = settings.redis_url
     settings.database_url = os.environ.get("TEST_DATABASE_URL") or _derive_test_database_url(settings.database_url)
     settings.redis_url = os.environ.get("TEST_REDIS_URL") or _derive_test_redis_url(settings.redis_url)
+
+
+@pytest.fixture(autouse=True)
+def _degraded_auth_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """默认降级无认证：既有业务 API 测试不携带 token，保持可独立运行。
+
+    认证语义测试（tests/api/test_auth.py）会在用例内自行覆盖 secret_key/管理员凭据。
+    """
+    monkeypatch.setattr(settings, "secret_key", "")
+    monkeypatch.setattr(settings, "auth_admin_username", "")
+    monkeypatch.setattr(settings, "auth_admin_password", "")

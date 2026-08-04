@@ -3,7 +3,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
-from app.api.deps import get_knowledge_base_service
+from app.api.deps import get_current_user, get_knowledge_base_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.knowledgebase.schemas import (
@@ -16,7 +16,7 @@ from app.application.knowledgebase.schemas import (
 from app.application.knowledgebase.service import KnowledgeBaseService
 from app.config.settings import settings
 
-router = APIRouter(prefix="/api/knowledgebase", tags=["知识库管理"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/knowledgebase", tags=["知识库管理"])
 
 
 @router.post("/upload", response_model=Result[KnowledgeBaseUploadResponse])

@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import get_agent_interview_service
+from app.api.deps import get_agent_interview_service, get_current_user
 from app.api.responses import Result
 from app.application.agent.adaptive_service import AdaptiveInterviewService
 from app.application.agent.schemas import (
@@ -18,7 +18,7 @@ from app.application.agent.schemas import (
     SubmitAdaptiveAnswerRequest,
 )
 
-router = APIRouter(prefix="/api/agent/interview", tags=["自适应面试Agent"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/agent/interview", tags=["自适应面试Agent"])
 
 
 @router.post("/sessions", response_model=Result[AdaptiveSessionDTO])

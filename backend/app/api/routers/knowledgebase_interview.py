@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import get_knowledge_base_interview_service, get_knowledge_base_question_service
+from app.api.deps import get_current_user, get_knowledge_base_interview_service, get_knowledge_base_question_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.interview.schemas import InterviewSessionDTO
@@ -27,7 +27,7 @@ from app.application.knowledgebase.question_schemas import (
 from app.application.knowledgebase.question_service import KnowledgeBaseQuestionService
 from app.domain.entities.interview import DEFAULT_DIFFICULTY, MAX_QUESTION_COUNT
 
-router = APIRouter(tags=["知识库面试"])
+router = APIRouter(dependencies=[Depends(get_current_user)], tags=["知识库面试"])
 
 _StatusFilter = Literal["DRAFT", "ACTIVE", "ARCHIVED", "STALE"]
 

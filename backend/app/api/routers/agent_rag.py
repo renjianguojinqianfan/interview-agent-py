@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_agentic_rag_service
+from app.api.deps import get_agentic_rag_service, get_current_user
 from app.api.responses import Result
 from app.application.agent.agentic_rag_service import AgenticRagService
 
@@ -28,7 +28,7 @@ class AgentRagQueryResponse(BaseModel):
     retrieval_trace: list[str] = Field(default_factory=list)
 
 
-router = APIRouter(prefix="/api/agent/rag", tags=["Agentic RAG"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/agent/rag", tags=["Agentic RAG"])
 
 
 @router.post("/query", response_model=Result[AgentRagQueryResponse])

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 
-from app.api.deps import get_resume_service
+from app.api.deps import get_current_user, get_resume_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.resume.schemas import (
@@ -13,7 +13,7 @@ from app.application.resume.schemas import (
 from app.application.resume.service import ResumeService
 from app.config.settings import settings
 
-router = APIRouter(prefix="/api/resumes", tags=["简历管理"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/resumes", tags=["简历管理"])
 
 
 @router.post("/upload", response_model=Result[ResumeUploadResponse])

@@ -8,8 +8,9 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.api.deps import get_current_user
+from app.api.deps import DEFAULT_USER_ID, get_current_user
 from app.api.responses import Result
+from app.config.settings import settings
 from app.domain.errors import ErrorCode
 from app.infrastructure.auth.jwt import create_access_token
 
@@ -34,14 +35,19 @@ class LoginResponse(BaseModel):
 async def login(body: LoginRequest) -> Result[Any]:
     """登录获取 JWT access token。
 
-    当前为简化实现：仅验证密码非空，返回固定 user_id="default"。
-    生产环境应接入真实用户系统。
+    两者均未配置 = 降级无认证，任意账号放行；
+    配置了任一凭据则必须与请求用户名密码完全匹配，否则返回 code=401。
     """
-    if not body.password:
-        return Result.error(ErrorCode.UNAUTHORIZED, "密码不能为空")
+    credentials_configured = bool(settings.auth_admin_username or settings.auth_admin_password)
+    if credentials_configured and (
+        not settings.auth_admin_username
+        or not settings.auth_admin_password
+        or body.username != settings.auth_admin_username
+        or body.password != settings.auth_admin_password
+    ):
+        return Result.error(ErrorCode.UNAUTHORIZED, "用户名或密码错误")
 
-    # 简化：固定 user_id，生产应替换为真实认证逻辑
-    user_id = "default"
+    user_id = DEFAULT_USER_ID
     token = create_access_token(user_id)
     if not token:
         return Result.error(ErrorCode.INTERNAL_ERROR, "JWT 未配置，请联系管理员")

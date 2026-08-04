@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     secret_key: str = ""
     app_ai_config_encryption_key: str = ""
 
+    # 管理员登录凭据（AUTH_ADMIN_USERNAME / AUTH_ADMIN_PASSWORD）
+    # 两者均为空 = 降级无认证模式；配置后 login 必须匹配才能签发 token。
+    auth_admin_username: str = ""
+    auth_admin_password: str = ""
+
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://localhost:5174",

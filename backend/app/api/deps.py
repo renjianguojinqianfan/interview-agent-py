@@ -25,6 +25,7 @@ from app.application.voice.dialogue_llm import VoiceDialogueLlm
 from app.application.voice.service import VoiceEvaluationService, VoiceSessionService
 from app.application.voice.ws_handler import VoiceWsOrchestrator
 from app.config.settings import settings
+from app.domain.errors import BusinessException, ErrorCode
 from app.graphs.evaluation import EvaluationGraph
 from app.infrastructure.ai.encryption import ApiKeyEncryptionService
 from app.infrastructure.ai.llm_registry import LlmProviderRegistry
@@ -116,6 +117,7 @@ _tts_config_loader: TtsConfigLoader | None = None
 _voice_dialogue_llm: VoiceDialogueLlm | None = None
 _opening_question_loader: OpeningQuestionLoader | None = None
 
+DEFAULT_USER_ID = "default"
 logger = logging.getLogger(__name__)
 
 
@@ -806,9 +808,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=Fals
 async def get_current_user(token: str | None = Depends(oauth2_scheme)) -> str:
     """获取当前用户 ID（JWT 认证）。
 
-    若 token 无效或未提供，返回默认 user_id（开发模式降级）。
+    secret_key 未配置 = 降级无认证，直接返回默认 user_id；
+    配置后 token 缺失或无效必须抛出 401（HARD #2：禁止降级为 default）。
     """
+    if not settings.secret_key:
+        return DEFAULT_USER_ID
     if not token:
-        return "default"
+        raise BusinessException(ErrorCode.UNAUTHORIZED, "未提供访问令牌")
     user_id = verify_token(token)
-    return user_id or "default"
+    if not user_id:
+        raise BusinessException(ErrorCode.UNAUTHORIZED, "访问令牌无效或已过期")
+    return user_id
