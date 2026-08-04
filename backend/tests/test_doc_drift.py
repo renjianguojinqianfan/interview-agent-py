@@ -57,7 +57,6 @@ KNOWN_MISSING: frozenset[str] = frozenset(
         "docs/agents/harness-coverage.md",  # F13
         "docs/rejected-ideas.md",  # F2
         "tests/test_glossary.py",  # F6
-        "tests/application/agent/test_adaptive_service.py",  # 审查修复计划 B3 新建
         # 历史记录 - pitfalls.md 描述已删除/重命名的文件
         "api/errors.py",  # 已删除的 re-export shim
         "app/api/errors.py",  # 已删除的 re-export shim
