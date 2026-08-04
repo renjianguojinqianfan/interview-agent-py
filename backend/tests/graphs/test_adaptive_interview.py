@@ -1,8 +1,11 @@
 """自适应面试 Agent 图单元测试：验证 StateGraph 编译和基本路由逻辑。"""
 
+import logging
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import ToolMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 from app.domain.services.adaptive_strategy import (
     compute_strategy_update,
@@ -200,6 +203,99 @@ class TestAccumulatorClear:
 
         assert result["tool_messages"] is _CLEAR
         assert result["tool_effects"] is _CLEAR
+
+
+class TestStreamFinalState:
+    """HARD #7：stream_next_turn 优先从 checkpointer 取权威 final state，否则校验根 output。"""
+
+    async def _events(self, events: list[dict[str, object]]) -> AsyncIterator[dict[str, object]]:
+        for event in events:
+            yield event
+
+    def _state(self) -> dict[str, object]:
+        return {
+            "session_id": "s1",
+            "qa_history": [
+                {
+                    "question_index": 0,
+                    "question": "Q",
+                    "category": "JAVA",
+                    "difficulty": "mid",
+                    "answer": "A",
+                    "score": None,
+                    "feedback": None,
+                }
+            ],
+            "messages": [],
+            "category_scores": {},
+            "turn_count": 0,
+            "current_question": None,
+            "current_category": "JAVA",
+            "finished": False,
+            "decision_trace": [],
+            "tool_messages": [],
+            "tool_effects": [],
+        }
+
+    async def _run_stream(
+        self, graph: AdaptiveInterviewGraph, state: dict[str, object]
+    ) -> list[tuple[str, dict[str, object]]]:
+        events: list[tuple[str, dict[str, object]]] = []
+        async for event in graph.stream_next_turn(
+            chat_client=None,
+            invoker=None,
+            reference_loader=None,
+            llm_registry=None,
+            vector_repository=None,
+            state=state,
+            thread_id="s1",
+        ):
+            events.append(event)
+        return events
+
+    async def test_prefers_checkpointer_state_over_root_output(self) -> None:
+        graph = AdaptiveInterviewGraph(checkpointer=MemorySaver())
+        state = self._state()
+        root_output_state = {**state, "qa_history": [{**state["qa_history"][0], "score": None}]}
+        checkpoint_state = {**state, "qa_history": [{**state["qa_history"][0], "score": 8, "feedback": "good"}]}
+        graph._compiled.astream_events = lambda *args, **kwargs: self._events(
+            [{"event": "on_chain_end", "name": "", "data": {"output": root_output_state}}]
+        )
+        graph.aget_state = AsyncMock(return_value=checkpoint_state)
+
+        events = await self._run_stream(graph, state)
+
+        final_state = events[-1][1]["state"]
+        assert final_state["qa_history"][-1]["score"] == 8
+        graph.aget_state.assert_awaited_once_with("s1")
+
+    async def test_falls_back_to_root_output_without_checkpointer(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = self._state()
+        root_output_state = {**state, "qa_history": [{**state["qa_history"][0], "score": 7}]}
+        graph._compiled.astream_events = lambda *args, **kwargs: self._events(
+            [{"event": "on_chain_end", "name": "", "data": {"output": root_output_state}}]
+        )
+
+        events = await self._run_stream(graph, state)
+
+        assert events[-1][1]["state"]["qa_history"][-1]["score"] == 7
+
+    async def test_warns_and_falls_back_to_input_when_root_output_missing(
+        self,
+        caplog: object,
+    ) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = self._state()
+        graph._compiled.astream_events = lambda *args, **kwargs: self._events(
+            [{"event": "on_chain_start", "name": "agent_loop", "data": {}}]
+        )
+
+        with caplog.at_level(logging.WARNING, logger="app.graphs.adaptive_interview"):
+            events = await self._run_stream(graph, state)
+
+        assert "回退" in caplog.text
+        assert events[-1][1]["state"] is state
 
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False
