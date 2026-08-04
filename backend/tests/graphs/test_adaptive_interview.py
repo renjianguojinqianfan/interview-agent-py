@@ -2,11 +2,13 @@
 
 from unittest.mock import AsyncMock, patch
 
+from langchain_core.messages import ToolMessage
+
 from app.domain.services.adaptive_strategy import (
     compute_strategy_update,
     should_end_interview,
 )
-from app.graphs.adaptive_interview import AdaptiveInterviewGraph
+from app.graphs.adaptive_interview import _CLEAR, AdaptiveInterviewGraph, _append_or_clear
 
 
 class TestAdaptiveInterviewGraphCompile:
@@ -166,6 +168,38 @@ class TestExecuteSingleToolIndex:
             result = await graph._execute_single_tool(state, config)
 
         assert result["tool_effects"][0]["tool_call_index"] == 3
+
+
+class TestAccumulatorClear:
+    """HARD #4：tool_messages/tool_effects 累加器必须能被哨兵清空，避免多轮重复累积。"""
+
+    def test_append_accumulates_messages(self) -> None:
+        first = ToolMessage(content="a", tool_call_id="1")
+        second = ToolMessage(content="b", tool_call_id="2")
+
+        assert _append_or_clear([first], [second]) == [first, second]
+
+    def test_clear_sentinel_resets_accumulator(self) -> None:
+        messages = [ToolMessage(content="a", tool_call_id="1")]
+
+        assert _append_or_clear(messages, _CLEAR) == []
+
+    async def test_merge_returns_clear_sentinel(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = {
+            "messages": [],
+            "decision_trace": [],
+            "tool_messages": [ToolMessage(content="a", tool_call_id="1")],
+            "tool_effects": [{"tool_call_index": 0, "side_effect": {}, "trace_entry": {}}],
+            "qa_history": [],
+            "category_scores": {},
+            "turn_count": 0,
+        }
+
+        result = await graph._merge_tool_results(state, {})
+
+        assert result["tool_messages"] is _CLEAR
+        assert result["tool_effects"] is _CLEAR
 
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False

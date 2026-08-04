@@ -14,7 +14,6 @@ agent_loop -> finalize -> END (当 Agent 决定结束)
 import asyncio
 import json
 import logging
-import operator
 import time
 from collections.abc import AsyncIterator
 from typing import Annotated, Any, TypedDict, cast
@@ -45,6 +44,25 @@ logger = logging.getLogger(__name__)
 _END_SIGNAL = "END_INTERVIEW"
 _MAX_AGENT_STEPS = 30  # 安全阀：防止无限循环
 _TOOL_TIMEOUT_SECONDS = 60
+
+
+class _ClearAccumulator:
+    """哨兵类型：清空 tool_messages/tool_effects 累加器。"""
+
+
+_CLEAR = _ClearAccumulator()
+
+
+def _append_or_clear[T](
+    current: list[T] | None,
+    update: T | list[T] | _ClearAccumulator,
+) -> list[T]:
+    """自定义 reducer：普通更新追加，哨兵清空累加器（HARD #4）。"""
+    if isinstance(update, _ClearAccumulator):
+        return []
+    if isinstance(update, list):
+        return list(current or []) + update
+    return list(current or []) + [update]
 
 
 # ==================== 状态定义 ====================
@@ -93,9 +111,9 @@ class AdaptiveInterviewState(TypedDict, total=False):
     # Human-in-the-Loop 审批
     pending_approval: dict[str, Any]  # {"question": "...", "type": "generate_question_approval"}
 
-    # 并行工具执行（Send fan-out 累加器）
-    tool_messages: Annotated[list[ToolMessage], operator.add]
-    tool_effects: Annotated[list[dict[str, Any]], operator.add]
+    # 并行工具执行（Send fan-out 累加器，哨兵清空防多轮重复）
+    tool_messages: Annotated[list[ToolMessage], _append_or_clear]
+    tool_effects: Annotated[list[dict[str, Any]], _append_or_clear]
     # Send fan-out 瞬态载荷（execute_single_tool 节点局部可见）
     tool_call: dict[str, Any]
     tool_call_index: int
@@ -561,8 +579,8 @@ class AdaptiveInterviewGraph:
         return {
             "messages": new_messages,
             "decision_trace": trace,
-            "tool_messages": [],  # 清空累加器
-            "tool_effects": [],  # 清空累加器
+            "tool_messages": _CLEAR,  # 哨兵清空累加器
+            "tool_effects": _CLEAR,  # 哨兵清空累加器
             **merged_effects,
         }
 
