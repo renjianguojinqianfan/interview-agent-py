@@ -5,8 +5,9 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import Send
 
 from app.domain.services.adaptive_strategy import (
     compute_strategy_update,
@@ -380,6 +381,55 @@ class TestCheckpointerProperty:
         saver = MemorySaver()
         graph_with_saver = AdaptiveInterviewGraph(checkpointer=saver)
         assert graph_with_saver.checkpointer is saver
+
+
+class TestRouteAgentOutput:
+    """HARD #12 补强：fan-out 路由按 tool_call_index 下发 Send，finished 走 finalize。"""
+
+    def test_fan_out_returns_send_with_index(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = {
+            "finished": False,
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "evaluate_answer", "args": {}, "id": "1", "type": "tool_call"},
+                        {"name": "generate_question", "args": {}, "id": "2", "type": "tool_call"},
+                    ],
+                )
+            ],
+        }
+
+        result = graph._route_agent_output(state)
+
+        assert isinstance(result, list)
+        assert all(isinstance(item, Send) for item in result)
+        assert result[0].arg["tool_call_index"] == 0
+        assert result[1].arg["tool_call_index"] == 1
+
+    def test_finished_routes_to_finalize(self) -> None:
+        graph = AdaptiveInterviewGraph()
+
+        assert graph._route_agent_output({"finished": True}) == "finalize"
+
+
+class TestFinalizeTrace:
+    async def test_finalize_appends_incremented_step(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        state = {
+            "session_id": "s1",
+            "difficulty": "mid",
+            "qa_history": [],
+            "category_scores": {},
+            "decision_trace": [{"step": 2, "action": "previous"}],
+        }
+
+        result = await graph._finalize(state, {})
+
+        assert result["finished"] is True
+        assert result["decision_trace"][-1]["step"] == 3
+        assert result["final_report"]["total_questions"] == 0
 
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False
