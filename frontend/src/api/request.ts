@@ -1,5 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 
+import { clearToken, getToken } from '../auth/token';
+
 declare module 'axios' {
   interface AxiosRequestConfig {
     skipResultTransform?: boolean;
@@ -23,6 +25,25 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const instance: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000,
+});
+
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+function handleUnauthorized(): void {
+  clearToken();
+  unauthorizedHandler?.();
+}
+
+instance.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -125,7 +146,10 @@ instance.interceptors.response.use(
         response.data = result.data;
         return response;
       }
-      // 失败：直接抛出 message
+      // 失败：直接抛出 message；401 同时清理 token 并跳登录
+      if (result.code === 401) {
+        handleUnauthorized();
+      }
       return Promise.reject(new Error(result.message || '请求失败'));
     }
     
@@ -136,6 +160,10 @@ instance.interceptors.response.use(
     // 有响应的情况：后端返回了结果（即使是错误）
     if (error.response) {
       const { data } = error.response;
+      const result = await parseResultPayload(data);
+      if (result && result.code === 401) {
+        handleUnauthorized();
+      }
       // 尝试解析 Result 格式
       const responseError = await getErrorFromResponseData(data);
       if (responseError) {
