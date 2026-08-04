@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import get_schedule_parse_service, get_schedule_service
+from app.api.deps import get_current_user, get_schedule_parse_service, get_schedule_service
 from app.api.rate_limit import limiter
 from app.api.responses import Result
 from app.application.interview_schedule.schemas import (
@@ -14,7 +14,7 @@ from app.application.interview_schedule.schemas import (
 from app.application.interview_schedule.service import ScheduleParseService, ScheduleService
 from app.domain.entities.interview_schedule import InterviewStatus
 
-router = APIRouter(prefix="/api/interview-schedule", tags=["面试日程管理"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/interview-schedule", tags=["面试日程管理"])
 
 
 @router.post("/parse", response_model=Result[ParseResponse])

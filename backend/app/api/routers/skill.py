@@ -2,13 +2,13 @@
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import get_skill_service
+from app.api.deps import get_current_user, get_skill_service
 from app.api.rate_limit import limiter
 from app.api.responses import Result
 from app.application.skill.schemas import CategoryDTO, ParseJdRequest, SkillDTO
 from app.application.skill.service import SkillService
 
-router = APIRouter(prefix="/api/interview/skills", tags=["技能管理"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/interview/skills", tags=["技能管理"])
 
 
 @router.get("", response_model=Result[list[SkillDTO]])

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import get_rag_chat_service
+from app.api.deps import get_current_user, get_rag_chat_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.rag.schemas import (
@@ -14,7 +14,7 @@ from app.application.rag.schemas import (
 )
 from app.application.rag.service import RagChatService
 
-router = APIRouter(prefix="/api/rag-chat/sessions", tags=["RAG 问答"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/rag-chat/sessions", tags=["RAG 问答"])
 
 
 @router.post("", response_model=Result[RagSessionDTO])

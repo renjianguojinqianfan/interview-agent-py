@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 
-from app.api.deps import get_interview_evaluation_service, get_interview_session_service
+from app.api.deps import get_current_user, get_interview_evaluation_service, get_interview_session_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.interview.evaluation_service import InterviewEvaluationService
@@ -19,7 +19,7 @@ from app.application.interview.schemas import (
 )
 from app.application.interview.session_service import InterviewSessionService
 
-router = APIRouter(prefix="/api/interview", tags=["模拟面试"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/interview", tags=["模拟面试"])
 
 
 @router.post("/sessions", response_model=Result[InterviewSessionDTO])

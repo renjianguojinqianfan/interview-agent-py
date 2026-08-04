@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import get_llm_provider_service
+from app.api.deps import get_current_user, get_llm_provider_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
 from app.application.llm_provider.schemas import (
@@ -16,7 +16,7 @@ from app.application.llm_provider.schemas import (
 )
 from app.application.llm_provider.service import LlmProviderService
 
-router = APIRouter(prefix="/api/llm-provider", tags=["LLM供应商管理"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/llm-provider", tags=["LLM供应商管理"])
 
 
 @router.post("", response_model=Result[None])

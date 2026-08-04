@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query, Request
 
-from app.api.deps import get_voice_evaluation_service, get_voice_session_service
+from app.api.deps import get_current_user, get_voice_evaluation_service, get_voice_session_service
 from app.api.rate_limit import limiter
 from app.api.responses import Result
 from app.application.voice.schemas import (
@@ -13,7 +13,7 @@ from app.application.voice.schemas import (
 )
 from app.application.voice.service import VoiceEvaluationService, VoiceSessionService
 
-router = APIRouter(prefix="/api/voice-interview", tags=["语音面试"])
+router = APIRouter(dependencies=[Depends(get_current_user)], prefix="/api/voice-interview", tags=["语音面试"])
 
 
 def _attach_ws_url(request: Request, dto: VoiceSessionDTO) -> VoiceSessionDTO:
