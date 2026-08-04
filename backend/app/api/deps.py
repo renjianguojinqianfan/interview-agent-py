@@ -734,6 +734,7 @@ async def stop_scheduler() -> None:
 
 _agent_checkpointer: Any | None = None
 _agent_checkpointer_cm: Any | None = None
+_agent_checkpointer_failed: bool = False
 
 
 def get_agent_checkpointer() -> Any | None:
@@ -741,8 +742,8 @@ def get_agent_checkpointer() -> Any | None:
 
     当 Redis 不可用时返回 None，服务降级为无 checkpointer 模式。
     """
-    global _agent_checkpointer, _agent_checkpointer_cm
-    if _agent_checkpointer is None:
+    global _agent_checkpointer, _agent_checkpointer_cm, _agent_checkpointer_failed
+    if _agent_checkpointer is None and not _agent_checkpointer_failed:
         try:
             from langgraph.checkpoint.redis import RedisSaver
 
@@ -751,7 +752,8 @@ def get_agent_checkpointer() -> Any | None:
             _agent_checkpointer.setup()
             logger.info("Agent checkpointer 已初始化: RedisSaver -> %s", settings.redis_url)
         except Exception:
-            logger.warning("Agent checkpointer 初始化失败，降级为无持久化模式")
+            _agent_checkpointer_failed = True
+            logger.warning("Agent checkpointer 初始化失败，本进程不再重试，降级为无持久化模式（SOFT #82）")
             _agent_checkpointer = None
     return _agent_checkpointer
 

@@ -172,10 +172,12 @@ class AdaptiveInterviewService:
 
     async def resume_session(self, session_id: str, body: ResumeSessionRequest) -> AdaptiveAnswerResultDTO:
         """从 Human-in-the-Loop interrupt 点恢复 Agent 会话。"""
-        # 检查会话是否存在
+        # 检查会话是否存在且处于待确认状态（SOFT #85）
         state = await self._get_state(session_id)
         if state.get("finished"):
             raise BusinessException(ErrorCode.INTERVIEW_ALREADY_COMPLETED, "面试已结束")
+        if not state.get("pending_approval"):
+            raise BusinessException(ErrorCode.BAD_REQUEST, "会话当前不在待确认状态")
 
         chat_client = await self._llm_registry.get_chat_client()
         old_difficulty = state.get("difficulty", "mid")

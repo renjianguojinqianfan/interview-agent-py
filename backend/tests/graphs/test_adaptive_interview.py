@@ -430,6 +430,8 @@ class TestFinalizeTrace:
         assert result["finished"] is True
         assert result["decision_trace"][-1]["step"] == 3
         assert result["final_report"]["total_questions"] == 0
+        assert result["tool_call"] == {}
+        assert result["tool_call_index"] == -1
 
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False
