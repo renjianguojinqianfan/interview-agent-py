@@ -155,11 +155,16 @@ def adjust_strategy_impl(
 
 
 async def agentic_rag_search_impl(question: str, kb_ids: list[int], tool_ctx: InterviewToolContext) -> str:
-    """使用 Agentic RAG（带质量循环）检索知识库，返回答案摘要。"""
+    """使用 Agentic RAG（带质量循环）检索知识库，返回答案摘要。
+
+    kb_ids 为空时不检索，显式提示调用方补充知识库 ID（HARD #10）。
+    """
+    if not kb_ids:
+        return "未指定知识库 ID，跳过知识库检索；如需检索请提供 kb_ids。"
     try:
         result = await tool_ctx.rag_agent_graph.query(
             question=question,
-            kb_ids=kb_ids if kb_ids else [1],  # 默认知识库 ID
+            kb_ids=kb_ids,
             llm_registry=tool_ctx.llm_registry,
             vector_repository=tool_ctx.vector_repository,
             top_k=5,
@@ -211,7 +216,7 @@ class AgenticRagSearchArgs(BaseModel):
     """使用 Agentic RAG 检索知识库参考资料（带质量循环）。"""
 
     question: str = Field(description="检索查询，如 'Java 内存模型详解'")
-    kb_ids: list[int] = Field(default=[], description="知识库 ID 列表，为空时检索所有知识库")
+    kb_ids: list[int] = Field(default=[], description="知识库 ID 列表；为空则不检索并提示")
 
 
 # ==================== StructuredTool 定义（供 Agent bind_tools） ====================
