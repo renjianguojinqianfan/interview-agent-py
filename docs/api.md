@@ -9,6 +9,7 @@
 - [1. 通用约定](#1-通用约定)
 - [2. 错误码](#2-错误码)
 - [3. 系统](#3-系统)
+- [3.5 认证 `/api/auth`](#35-认证-apiauth)
 - [4. 简历管理 `/api/resumes`](#4-简历管理-apiresumes)
 - [5. 技能管理 `/api/interview/skills`](#5-技能管理-apiinterviewskills)
 - [6. 文字面试 `/api/interview`](#6-文字面试-apiinterview)
@@ -60,7 +61,10 @@
 
 ### 1.4 认证与限流
 
-- **无认证**（ADR-0007）。限流可选注入 `X-User-Id` 头启用 USER 维度，否则仅 GLOBAL + IP。
+- **JWT 认证**：配置 `SECRET_KEY` 后，除 `POST /api/auth/login`、`/health`、docs 外，所有业务接口必须携带 `Authorization: Bearer <token>`（24h 有效）；缺失/无效 token 返回 HTTP 200 + `Result.code=401`（ADR-0003 约定）。未配置 `SECRET_KEY` = 降级无认证模式，业务接口无需 token。
+- **管理员凭据**：`AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_PASSWORD` 均配置后，`/api/auth/login` 必须匹配；配置了任一凭据但缺失/不匹配 → `code=401`。两者均未配置 = 降级放行（见 [3.5](#35-认证-apiauth)）。
+- **WebSocket 边界**：语音面试 WS `/ws/voice-interview/{sessionId}` 本轮不认证（REST 已全量保护），握手鉴权为后续安全项。
+- 限流可选注入 `X-User-Id` 头启用 USER 维度，否则仅 GLOBAL + IP。
 - 部分接口带每秒限流（下文各接口「限流」列标注，如 `5/s`）。超限返回 `code=8001`。
 
 ### 1.5 通用参数约定
@@ -113,6 +117,22 @@
 | 方法 | 路径 | 说明 | 响应 `data` |
 |---|---|---|---|
 | GET | `/health` | 健康检查 | `{ "status": "healthy" }` |
+
+---
+
+## 3.5 认证 `/api/auth`
+
+| 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
+|---|---|---|---|---|---|
+| POST | `/api/auth/login` | 管理员登录，签发 24h Bearer token | `{ username, password }` | `{ accessToken, tokenType: "bearer" }` | - |
+| GET | `/api/auth/me` | 当前用户信息（需认证） | - | `{ userId }` | - |
+
+- 降级矩阵：
+  - `SECRET_KEY` 未配置：所有业务接口无需 token；`me` 返回 `userId=default`。
+  - `SECRET_KEY` 已配置：无 token/无效 token/过期 token → HTTP 200 + `Result.code=401`，`data=null`。
+  - `AUTH_ADMIN_USERNAME`/`AUTH_ADMIN_PASSWORD` 均未配置：login 降级放行（任意账号可签发 token）。
+  - 配置了任一凭据：login 必须与两者完全匹配，否则 `code=401`。
+- token 由前端存 localStorage 并以 `Authorization: Bearer` 注入（XSS 风险以短 token + CSP 缓解）。
 
 ---
 
@@ -305,12 +325,18 @@
 
 > 独立于现有文字面试 API，展示 LangGraph ReAct 循环 + Tool Calling + Working Memory。
 
+- **SSE 事件（`answer/stream`）**：`on_chain_start` / `on_chain_end` / `on_llm_stream` / `on_tool_start` / `on_tool_end` 为过程事件；`on_interrupt` 表示需要人工确认（`data.payload` 含 `question`/`type`，本轮不产 `on_result`）；`on_result` 为最终结果（`score`/`feedback`/`nextQuestion`/`finished`/`pendingApproval`）。
+- **`pendingApproval`**：会话处于 interrupt 时 `GET /sessions/{sessionId}` 返回非 null（`{ question, type }`），resume 后为 null。
+- **`resume`**：`approved=true` 继续当前题；`approved=false` 触发重新出题（换题确认）。
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/sessions` | 创建自适应面试会话，Agent 自动生成第一题 |
 | GET | `/sessions/{sessionId}` | 获取会话当前状态 |
 | POST | `/sessions/{sessionId}/answer` | 提交答案，触发 Agent 评估 + 出下一题 |
+| POST | `/sessions/{sessionId}/answer/stream` | 流式提交答案（SSE：过程事件 + `on_result`/`on_interrupt`） |
 | GET | `/sessions/{sessionId}/result` | 获取最终报告 |
+| POST | `/sessions/{sessionId}/resume` | 从 Human-in-the-Loop 中断点恢复（`approved` 决定继续/换题） |
 
 ---
 
@@ -509,6 +535,17 @@
 ```
 
 > `evaluateError` 语义（#56）：`FAILED` 时为失败原因；`COMPLETED` 时也可能非空——表示评估完成但存在部分批次 LLM 降级（对应题目按 0 分兜底），内容为降级原因清单（截断至 500 字符），仅作排障备注。文字/语音面试的 `evaluateError` 同语义。
+
+### AdaptiveSession
+```ts
+{ sessionId, skillId, difficulty, turnCount, maxTurns,
+  currentQuestion?: { question, category, difficulty, questionIndex },
+  finished, categoryScores: Record<string, number>, decisionTrace?, pendingApproval? }
+```
+### AdaptiveAnswerResult
+```ts
+{ score?, feedback?, nextQuestion?, finished, difficultyChanged, newDifficulty?, pendingApproval? }
+```
 
 ---
 
