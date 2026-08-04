@@ -371,6 +371,16 @@ class TestPendingApproval:
         assert state is not None
         assert state["pending_approval"] is None
 
+
+class TestCheckpointerProperty:
+    def test_exposes_checkpointer_readonly(self) -> None:
+        graph = AdaptiveInterviewGraph()
+        assert graph.checkpointer is None
+
+        saver = MemorySaver()
+        graph_with_saver = AdaptiveInterviewGraph(checkpointer=saver)
+        assert graph_with_saver.checkpointer is saver
+
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False
 

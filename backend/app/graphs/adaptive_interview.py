@@ -139,6 +139,11 @@ class AdaptiveInterviewGraph:
         self._rag_agent = rag_agent or RagAgentGraph()
         self._compiled = self._build()
 
+    @property
+    def checkpointer(self) -> Any | None:
+        """只读 checkpointer（HARD #8：service 据此决定是否启用内存缓存）。"""
+        return self._checkpointer
+
     async def run_next_turn(
         self,
         chat_client: ChatOpenAI,
