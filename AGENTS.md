@@ -71,6 +71,7 @@ make verify
 - **domain 层零框架依赖**：禁止在 domain 层引入 FastAPI 或 SQLAlchemy。domain 层只放纯 Python（枚举、dataclass、领域服务算法、Protocol 接口）。SQLAlchemy 模型留 infrastructure/db/models/
 - **依赖注入**：使用 FastAPI 的 `Depends` 进行依赖注入，禁止在模块级别直接实例化服务
 - **禁止硬编码密钥**：API Key、数据库密码等敏感信息只放 `.env`，通过 `app/config/` 读取，不得提交到 Git
+- **认证**：业务路由统一加 `Depends(get_current_user)`（JWT Bearer）；401 形态固定为 HTTP 200 + `Result.code=401`（ADR-0003）。`SECRET_KEY` 未配置 = 降级无认证（返回 default user）；`AUTH_ADMIN_USERNAME`/`AUTH_ADMIN_PASSWORD` 任一配置后 `/api/auth/login` 必须完全匹配，否则 code=401。豁免：login/health/docs/WebSocket。前端 token 存 localStorage 并以 Bearer 注入，401 跳登录。
 
 ### 禁止事项
 - 禁止提交未经用户确认的代码

@@ -152,6 +152,6 @@ commit 并推送后，关闭对应 GitHub issue（state: completed），附完�
 | 用户想压力测试计划 | `/grilling` | 在规划阶段对计划追问，发现盲点 |
 | code-review 发现顽固 bug | `/diagnosing-bugs` | 诊断循环，定位根因 |
 | 引入复杂领域术语 | `/domain-modeling` | 维护 CONTEXT.md + ADR，与 neat-freak 互补 |
-| TDD 产生碎片提交需整理 | `/squash-and-split` | 将碎片提交压缩为语义化原子提交 |
+| TDD 产生碎片提交需整理 | 手动整理提交 | 交互式 rebase / soft reset 压缩为语义化原子提交 |
 | 遇到合并冲突 | `/resolving-merge-conflicts` | 解决 merge/rebase 冲突 |
 | 对话过长需交接 | `/handoff` | 压缩为交接文档供新会话接手 |

@@ -77,13 +77,15 @@
   R8: #18 阶段 review（全系统最终 review）✅ Standards PASS（0 HARD）；Spec 4 项已知延期缺口。R8 内 TDD 补齐 8.6 流式路径 AI 异常细分（RAG _stream_answer + 语音 _commit_turn 两 except 块接入 classify_ai_error，非 AI 异常保留通用兜底；同形复现 pitfall #27，已补行为测试守卫）。其余 3 项拆 issue：#20（8.7 端到端集成测试✅：新增 tests/e2e 真基础设施集成——日程/3 定时任务/异步评估/语音回合全对真实 Postgres+Redis 跑通；WS 异常路径由 test_ws_handler、端点接线由 test_voice_ws 覆盖）、#21（G.3 全表时区迁移✅完成：aware UTC、alembic 010 真库验证、ADR-0013）、#22（Dockerfile 验证✅完成：uv 镜像 403 已修（aliyun）；docker build 成功（多阶段，镜像 1.44GB）+ 容器启动 /health 返回 200 已验证；基础镜像拉取曾受 docker.io 限速，最终完成）
 ```
 
+> 2026-08-04 修复批次：12 项 HARD + 4 项 SOFT（PR #89–#100）经自动化 CI/PR 闭环逐批合并，跟踪 issue #88 已关闭；该批次为审查修复，不属迁移阶段 review。
+
 ## 统计
 
 | 类型 | 次数 | 触发条件 |
 |------|------|---------|
-| 单 issue review | 14 次（#5-#18） | 每个 issue make verify 通过后 |
-| 阶段 review | 7 次（R2-R8） | 阶段内所有 issue + 单 issue review 完成后 |
-| 合计 | 21 次 | |
+| 单 issue review | 18 次（#5-#22） | 每个 issue make verify 通过后 |
+| 阶段 review | 8 次（R1-R8） | 阶段内所有 issue + 单 issue review 完成后 |
+| 合计 | 26 次 | |
 
 ## 设计说明
 

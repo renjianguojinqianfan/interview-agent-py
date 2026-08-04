@@ -159,3 +159,11 @@ _Avoid_: 智能面试（过于宽泛）、Agent 面试
 **AgenticRag**:
 带质量评估循环的自主检索问答，检索质量不足时自动改写查询重试（Self-Correction），与现有 RagChatSession（固定检索）独立。
 _Avoid_: 智能 RAG、Agent RAG
+
+**PendingApproval**:
+自适应面试 Agent 的 Human-in-the-Loop 挂起状态：Agent 出题等待人工确认时，会话详情携带 `pendingApproval`（`{ question, type }`），resume 后清除；对应 SSE 事件 `on_interrupt`。
+_Avoid_: 审批状态（用 PendingApproval 精确指代）、Interrupt
+
+**换题确认（Question Approval）**:
+前端对 `pendingApproval` 的处理语义：`approved=true` 继续当前题作答；`approved=false` 触发 Agent 重新出题。
+_Avoid_: 审批（与内部 PendingApproval 区分）

@@ -11,7 +11,7 @@
 |---|---------|------|------|
 | 1 | P0-1"第 1 行注释" | 第 4 行 docstring | [adaptive_service.py:4](file:///workspace/backend/app/application/agent/adaptive_service.py#L4) |
 | 2 | F16"8 个 application 文件导入" | **11 个** | [Grep 结果](file:///workspace/backend/app/application/) 除 `agentic_rag_service.py` 外 11 个 schemas.py 均导入 BaseSchema |
-| 3 | P2"尚未完成的 6 项" | 实际 **9 项**（F2/F6/F7/F8/F9/F10/F11/F13/F16） | [harness/plan.md](file:///workspace/docs/agents/harness/plan.md) 全文统计 |
+| 3 | P2"尚未完成的 6 项" | 实际 **9 项**（F2/F6/F7/F8/F9/F10/F11/F13/F16） | [harness/plan.md](harness/plan.md) 全文统计 |
 | 4 | P1-4"每轮只调一个工具" | 路由层无 Send fan-out，但 `_execute_tool` 串行处理所有 tool_calls | [adaptive_interview.py:259](file:///workspace/backend/app/graphs/adaptive_interview.py#L259) |
 | 5 | P1-2 仅依赖 P0-1 | 还依赖 P1-3（streaming）— interrupt 后需前端感知恢复点 |
 
@@ -72,7 +72,7 @@ await self._compiled.ainvoke(
 
 ### P0-2：认证模块（1.0.0）
 
-**现状**：[ADR-0007](file:///workspace/docs/adr/0007-no-auth-optional-user-ratelimit.md) 明确"无认证 + 可选用户标识 + IP 限流"。开发阶段合理，上生产必须有。
+**现状**：[ADR-0007](../adr/0007-no-auth-optional-user-ratelimit.md) 明确"无认证 + 可选用户标识 + IP 限流"。开发阶段合理，上生产必须有。
 
 **方案**：JWT 最小化实现——不引入 OAuth2 服务端，只做 Bearer token 校验。
 
@@ -96,7 +96,7 @@ POST /api/auth/login   → {username, password} → {access_token}
 
 ### P0-3：@tool 壳改 StructuredTool.from_schema（0.9.1）
 
-**现状**：[interview_tools.py:154-197](file:///workspace/backend/app/graphs/tools/interview_tools.py#L154-L197) 4 个 `@tool` 函数返回占位字符串 `"该工具应由 Agent 内部执行"`，误调时静默返回无意义字符串。
+**现状**：[interview_tools.py:154-197](../../backend/app/graphs/tools/interview_tools.py#L154-L197) 4 个 `@tool` 函数返回占位字符串 `"该工具应由 Agent 内部执行"`，误调时静默返回无意义字符串。
 
 **方案**：改用 `StructuredTool.from_schema`，不传 `func` → 直接调用时报错而不是静默返回。
 
@@ -267,7 +267,7 @@ class AdaptiveInterviewState(TypedDict, total=False):
 
 ## P2：Harness 待办项
 
-从 [harness/plan.md](file:///workspace/docs/agents/harness/plan.md) 中尚未完成的 9 项（报告原文说 6 项，实际 9 项）：
+从 [harness/plan.md](harness/plan.md) 中尚未完成的 9 项（报告原文说 6 项，实际 9 项）：
 
 | # | 内容 | 工作量 | 优先级 | 说明 |
 |---|------|--------|--------|------|
@@ -419,7 +419,7 @@ VoiceSessionController       ← 编排器（< 200 行）
 - backend/app/infrastructure/auth/jwt.py（新增）
 - backend/app/api/deps.py（加 get_current_user）
 - docs/adr/0020-auth-override-adr-0007.md（新增）
-验证：无 token 请求返回 401
+验证：无 token 请求返回 `Result.code=401`（HTTP 200）
 ```
 
 ### P2 穿插（各版本间）

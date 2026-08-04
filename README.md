@@ -16,20 +16,22 @@
 ## 快速启动
 
 ```bash
-# 1. 安装依赖
-uv sync
+# 1. 安装后端依赖
+uv sync --directory backend
 
-# 2. 启动基础设施服务（PostgreSQL + Redis + MinIO）
-docker compose up -d
+# 2. 启动基础设施服务（PostgreSQL + Redis + MinIO + 自动建桶）
+docker compose up -d postgres redis minio createbuckets
 
 # 3. 验证服务连接（可选）
-python scripts/check_services.py
+uv run --directory backend python scripts/check_services.py
 
 # 4. 启动开发服务器
-uv run uvicorn app.main:app --reload
+uv run --directory backend uvicorn app.main:app --reload
 ```
 
 服务启动后访问 http://localhost:8000，API 文档见 http://localhost:8000/docs。
+
+> 认证说明：配置 `SECRET_KEY` 后所有业务接口需携带 `Authorization: Bearer <token>`（登录见 `POST /api/auth/login`，前端登录页在 `frontend/`）；未配置 `SECRET_KEY` 时降级无认证。完整契约见 [docs/api.md](docs/api.md)。
 
 ## 前端（frontend/）
 
@@ -48,11 +50,11 @@ pnpm --dir frontend dev
 ## 容器化部署
 
 ```bash
-# 构建镜像（多阶段 uv 构建，含 WeasyPrint 运行期系统库）
-docker build -t interview-agent-py .
+# 构建后端镜像（多阶段 uv 构建，含 WeasyPrint 运行期系统库）
+docker build -f backend/Dockerfile -t interview-agent-py backend
 
-# 运行（需连通基础设施，通过 .env 注入配置）
-docker run --rm -p 8000:8000 --env-file .env interview-agent-py
+# 运行（需连通基础设施，通过 backend/.env 注入配置）
+docker run --rm -p 8000:8000 --env-file backend/.env interview-agent-py
 ```
 
 镜像以非 root 用户、单 worker（asyncio，ADR-0005）运行，内置 `/health` HEALTHCHECK。
@@ -78,13 +80,15 @@ cp .env.example .env
 | `AI_MODEL` | 默认模型 | `qwen3.5-flash` |
 | `SECRET_KEY` | 应用密钥 | - |
 | `APP_AI_CONFIG_ENCRYPTION_KEY` | LLM Provider API Key 加密密钥（base64 编码 32 字节，启动 seed 需要） | - |
+| `AUTH_ADMIN_USERNAME` | 管理员登录用户名（与密码均配置后 login 强制校验；任一配置则必须匹配） | - |
+| `AUTH_ADMIN_PASSWORD` | 管理员登录密码（同上） | - |
 
 > 完整环境变量清单（含语音、限流、简历等配置）见 `.env.example`。
 
 ## 质量门禁
 
 ```bash
-make verify     # 后端 test/typecheck/lint/format-check + 前端 lint/typecheck/build 一键检查
+make verify     # 后端 test/typecheck/lint/format-check + 前端 lint/typecheck/test/build 一键检查
 make format     # ruff 代码格式化
 ```
 

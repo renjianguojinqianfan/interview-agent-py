@@ -8,7 +8,7 @@ Java 用 `LocalDateTime` 存取，API 返回无时区后缀的本地时间串；
 - **应用时钟**：禁止裸 `datetime.now()`/`datetime.utcnow()`，一律 `datetime.now(UTC)`。
 - **DB 默认值**：保留 `func.now()`——timestamptz 下 `now()` 记录的是绝对时刻，与服务器 timezone GUC 无关，天然安全。
 - **输入边界**：前端回传的无偏移本地 wall-clock 串（经 `datetime.fromisoformat`）挂 UTC（`.replace(tzinfo=UTC)`）。
-- **输出边界**：响应 DTO 的 datetime 字段序列化时**剥掉偏移**，wire format 与今天逐字节一致。已核实复用的 React+TS 前端读（`new Date`/`dayjs` 按本地解析）与写（日历回传 `YYYY-MM-DDTHH:mm:ss` 无偏移）契约均为无偏移本地串；若对外发 `+00:00`/`Z`，前端会把时间当 UTC 再转本地，导致 interviewTime 往返偏移（填 14:00 回显 22:00）。
+- **输出边界**：响应 DTO 的 datetime 字段序列化时**剥掉偏移**，wire format 为无偏移 ISO。已核实复用的 React+TS 前端读（`new Date`/`dayjs` 按本地解析）与写（日历回传 `YYYY-MM-DDTHH:mm:ss` 无偏移）契约均为无偏移本地串；若对外发 `+00:00`/`Z`，前端会把时间当 UTC 再转本地，导致 interviewTime 往返偏移（填 14:00 回显 22:00）。
 - **守卫**：新增 fitness 测试——扫 ORM 断言每个 DateTime 列带 `timezone=True`；扫应用代码禁止裸时钟调用。
 
 **不变量**：前端发 `14:00:00` → 挂 UTC 存 `14:00+00:00` → 出口剥偏移回 `14:00:00` → 前端仍显示 14:00；调度器 `interview_time < now` 两侧皆 aware UTC，无 TypeError 且与现状语义一致。

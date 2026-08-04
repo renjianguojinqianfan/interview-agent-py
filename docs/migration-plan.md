@@ -876,7 +876,7 @@ Python 用 `uvicorn --workers 1` + asyncio 并发，与 Java 单进程 + 虚拟�
 - 数据库：全表 `DateTime(timezone=True)`（timestamptz），内部统一 aware UTC；既有 naive 值经 alembic 010 按 UTC 解释迁移（`AT TIME ZONE 'UTC'`）。已在真实 Postgres 验证 001→010 升级链 + 010 可逆。
 - 应用时钟：禁止裸 `datetime.now()`，一律 `datetime.now(UTC)`；DB 默认值保留 `func.now()`（timestamptz 下记录绝对时刻，时区安全）。
 - 输入边界：naive 用户输入（日程 interview_time、list 过滤 start/end）挂 UTC（`.replace(tzinfo=UTC)`），与"服务器 UTC / naive==UTC"约定一致。
-- 输出边界：响应 DTO datetime 字段用 `NaiveIsoDatetime` 剥偏移序列化，wire format 与今天逐字节一致（无偏移 ISO），保复用的 Java 前端读写往返。
+- 输出边界：响应 DTO datetime 字段用 `NaiveIsoDatetime` 剥偏移序列化，wire format 为无偏移 ISO，保复用的 Java 前端读写往返。
 - 守卫：`tests/test_timezone.py` 三条 fitness 测试（ORM `timezone=True` / 禁裸时钟 / DTO 剥偏移序列化器）机械防漂移。
 - **注意**：部署仍建议服务器 UTC，但正确性不再依赖它——比较两侧皆 aware，`cancel_expired_schedules` 的 `interview_time < now` 无偏移风险。
 
@@ -884,9 +884,9 @@ Python 用 `uvicorn --workers 1` + asyncio 并发，与 Java 单进程 + 虚拟�
 
 Java 顺序分批（batch_size=8），Python 用 `asyncio.gather` + `asyncio.Semaphore(3)` 并行各批。并发数 3 对多数 LLM 供应商安全。某批失败返回 None，后续零分兜底（与 Java 一致）。
 
-### G.5 认证策略（ADR-0007）
+### G.5 认证策略（已被 ADR-0020 覆盖）
 
-不实现认证（与 Java 一致）。限流 USER 维度可选：无 `X-User-Id` header 时跳过 USER 规则，仅执行 GLOBAL + IP。
+原决策“不实现认证”已被 [ADR-0020](adr/0020-auth-override-adr-0007.md) 覆盖：现采用 JWT Bearer + 管理员凭据（`AUTH_ADMIN_USERNAME`/`AUTH_ADMIN_PASSWORD`），未配置 `SECRET_KEY` 时降级无认证；401 以 HTTP 200 + `Result.code=401` 返回。当前语义见 `docs/api.md` §1.4/3.5。限流 USER 维度仍可选：无 `X-User-Id` header 时跳过 USER 规则，仅执行 GLOBAL + IP。
 
 ### G.6 Prompt 模板格式
 
