@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import ToolMessage
@@ -296,6 +297,54 @@ class TestStreamFinalState:
 
         assert "回退" in caplog.text
         assert events[-1][1]["state"] is state
+
+
+class TestStreamInterrupt:
+    """HARD #9：stream 检测到 interrupt 时 yield on_interrupt 并结束本轮，不产 on_final_result。"""
+
+    async def _events(self, events: list[dict[str, object]]) -> AsyncIterator[dict[str, object]]:
+        for event in events:
+            yield event
+
+    async def test_yields_on_interrupt_and_skips_final_result(self) -> None:
+        graph = AdaptiveInterviewGraph(checkpointer=MemorySaver())
+        state: dict[str, object] = {
+            "session_id": "s1",
+            "qa_history": [],
+            "messages": [],
+            "category_scores": {},
+            "turn_count": 0,
+            "current_question": "Q1",
+            "current_category": "JAVA",
+            "difficulty": "mid",
+            "finished": False,
+            "decision_trace": [],
+            "tool_messages": [],
+            "tool_effects": [],
+        }
+        payload = {"question": "Q2", "type": "generate_question_approval"}
+        graph._compiled.astream_events = lambda *args, **kwargs: self._events(
+            [{"event": "on_chain_start", "name": "agent_loop", "data": {}}]
+        )
+        graph._compiled.aget_state = AsyncMock(
+            return_value=SimpleNamespace(interrupts=(SimpleNamespace(value=payload),))
+        )
+        graph.aget_state = AsyncMock(return_value=state)
+
+        events: list[tuple[str, dict[str, object]]] = []
+        async for event in graph.stream_next_turn(
+            chat_client=None,
+            invoker=None,
+            reference_loader=None,
+            llm_registry=None,
+            vector_repository=None,
+            state=state,
+            thread_id="s1",
+        ):
+            events.append(event)
+
+        assert events[-1] == ("on_interrupt", {"payload": payload})
+        assert all(event[0] != "on_final_result" for event in events)
 
     def test_should_not_end_early(self) -> None:
         assert should_end_interview(3, 6, {"JAVA": [5]}) is False

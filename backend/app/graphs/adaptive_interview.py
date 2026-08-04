@@ -230,6 +230,7 @@ class AdaptiveInterviewGraph:
         - on_llm_stream: LLM 逐 token 输出
         - on_tool_start: 工具开始执行
         - on_tool_end: 工具执行完毕
+        - on_interrupt: Human-in-the-Loop 中断，data 包含 payload；本轮结束不产 on_final_result
         - on_final_result: 本轮循环结束，data 包含最终 state
         """
         configurable: dict[str, Any] = {
@@ -249,6 +250,7 @@ class AdaptiveInterviewGraph:
             state["messages"] = list(state.get("messages", [])) + [HumanMessage(content=user_msg)]
 
         # 收集最终 state 用于 on_final_result
+        interrupted = False
         final_state: AdaptiveInterviewState | None = None
 
         async for event in self._compiled.astream_events(state, config, version="v2"):
@@ -291,11 +293,28 @@ class AdaptiveInterviewGraph:
                 tool_output = data.get("output", "")
                 yield ("on_tool_end", {"name": name, "result": str(tool_output)[:200]})
 
+            elif event_name == "on_chain_interrupt":
+                payload = data.get("payload", data) if isinstance(data, dict) else data
+                yield ("on_interrupt", {"payload": payload})
+                interrupted = True
+                break
+
             # 捕获根 graph 的 output（最终状态快照）
             if event_name == "on_chain_end" and not name:
                 output = data.get("output")
                 if isinstance(output, dict):
                     final_state = cast(AdaptiveInterviewState, output)
+
+        # langgraph 1.2.9 无 on_chain_interrupt 事件：从 checkpoint snapshot 检测 interrupt（HARD #9 fallback）
+        if not interrupted and thread_id and self._checkpointer is not None:
+            snapshot = await self._compiled.aget_state({"configurable": {"thread_id": thread_id}})
+            if snapshot is not None and snapshot.interrupts:
+                first_interrupt = snapshot.interrupts[0]
+                yield ("on_interrupt", {"payload": first_interrupt.value})
+                interrupted = True
+
+        if interrupted:
+            return
 
         # 优先从 checkpointer 取权威 final state（HARD #7：不依赖根事件 name 为空）
         if thread_id:
