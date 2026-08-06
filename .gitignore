@@ -47,6 +47,7 @@ htmlcov/
 frontend/node_modules/
 frontend/dist/
 frontend/*.local
+.pnpm-store/
 
 # OS
 .DS_Store
