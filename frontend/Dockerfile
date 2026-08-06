@@ -12,9 +12,9 @@ COPY package.json pnpm-lock.yaml ./
 
 # 2. 安装依赖
 # npm install -g pnpm: 全局安装 pnpm 包管理器
-# pnpm install: 安装所有依赖（包括 devDependencies，构建需要 TypeScript、Vite 等）
+# pnpm install --frozen-lockfile: 按 lockfile 精确安装（构建可复现，EN-06）
 # 注意：不使用 --prod 标志，因为构建阶段需要完整的开发环境
-RUN npm install -g pnpm && pnpm install
+RUN npm install -g pnpm && pnpm install --frozen-lockfile
 
 # 3. 复制源代码并构建
 COPY . .
