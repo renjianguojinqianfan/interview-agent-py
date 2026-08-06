@@ -39,6 +39,7 @@ pnpm --dir frontend dev                  # 前端开发服务器 -> http://local
 pnpm --dir frontend run lint             # 前端 lint（eslint）
 pnpm --dir frontend run test             # 前端行为测试（vitest + jsdom + MSW）
 pnpm --dir frontend run build            # 前端构建（tsc + vite build）
+pnpm --dir frontend audit --prod         # 依赖安全审计（CI 严格闸门，见 ADR-0022）
 
 # 一键质量门禁（前后端，推荐提交前运行）
 make verify

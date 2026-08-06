@@ -124,7 +124,7 @@
 
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
-| POST | `/api/auth/login` | 管理员登录，签发 24h Bearer token | `{ username, password }` | `{ accessToken, tokenType: "bearer" }` | - |
+| POST | `/api/auth/login` | 管理员登录，签发 24h Bearer token | `{ username, password }` | `{ access_token, token_type: "bearer" }` | 5/min (IP) |
 | GET | `/api/auth/me` | 当前用户信息（需认证） | - | `{ userId }` | - |
 
 - 降级矩阵：
@@ -221,7 +221,7 @@
 
 | 方法 | 路径 | 说明 | 请求 | 响应 `data` | 限流 |
 |---|---|---|---|---|---|
-| POST | `/api/knowledgebase/{kbId}/documents` | 追加文档到已有知识库（同库按 file_hash 去重） | `multipart: file` | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto) | 13/s |
+| POST | `/api/knowledgebase/{kbId}/documents` | 追加文档到已有知识库（同库按 file_hash 去重） | `multipart: file` | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto) | 3/s |
 | GET | `/api/knowledgebase/{kbId}/documents` | 获取知识库的文档列表 | query: `limit?=200`, `offset?=0` | [`KnowledgeBaseDocumentDTO`](#knowledgebasedocumentdto)`[]` | - |
 | DELETE | `/api/knowledgebase/{kbId}/documents/{documentId}` | 删除指定文档，同步更新知识库聚合状态 | - | `null` | - |
 

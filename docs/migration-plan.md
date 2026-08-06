@@ -749,6 +749,7 @@ async def end_session(session_id):
 
 | 模块 | 接口 | 限流规则 |
 |------|------|----------|
+| 认证 | POST `/api/auth/login` | IP=5/min（SEC-03） |
 | 面试 | POST `/api/interview/sessions` | GLOBAL=5/s + IP=5/s |
 | 面试 | POST `.../answers` | GLOBAL=10/s |
 | 技能 | POST `/parse-jd` | IP=5/s |
