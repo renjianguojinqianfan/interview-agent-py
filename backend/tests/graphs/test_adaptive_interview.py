@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Send
 
@@ -438,3 +438,194 @@ class TestFinalizeTrace:
 
     def test_near_end_with_coverage(self) -> None:
         assert should_end_interview(5, 6, {"JAVA": [5, 6], "MYSQL": [5, 6]}) is True
+
+
+class _StubChatClient:
+    """按调用顺序返回预定 AIMessage 的 stub LLM（bind_tools 后逐次弹出）。"""
+
+    def __init__(self, responses: list[AIMessage]) -> None:
+        self._responses = list(responses)
+
+    def bind_tools(self, tools: object) -> "_BoundTools":
+        return _BoundTools(self)
+
+
+class _BoundTools:
+    def __init__(self, owner: _StubChatClient) -> None:
+        self._owner = owner
+
+    async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
+        if not self._owner._responses:
+            return AIMessage(content="")
+        return self._owner._responses.pop(0)
+
+
+class TestRealGraphInterruptResume:
+    """SP-01：真编译图（MemorySaver）+ 真实 interrupt→resume 全链路，不 mock _compiled。
+
+    现有图测试全部 mock `_compiled`，无法覆盖 ainvoke 遇 interrupt() 静默返回
+    `__interrupt__` state 的真实行为；本类用真图 + stub LLM 锁死 HITL 语义。
+    """
+
+    @staticmethod
+    def _initial_state() -> dict[str, object]:
+        return {
+            "session_id": "s1",
+            "skill_id": "java-backend",
+            "difficulty": "mid",
+            "resume_text": "",
+            "max_turns": 6,
+            "qa_history": [],
+            "category_scores": {},
+            "turn_count": 0,
+            "current_question": None,
+            "current_category": None,
+            "messages": [],
+            "agent_step_count": 0,
+            "finished": False,
+            "final_report": None,
+            "decision_trace": [],
+            "tool_messages": [],
+            "tool_effects": [],
+        }
+
+    @staticmethod
+    def _generate_tool_call(call_id: str, category: str) -> AIMessage:
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "generate_question",
+                    "args": {"category": category, "difficulty": "mid"},
+                    "id": call_id,
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+    @staticmethod
+    def _graph() -> AdaptiveInterviewGraph:
+        return AdaptiveInterviewGraph(checkpointer=MemorySaver())
+
+    @patch("app.graphs.adaptive_interview.generate_question_impl")
+    async def test_create_session_exposes_pending_approval(self, mock_gen: object) -> None:
+        mock_gen.return_value = SimpleNamespace(question="Q1-测试题", type="open", category="JAVA")  # type: ignore[attr-defined]
+        graph = self._graph()
+        client = _StubChatClient([self._generate_tool_call("call_1", "JAVA")])
+
+        state = await graph.run_next_turn(
+            chat_client=client,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            llm_registry=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            state=self._initial_state(),
+            user_answer=None,
+            thread_id="t1",
+        )
+
+        assert state["pending_approval"] is not None
+        assert state["pending_approval"]["question"] == "Q1-测试题"
+        assert state["pending_approval"]["type"] == "generate_question_approval"
+
+    @patch("app.graphs.adaptive_interview.generate_question_impl")
+    async def test_resume_approved_sets_current_question_then_reinterrupts(self, mock_gen: object) -> None:
+        # 调用序列：create(1) -> resume 重执行节点(2) -> 恢复后 agent_loop 再次出题(3)
+        mock_gen.side_effect = [  # type: ignore[attr-defined]
+            SimpleNamespace(question="Q1", type="open", category="JAVA"),
+            SimpleNamespace(question="Q1", type="open", category="JAVA"),
+            SimpleNamespace(question="Q2", type="open", category="MYSQL"),
+        ]
+        graph = self._graph()
+        client = _StubChatClient(
+            [self._generate_tool_call("call_1", "JAVA"), self._generate_tool_call("call_2", "MYSQL")]
+        )
+
+        state = await graph.run_next_turn(
+            chat_client=client,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            llm_registry=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            state=self._initial_state(),
+            user_answer=None,
+            thread_id="t2",
+        )
+        assert state["pending_approval"]["question"] == "Q1"
+
+        resumed = await graph.resume_turn(
+            chat_client=client,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            llm_registry=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            thread_id="t2",
+            approved=True,
+        )
+
+        assert resumed["current_question"] == "Q1"
+        assert resumed["pending_approval"]["question"] == "Q2"
+
+    @patch("app.graphs.adaptive_interview.generate_question_impl")
+    async def test_resume_rejected_regenerates_question_without_reinterrupting(self, mock_gen: object) -> None:
+        # 调用序列：create(1) -> resume 重执行节点(2) -> 驳回重生成(3)
+        mock_gen.side_effect = [  # type: ignore[attr-defined]
+            SimpleNamespace(question="Q1", type="open", category="JAVA"),
+            SimpleNamespace(question="Q1", type="open", category="JAVA"),
+            SimpleNamespace(question="Q1-换角度", type="open", category="JAVA"),
+        ]
+        graph = self._graph()
+        client = _StubChatClient([self._generate_tool_call("call_1", "JAVA")])
+
+        state = await graph.run_next_turn(
+            chat_client=client,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            llm_registry=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            state=self._initial_state(),
+            user_answer=None,
+            thread_id="t3",
+        )
+        assert state["pending_approval"]["question"] == "Q1"
+
+        resumed = await graph.resume_turn(
+            chat_client=client,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            llm_registry=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            thread_id="t3",
+            approved=False,
+        )
+
+        # 驳回即重新生成并直接出题（无二次审批暂停），current_question 应落盘新题
+        assert resumed["current_question"] == "Q1-换角度"
+        assert resumed["pending_approval"] is None
+
+    @patch("app.graphs.adaptive_interview.generate_question_impl")
+    async def test_submit_answer_reinterrupts_with_residual_current_question(self, mock_gen: object) -> None:
+        """submit_answer 路径再中断：current_question 残留旧题（merge 未执行），pending 为新题。"""
+        mock_gen.side_effect = [  # type: ignore[attr-defined]
+            SimpleNamespace(question="Q2", type="open", category="MYSQL"),
+        ]
+        graph = self._graph()
+        client = _StubChatClient([self._generate_tool_call("call_1", "JAVA")])
+        initial = self._initial_state()
+        initial["current_question"] = "Q1"
+        initial["current_category"] = "JAVA"
+
+        state = await graph.run_next_turn(
+            chat_client=client,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            llm_registry=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            state=initial,
+            user_answer="候选人对 Q1 的回答",
+            thread_id="t4",
+        )
+
+        assert state["pending_approval"]["question"] == "Q2"
+        # 中断发生在 merge 前：current_question 仍是旧题 Q1，DTO 层据此语义不得透出 next_question
+        assert state["current_question"] == "Q1"

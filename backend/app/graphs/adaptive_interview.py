@@ -21,6 +21,7 @@ from typing import Annotated, Any, TypedDict, cast
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, Send, interrupt
 
@@ -46,23 +47,26 @@ _MAX_AGENT_STEPS = 30  # 安全阀：防止无限循环
 _TOOL_TIMEOUT_SECONDS = 60
 
 
-class _ClearAccumulator:
-    """哨兵类型：清空 tool_messages/tool_effects 累加器。"""
-
-
-_CLEAR = _ClearAccumulator()
+# 哨兵：清空 tool_messages/tool_effects 累加器。
+# 必须是可序列化值（SP-01）：checkpointer 会把节点的 raw write 原样持久化，
+# 自定义对象（旧 _ClearAccumulator 实例）在 MemorySaver/RedisSaver 下直接 TypeError。
+# 加命名空间前缀降低与合法内容碰撞的概率（review finding）。
+_CLEAR = "__ia_clear_accumulator_v1__"
 
 
 def _append_or_clear[T](
     current: list[T] | None,
-    update: T | list[T] | _ClearAccumulator,
+    update: T | list[T] | str,
 ) -> list[T]:
-    """自定义 reducer：普通更新追加，哨兵清空累加器（HARD #4）。"""
-    if isinstance(update, _ClearAccumulator):
+    """自定义 reducer：普通更新追加，哨兵清空累加器（HARD #4）。
+
+    用 == 而非 is 比较：checkpointer 恢复后哨兵是反序列化的普通字符串，非同一对象。
+    """
+    if update == _CLEAR:
         return []
     if isinstance(update, list):
         return list(current or []) + update
-    return list(current or []) + [update]
+    return list(current or []) + [cast("T", update)]
 
 
 # ==================== 状态定义 ====================
@@ -109,7 +113,7 @@ class AdaptiveInterviewState(TypedDict, total=False):
     # {"step": 1, "action": "generate_question", "args": {...}, "result": {...}, "duration_ms": 120}
 
     # Human-in-the-Loop 审批
-    pending_approval: dict[str, Any]  # {"question": "...", "type": "generate_question_approval"}
+    pending_approval: dict[str, Any] | None  # {"question": "...", "type": "generate_question_approval"}
 
     # 并行工具执行（Send fan-out 累加器，哨兵清空防多轮重复）
     tool_messages: Annotated[list[ToolMessage], _append_or_clear]
@@ -178,6 +182,7 @@ class AdaptiveInterviewGraph:
             state["messages"] = list(state.get("messages", [])) + [HumanMessage(content=user_msg)]
 
         result = await self._compiled.ainvoke(state, config=config)
+        result = await self._apply_interrupt_if_any(result, thread_id)
         return cast("AdaptiveInterviewState", result)
 
     async def resume_turn(
@@ -202,7 +207,31 @@ class AdaptiveInterviewGraph:
         config: RunnableConfig = {"configurable": configurable}
         command: Command[Any] = Command(resume={"approved": approved})
         result = await self._compiled.ainvoke(command, config=config)
+        result = await self._apply_interrupt_if_any(result, thread_id)
         return cast("AdaptiveInterviewState", result)
+
+    async def _apply_interrupt_if_any(self, result: dict[str, Any], thread_id: str | None) -> dict[str, Any]:
+        """非流式路径识别 interrupt()（SP-01）。
+
+        langgraph 1.2.9 的 ainvoke 遇 interrupt() 不抛异常，返回含 `__interrupt__`
+        键的 state。此处把 interrupt payload 合成 pending_approval 语义，
+        否则 create_session/submit_answer 永远拿不到待审批数据。
+        无中断时也规范化 pending_approval=None（对齐 AdaptiveInterviewState 契约）。
+        """
+        state = dict(result)
+        interrupts = result.get("__interrupt__") if isinstance(result, dict) else None
+        if interrupts:
+            state["pending_approval"] = interrupts[0].value
+            state.pop("__interrupt__", None)
+            return state
+        # checkpointer 存在时以 snapshot 兜底（与流式路径 HARD #9 fallback 一致）
+        if thread_id and self._checkpointer is not None:
+            snapshot = await self._compiled.aget_state({"configurable": {"thread_id": thread_id}})
+            if snapshot is not None and snapshot.interrupts:
+                state["pending_approval"] = snapshot.interrupts[0].value
+                return state
+        state["pending_approval"] = None
+        return state
 
     async def aget_state(self, thread_id: str) -> AdaptiveInterviewState | None:
         """从 checkpointer 获取指定线程的最新状态。
@@ -532,6 +561,10 @@ class AdaptiveInterviewGraph:
             }
 
         except Exception as e:
+            if isinstance(e, GraphInterrupt):
+                # HITL 中断信号必须向上传播到图运行时（SP-01），不能当作工具失败吞掉，
+                # 否则 ainvoke 不会暂停、interrupt 静默失效
+                raise
             duration_ms = int((time.monotonic() - t0) * 1000)
             logger.warning("Agent 工具执行失败: tool=%s, error=%s", tool_name, e)
             tool_message = ToolMessage(content=f"工具执行失败: {e}", tool_call_id=tool_id)

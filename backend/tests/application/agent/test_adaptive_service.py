@@ -89,7 +89,8 @@ class TestPendingApprovalExposure:
         graph.aget_state = AsyncMock(return_value=state)
 
         async def fake_resume(**kwargs: object) -> dict[str, object]:
-            return state
+            # 审批通过、恢复后无二次中断：pending_approval 应清空
+            return self._state(None)
 
         graph.resume_turn = fake_resume
         llm_registry = AsyncMock()
@@ -211,3 +212,92 @@ class TestNoCheckpointerMemoryCache:
         assert s2 != s1
         assert (await service.get_session(s1)).session_id == s1
         assert (await service.get_session(s2)).session_id == s2
+
+
+class TestNonStreamingInterruptDTO:
+    """SP-01：非流式路径（create/submit/resume）DTO 必须携带 pending_approval。"""
+
+    def _state(self, pending_approval: object) -> dict[str, object]:
+        return {
+            "session_id": "s1",
+            "skill_id": "java-backend",
+            "difficulty": "mid",
+            "turn_count": 0,
+            "max_turns": 6,
+            "current_question": "Q1",
+            "current_category": "JAVA",
+            "finished": False,
+            "category_scores": {},
+            "decision_trace": [],
+            "pending_approval": pending_approval,
+            "qa_history": [],
+            "messages": [],
+            "tool_messages": [],
+            "tool_effects": [],
+        }
+
+    @staticmethod
+    def _service(graph: AsyncMock) -> AdaptiveInterviewService:
+        llm_registry = AsyncMock()
+        llm_registry.get_chat_client = AsyncMock(return_value=None)
+        return AdaptiveInterviewService(
+            llm_registry=llm_registry,  # type: ignore[arg-type]
+            invoker=None,  # type: ignore[arg-type]
+            reference_loader=None,  # type: ignore[arg-type]
+            vector_repository=None,  # type: ignore[arg-type]
+            graph=graph,  # type: ignore[arg-type]
+        )
+
+    async def test_create_session_dto_carries_pending_approval(self) -> None:
+        from app.application.agent.schemas import CreateAdaptiveSessionRequest
+
+        payload = {"question": "Q1", "category": "JAVA", "type": "generate_question_approval"}
+        graph = AsyncMock()
+        graph.checkpointer = object()
+        graph.aget_state = AsyncMock(return_value=self._state(payload))
+
+        async def fake_run_next_turn(**kwargs: object) -> dict[str, object]:
+            return self._state(payload)
+
+        graph.run_next_turn = fake_run_next_turn
+
+        dto = await self._service(graph).create_session(CreateAdaptiveSessionRequest())
+
+        assert dto.pending_approval == payload
+
+    async def test_submit_answer_dto_carries_pending_approval_when_interrupted(self) -> None:
+        payload = {"question": "Q2", "category": "MYSQL", "type": "generate_question_approval"}
+        graph = AsyncMock()
+        graph.checkpointer = object()
+        graph.aget_state = AsyncMock(return_value=self._state(None))
+
+        async def fake_run_next_turn(**kwargs: object) -> dict[str, object]:
+            # 真图语义：再中断时 current_question 残留上一轮已答题 Q1（merge 未执行）
+            return self._state(payload)
+
+        graph.run_next_turn = fake_run_next_turn
+
+        result = await self._service(graph).submit_answer("s1", "answer")
+
+        assert result.pending_approval == payload
+        assert result.score is None
+        # 待审批时 next_question 必须为 None（新题在 pending_approval 里），不得返回残留旧题
+        assert result.next_question is None
+
+    async def test_resume_session_dto_carries_pending_approval_when_reinterrupted(self) -> None:
+        from app.application.agent.schemas import ResumeSessionRequest
+
+        payload = {"question": "Q3", "category": "REDIS", "type": "generate_question_approval"}
+        graph = AsyncMock()
+        graph.checkpointer = object()
+        graph.aget_state = AsyncMock(return_value=self._state(payload))
+
+        async def fake_resume_turn(**kwargs: object) -> dict[str, object]:
+            return self._state(payload)
+
+        graph.resume_turn = fake_resume_turn
+
+        result = await self._service(graph).resume_session("s1", ResumeSessionRequest())
+
+        assert result.pending_approval == payload
+        assert result.next_question is None

@@ -153,7 +153,7 @@ class AdaptiveInterviewService:
         # 构造下一题 DTO
         next_question = None
         next_q_text = working_state.get("current_question")
-        if not working_state.get("finished") and next_q_text:
+        if not working_state.get("finished") and next_q_text and not working_state.get("pending_approval"):
             next_question = AdaptiveQuestionDTO(
                 question=next_q_text,
                 category=working_state.get("current_category") or "通用",
@@ -168,6 +168,7 @@ class AdaptiveInterviewService:
             finished=bool(working_state.get("finished", False)),
             difficulty_changed=new_difficulty != old_difficulty,
             new_difficulty=new_difficulty if new_difficulty != old_difficulty else None,
+            pending_approval=working_state.get("pending_approval"),
         )
 
     async def resume_session(self, session_id: str, body: ResumeSessionRequest) -> AdaptiveAnswerResultDTO:
@@ -204,7 +205,7 @@ class AdaptiveInterviewService:
         # 构造下一题 DTO
         next_question = None
         next_q_text = working_state.get("current_question")
-        if not working_state.get("finished") and next_q_text:
+        if not working_state.get("finished") and next_q_text and not working_state.get("pending_approval"):
             next_question = AdaptiveQuestionDTO(
                 question=next_q_text,
                 category=working_state.get("current_category") or "通用",
@@ -219,6 +220,7 @@ class AdaptiveInterviewService:
             finished=bool(working_state.get("finished", False)),
             difficulty_changed=new_difficulty != old_difficulty,
             new_difficulty=new_difficulty if new_difficulty != old_difficulty else None,
+            pending_approval=working_state.get("pending_approval"),
         )
 
     async def stream_answer(self, session_id: str, answer: str) -> AsyncIterator[dict[str, object]]:
