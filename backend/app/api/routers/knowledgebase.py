@@ -1,11 +1,12 @@
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response
 
 from app.api.deps import get_current_user, get_knowledge_base_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
+from app.api.uploads import check_upload_size
 from app.application.knowledgebase.schemas import (
     KnowledgeBaseDocumentDTO,
     KnowledgeBaseListItemDTO,
@@ -29,10 +30,9 @@ async def upload_knowledge_base(
     category: str | None = Form(None),
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[KnowledgeBaseUploadResponse]:
+    check_upload_size(request, settings.knowledge_base_max_file_size)
     data = await file.read()
-    if len(data) > settings.knowledge_base_max_file_size:
-        max_mb = settings.knowledge_base_max_file_size // (1024 * 1024)
-        raise HTTPException(status_code=413, detail=f"文件大小超过限制（最大 {max_mb}MB）")
+    check_upload_size(request, settings.knowledge_base_max_file_size, data)
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
     result = await service.upload(filename, content_type, data, name=name, category=category)
@@ -144,10 +144,9 @@ async def add_knowledge_base_document(
     service: KnowledgeBaseService = Depends(get_knowledge_base_service),
 ) -> Result[KnowledgeBaseDocumentDTO]:
     """向既有知识库追加文档（ADR-0018，一库多文档）。"""
+    check_upload_size(request, settings.knowledge_base_max_file_size)
     data = await file.read()
-    if len(data) > settings.knowledge_base_max_file_size:
-        max_mb = settings.knowledge_base_max_file_size // (1024 * 1024)
-        raise HTTPException(status_code=413, detail=f"文件大小超过限制（最大 {max_mb}MB）")
+    check_upload_size(request, settings.knowledge_base_max_file_size, data)
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
     result = await service.add_document(kb_id, filename, content_type, data)

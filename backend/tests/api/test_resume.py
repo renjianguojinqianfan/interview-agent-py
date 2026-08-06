@@ -157,6 +157,21 @@ class TestUploadResume:
         assert "文件大小超过限制" in body["message"]
         mock_service.upload.assert_not_awaited()
 
+    def test_oversized_content_length_rejected_before_read(self, mock_service: MagicMock) -> None:
+        """SEC-05：伪造超大 Content-Length 头须在读 body 前 413，防内存 DoS。"""
+        mock_service.upload.return_value = _upload_response(resume_id=1)
+
+        response = client.post(
+            "/api/resumes/upload",
+            files={"file": ("tiny.pdf", b"tiny", "application/pdf")},
+            headers={"content-length": "999999999"},
+        )
+
+        body = response.json()
+        assert body["code"] != 200
+        assert "文件大小超过限制" in body["message"]
+        mock_service.upload.assert_not_awaited()
+
     def test_rate_limit_blocks_sixth_request(self, mock_service: MagicMock) -> None:
         mock_service.upload.return_value = _upload_response(resume_id=1)
 

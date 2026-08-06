@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from fastapi.responses import Response
 
 from app.api.deps import get_current_user, get_resume_service
 from app.api.rate_limit import global_key, limiter
 from app.api.responses import Result
+from app.api.uploads import check_upload_size
 from app.application.resume.schemas import (
     ResumeDetailDTO,
     ResumeListItemDTO,
@@ -24,10 +25,9 @@ async def upload_resume(
     file: UploadFile = File(...),
     service: ResumeService = Depends(get_resume_service),
 ) -> Result[ResumeUploadResponse]:
+    check_upload_size(request, settings.resume_max_file_size)
     data = await file.read()
-    if len(data) > settings.resume_max_file_size:
-        max_mb = settings.resume_max_file_size // (1024 * 1024)
-        raise HTTPException(status_code=413, detail=f"文件大小超过限制（最大 {max_mb}MB）")
+    check_upload_size(request, settings.resume_max_file_size, data)
     filename = file.filename or "unknown"
     content_type = file.content_type or ""
     result = await service.upload(filename, content_type, data)
