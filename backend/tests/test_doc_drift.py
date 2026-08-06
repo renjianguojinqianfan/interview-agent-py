@@ -9,11 +9,18 @@
 2. 以已知扩展名结尾（.py/.md/.yml/.lua/.toml/.sql/.json/.ts 等）
 3. 不含特殊字符 * ? { } = < > 空格 且非 URL/锚点/家目录
 
-解析基：repo 根 / app/ / docs/ / tests/ / 文档所在目录，任一存在即合法。
+解析基：repo 根 / app/ / docs/ / tests/ / 文档所在目录，任一在 git 追踪中存在即合法。
 KNOWN_MISSING 为已登记的计划未建/历史引用，文件创建后应移除以使守卫重新生效。
+
+存在性判定基于 git 追踪集合（git ls-files，含暂存区）而非本地文件系统：
+CI 是 checkout 后的仓库视图，本地文件系统 = 仓库 + 未追踪文件（如被 gitignore 的
+.scratch/），文件系统判定必然环境敏感（曾致 docs 引用 .scratch 时本地绿、CI 红）。
+git 判定环境无关，且 docs/ 引用未追踪区域自动违规。
 """
 
 import re
+import subprocess
+from functools import lru_cache
 from pathlib import Path
 
 # 迁移后布局：本测试位于 backend/tests/，docs/ 仍在仓库根。
@@ -76,17 +83,37 @@ def _is_path_candidate(text: str) -> bool:
     return not any(c in _EXCLUDE_CHARS for c in text)
 
 
+@lru_cache(maxsize=1)
+def _tracked_files() -> frozenset[str]:
+    """git 追踪文件集合（HEAD + 暂存区），相对仓库根、正斜杠。"""
+    result = subprocess.run(
+        ["git", "ls-files"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return frozenset(result.stdout.splitlines())
+
+
 def _exists_anywhere(candidate: str, doc_path: Path) -> bool:
-    """在多个解析基下检查路径是否存在：repo 根 / app/ / docs/ / tests/ / 文档所在目录。"""
-    bases = [
-        REPO_ROOT / candidate,
-        BACKEND_ROOT / candidate,
-        BACKEND_ROOT / "app" / candidate,
-        REPO_ROOT / "docs" / candidate,
-        BACKEND_ROOT / "tests" / candidate,
-        doc_path.parent / candidate,
-    ]
-    return any(b.exists() for b in bases)
+    """在多个解析基下检查路径是否被 git 追踪：repo 根 / app/ / docs/ / tests/ / 文档所在目录。"""
+    repo_root = REPO_ROOT.resolve()
+    for base in [
+        REPO_ROOT,
+        BACKEND_ROOT,
+        BACKEND_ROOT / "app",
+        REPO_ROOT / "docs",
+        BACKEND_ROOT / "tests",
+        doc_path.parent,
+    ]:
+        try:
+            rel = (base / candidate).resolve().relative_to(repo_root).as_posix()
+        except ValueError:
+            continue
+        if rel in _tracked_files():
+            return True
+    return False
 
 
 def test_no_dead_file_references_in_docs() -> None:
