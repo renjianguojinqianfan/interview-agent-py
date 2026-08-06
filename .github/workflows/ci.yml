@@ -103,6 +103,35 @@ jobs:
       - name: Install frontend deps
         run: pnpm --dir frontend install --frozen-lockfile
 
+      - name: Frontend audit (dependencies)
+        working-directory: frontend
+        # 严格闸门：除豁免公告外任何 high/critical 即失败。
+        # 豁免：GHSA-qwww-vcr4-c8h2（react-router RSC 模式 CSRF，本项目为纯客户端 SPA 不用 RSC，
+        # 修复需 v8 且 v8 要求 React 19/Node 22，见 ADR-0022）。
+        run: |
+          python - <<'EOF'
+          import json, subprocess, sys
+          result = subprocess.run(
+              ["pnpm", "audit", "--prod", "--json"], capture_output=True, text=True
+          )
+          report = json.loads(result.stdout)
+          exempt = {"GHSA-qwww-vcr4-c8h2"}
+          failing = []
+          for adv_id, adv in report.get("advisories", {}).items():
+              ghsa = adv.get("url", "").rstrip("/").split("/")[-1]
+              if ghsa in exempt:
+                  continue
+              if adv.get("severity") in ("high", "critical"):
+                  failing.append((ghsa, adv.get("severity"), adv.get("title", "")))
+          if failing:
+              print("BLOCKING vulnerabilities:")
+              for ghsa, sev, title in failing:
+                  print(f"  [{sev}] {ghsa}: {title}")
+              sys.exit(1)
+          counts = report.get("metadata", {}).get("vulnerabilities", {})
+          print(f"audit passed (exempted {len(exempt)} not-applicable advisory): {counts}")
+          EOF
+
       - name: Frontend lint (eslint)
         run: pnpm --dir frontend run lint
 
