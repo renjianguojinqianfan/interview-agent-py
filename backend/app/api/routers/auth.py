@@ -5,10 +5,11 @@
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from app.api.deps import DEFAULT_USER_ID, get_current_user
+from app.api.rate_limit import client_ip, limiter
 from app.api.responses import Result
 from app.config.settings import settings
 from app.domain.errors import ErrorCode
@@ -32,7 +33,8 @@ class LoginResponse(BaseModel):
 
 
 @router.post("/login", response_model=Result[LoginResponse])
-async def login(body: LoginRequest) -> Result[Any]:
+@limiter.limit("5/minute", key_func=client_ip)
+async def login(request: Request, body: LoginRequest) -> Result[Any]:  # noqa: ARG001  slowapi 限流必需
     """登录获取 JWT access token。
 
     两者均未配置 = 降级无认证，任意账号放行；
