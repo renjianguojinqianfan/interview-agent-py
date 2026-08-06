@@ -6,7 +6,7 @@
 
 ## 背景
 
-v1.0beta 发版前安全扫描（`.scratch/comprehensive-review/report.md`）发现前端生产依赖存在 high 级漏洞（SEC-01/02）：
+v1.0beta 发版前安全扫描发现前端生产依赖存在 high 级漏洞（SEC-01/02）：
 
 - **protobufjs**（grpc-tools 间接依赖链）存在 high 级公告（GHSA-p8p3-m333-5fcm、GHSA-h755-8qp9-pq4p 等），`pnpm audit --prod` 失败；
 - **react-router-dom** 存在 high 级公告（GHSA-qwww-vcr4-c8h2：RSC 模式下的 CSRF，`>=7.12.0 <8.3.0`）；
