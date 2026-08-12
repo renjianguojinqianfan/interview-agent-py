@@ -55,8 +55,6 @@ KNOWN_MISSING: frozenset[str] = frozenset(
         "domain/entities/knowledgebase.py",  # Stage 5.2 领域实体
         "domain/entities/resume.py",  # Stage 3.2 领域实体
         "infrastructure/redis/rate_limit.lua",  # 限流脚本（实际改用 Python rate_limit.py）
-        "infrastructure/voice/asr.py",  # Stage 7B.2 ASR 服务
-        "infrastructure/voice/tts.py",  # Stage 7B.3 TTS 服务
         # roadmap-v1.md 引用的未来版本文件
         # harness 计划项 - F2/F6/F13
         "docs/agents/harness-coverage.md",  # F13
