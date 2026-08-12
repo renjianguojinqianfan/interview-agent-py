@@ -904,3 +904,16 @@ LangChain `TokenTextSplitter`，~800 tokens/chunk，标点边界切分，无重�
 ### G.9 API Key 加密
 
 `cryptography` AES-GCM，密钥从环境变量 `APP_AI_CONFIG_ENCRYPTION_KEY` 读，启动时必须提供，不允许 fallback（与 Java 一致）。
+
+---
+
+## 附录 H：发版后依赖升级项（暂缓豁免追踪）
+
+> 本附录登记"已确认需升级但因约束暂缓"的依赖项及其解除条件，防止豁免永久固化。对应豁免出处见各条引用。
+
+### H.1 react-router-dom 升 v8（解除 GHSA-qwww-vcr4-c8h2，2026-08-13 登记）
+
+- **现状**：`react-router-dom ^7.14.1`（实际解析 7.18.2）。公告 GHSA-qwww-vcr4-c8h2（RSC 模式 CSRF，`>=7.12.0 <8.3.0`）在 7.x 线仅部分缓解，完整修复需 v8。
+- **暂缓原因**：v8 要求 React 19.2.7+ 与 Node 22.22+，本项目为 React 18 / Node 20，且 v8 移除 `react-router-dom` 包名（迁移面大）；本项目为纯客户端 SPA（Vite + 声明式路由），不使用 RSC，公告 not-applicable。
+- **解除条件**：React 19 + Node 22 + router v8 三条件同时满足时升级并解除 `.github/workflows/ci.yml` 中该 GHSA 的豁免。
+- **引用**：豁免出处 `docs/adr/0022-frontend-dep-override-and-audit-gate.md` §3；`.github/workflows/ci.yml` Frontend audit 步骤内联注释。

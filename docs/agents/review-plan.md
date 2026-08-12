@@ -75,17 +75,27 @@
 阶段 8: 收尾
   #18 完成 -> 单 issue review ✅（收尾加固：8.2 IP 多级 fallback client_ip + 8.6 AI 异常细分 classify_ai_error 接入 StructuredOutputInvoker + 8.8 Dockerfile 非root/HEALTHCHECK/单worker；8.1限流/8.3幂等/8.4定时/8.5错误码前序已就位，仅验证 + 新增错误码守卫测试；code-review 收敛：XFF 可信度注释、容器非 root+HEALTHCHECK；X-User-Id 按 ADR-0007 不接入；AI 细分流式路径 + 8.7 端到端 + G.3 时区迁移留 R8）
   R8: #18 阶段 review（全系统最终 review）✅ Standards PASS（0 HARD）；Spec 4 项已知延期缺口。R8 内 TDD 补齐 8.6 流式路径 AI 异常细分（RAG _stream_answer + 语音 _commit_turn 两 except 块接入 classify_ai_error，非 AI 异常保留通用兜底；同形复现 pitfall #27，已补行为测试守卫）。其余 3 项拆 issue：#20（8.7 端到端集成测试✅：新增 tests/e2e 真基础设施集成——日程/3 定时任务/异步评估/语音回合全对真实 Postgres+Redis 跑通；WS 异常路径由 test_ws_handler、端点接线由 test_voice_ws 覆盖）、#21（G.3 全表时区迁移✅完成：aware UTC、alembic 010 真库验证、ADR-0013）、#22（Dockerfile 验证✅完成：uv 镜像 403 已修（aliyun）；docker build 成功（多阶段，镜像 1.44GB）+ 容器启动 /health 返回 200 已验证；基础镜像拉取曾受 docker.io 限速，最终完成）
+
+阶段 9: 知识库面试功能域（#41-#45，Java 增量 8c80a19..646b23e，spec #40）
+  #41 完成 -> 单 issue review ✅（迁移 012 knowledge_base_questions 新表 + knowledge_bases 8 个 question_gen_* 列 + 来源 3 列，timestamptz；ORM 模型 + ADR-0017；真库往返守卫；1208 测试绿）
+  #42 完成 -> 单 issue review ✅（7 端点题库 CRUD/组合筛选/方向计数/详情；仓储+服务 Java 语义对齐；6001/3003 业务码；code-review 双轴无硬违反，findings 已修复）
+  #43 完成 -> 单 issue review ✅（题库异步生成状态机：行锁+taskId 匹配 9 原子转换、Stream 任务对、60s 恢复 job；归一化去重下沉 domain/services/question_bank.py；code-review 双轴 + 增量复审通过）
+  #44 完成 -> 单 issue review ✅（组卷纯函数：主题洗牌+Fisher-Yates 追问抽取，随机源注入种子可复现 + interview-capacity + 组卷会话端点；契约扩展 referenceAnswer/keyPoints/scoringRubric/sourceContext 向后兼容；评估参考上下文钩子；code-review 无 HARD）
+  #45 完成 -> 单 issue review ✅（Java 646b23e 前端增量 24 文件字节级搬运 hash 核验；两处最小偏离（vitest 导入/eslint 降 warn）；code-review HARD 0；ADR-0017 补决策 10 定稿）
+  R9: #41-#45 阶段 review（知识库面试功能域闭环）✅ 随 #45 收官（"阶段 9（#41-45）全部收官"）；竖切守卫白名单逐 issue 收紧
 ```
 
 > 2026-08-04 修复批次：12 项 HARD + 4 项 SOFT（PR #89–#100）经自动化 CI/PR 闭环逐批合并，跟踪 issue #88 已关闭；该批次为审查修复，不属迁移阶段 review。
+
+> 2026-08-13 复审批次：#102（v1.0beta 全仓审查 4 阻塞项 SP-01/SEC-01/02/03 + 5 建议清理项）已修复并复审**全部闭合**（SP-01 真图测试、pnpm audit 0 漏洞、login 限流生效；复审报告仅落 .scratch 不入库）；同批闭合工程轴 2 个文档 HARD（H1 附录 H.1 升级项追踪、H2 KNOWN_MISSING 清理）。该批次为审查修复，不属迁移阶段 review。
 
 ## 统计
 
 | 类型 | 次数 | 触发条件 |
 |------|------|---------|
-| 单 issue review | 18 次（#5-#22） | 每个 issue make verify 通过后 |
-| 阶段 review | 8 次（R1-R8） | 阶段内所有 issue + 单 issue review 完成后 |
-| 合计 | 26 次 | |
+| 单 issue review | 23 次（#5-#22, #41-#45） | 每个 issue make verify 通过后 |
+| 阶段 review | 9 次（R1-R9） | 阶段内所有 issue + 单 issue review 完成后 |
+| 合计 | 32 次 | |
 
 ## 设计说明
 

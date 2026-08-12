@@ -35,7 +35,7 @@ v1.0beta 发版前安全扫描发现前端生产依赖存在 high 级漏洞（SE
 
 - **任何 high/critical 即失败**（严格闸门）；
 - 唯一豁免 `GHSA-qwww-vcr4-c8h2`，豁免理由内联注释于 ci.yml；
-- 豁免是**临时性**的：`docs/migration-plan.md` 附录 B 记为后续升级项（React 19 + Node 22 + router v8 时解除）。
+- 豁免是**临时性**的：升级项与解除条件登记于 `docs/migration-plan.md` 附录 H.1（React 19 + Node 22 + router v8 时解除）。
 
 ### 4. 与 ADR 体系的关系
 
