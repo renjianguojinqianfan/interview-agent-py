@@ -62,3 +62,6 @@ nul
 output/
 verify_*.ps1
 skills-lock.json
+# Mimosa 安全门禁运行时状态（hook-state / finding-ledger / 基线快照）
+.mimosa/
+.zcode/

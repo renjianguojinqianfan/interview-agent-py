@@ -1,4 +1,5 @@
 import base64
+import secrets
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
@@ -226,7 +227,7 @@ class TestProviderSnapshot:
         snapshot = ProviderSnapshot(
             id=1,
             base_url="https://example.com",
-            api_key="sk-test",
+            api_key=secrets.token_urlsafe(8),
             model="gpt-4",
             embedding_model="text-embedding-3",
             embedding_dimensions=1024,

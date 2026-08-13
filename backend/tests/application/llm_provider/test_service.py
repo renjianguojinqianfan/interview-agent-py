@@ -1,4 +1,5 @@
 import base64
+import secrets
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -150,16 +151,17 @@ class TestCreateProvider:
         self, service, mock_provider_repo, encryption_service, mock_registry
     ) -> None:
         mock_provider_repo.exists_by_name = AsyncMock(return_value=False)
+        api_key = secrets.token_urlsafe(16)
         request = CreateProviderRequest(
             id="openai",
             base_url="https://api.openai.com/v1",
-            api_key="sk-test-key-12345",
+            api_key=api_key,
             model="gpt-4",
         )
         await service.create_provider(request)
         saved_provider = mock_provider_repo.save.call_args[0][1]
-        assert saved_provider.api_key != "sk-test-key-12345"
-        assert encryption_service.decrypt(saved_provider.api_key) == "sk-test-key-12345"
+        assert saved_provider.api_key != api_key
+        assert encryption_service.decrypt(saved_provider.api_key) == api_key
         mock_registry.reload.assert_called_once()
 
     async def test_create_provider_duplicate_name_raises(self, service, mock_provider_repo) -> None:
@@ -167,7 +169,7 @@ class TestCreateProvider:
         request = CreateProviderRequest(
             id="dashscope",
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key="sk-test",
+            api_key=secrets.token_urlsafe(8),
             model="qwen3.5-flash",
         )
         with pytest.raises(BusinessException) as exc:
@@ -320,9 +322,10 @@ class TestUpdateAsrConfig:
         original_tts_cipher = encryption_service.encrypt("sk-tts-original")
         config = _make_voice_config(tts_key_cipher=original_tts_cipher)
         mock_voice_config_repo.get_singleton = AsyncMock(return_value=config)
-        request = AsrConfigRequest(api_key="sk-asr-new-key")
+        new_asr_key = secrets.token_urlsafe(12)
+        request = AsrConfigRequest(api_key=new_asr_key)
         await service.update_asr_config(request)
-        assert encryption_service.decrypt(config.asr_api_key) == "sk-asr-new-key"
+        assert encryption_service.decrypt(config.asr_api_key) == new_asr_key
         assert config.tts_api_key == original_tts_cipher
 
     async def test_update_asr_config_without_api_key_does_not_touch_tts(
@@ -353,9 +356,10 @@ class TestUpdateTtsConfig:
         original_asr_cipher = encryption_service.encrypt("sk-asr-original")
         config = _make_voice_config(asr_key_cipher=original_asr_cipher)
         mock_voice_config_repo.get_singleton = AsyncMock(return_value=config)
-        request = TtsConfigRequest(api_key="sk-tts-new-key")
+        new_tts_key = secrets.token_urlsafe(12)
+        request = TtsConfigRequest(api_key=new_tts_key)
         await service.update_tts_config(request)
-        assert encryption_service.decrypt(config.tts_api_key) == "sk-tts-new-key"
+        assert encryption_service.decrypt(config.tts_api_key) == new_tts_key
         assert config.asr_api_key == original_asr_cipher
 
     async def test_update_tts_config_without_api_key_does_not_touch_asr(

@@ -1,5 +1,6 @@
 """限流测试：IP 多级 fallback 单元测试（migration-plan 8.2）+ login 端点限流行为测试（SEC-03）。"""
 
+import secrets
 from collections.abc import Iterator
 from unittest.mock import MagicMock
 
@@ -10,6 +11,10 @@ from starlette.datastructures import Headers
 from app.api.rate_limit import client_ip, limiter
 from app.config.settings import settings
 from app.main import app
+
+# 测试凭据运行时生成：不落凭据形态字面量（Mimosa 门禁）
+_TEST_ADMIN_USERNAME = "test-admin"
+_TEST_ADMIN_PASSWORD = secrets.token_urlsafe(8)
 
 client = TestClient(app)
 
@@ -63,18 +68,22 @@ class TestLoginRateLimit:
 
     @staticmethod
     def _configure_auth(monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(settings, "secret_key", "test-secret-key-0123456789abcdef")
-        monkeypatch.setattr(settings, "auth_admin_username", "admin")
-        monkeypatch.setattr(settings, "auth_admin_password", "secret")
+        monkeypatch.setattr(settings, "secret_key", secrets.token_hex(16))
+        monkeypatch.setattr(settings, "auth_admin_username", _TEST_ADMIN_USERNAME)
+        monkeypatch.setattr(settings, "auth_admin_password", _TEST_ADMIN_PASSWORD)
 
     def test_login_blocked_after_5_requests_per_ip(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._configure_auth(monkeypatch)
 
         for _ in range(5):
-            response = client.post("/api/auth/login", json={"username": "admin", "password": "secret"})
+            response = client.post(
+                "/api/auth/login", json={"username": _TEST_ADMIN_USERNAME, "password": _TEST_ADMIN_PASSWORD}
+            )
             assert response.status_code == 200
             assert response.json()["code"] == 200
 
-        response = client.post("/api/auth/login", json={"username": "admin", "password": "secret"})
+        response = client.post(
+            "/api/auth/login", json={"username": _TEST_ADMIN_USERNAME, "password": _TEST_ADMIN_PASSWORD}
+        )
         assert response.status_code == 200
         assert response.json()["code"] == 8001

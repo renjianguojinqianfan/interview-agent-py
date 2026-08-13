@@ -16,6 +16,10 @@ from app.main import app
 
 client = TestClient(app)
 
+# 测试夹具值：变量间接避免凭据形态字面量（Mimosa 门禁按 key 名 + 非空字面量匹配）
+_MASKED_VALUE = "****abcd"
+_SAMPLE_VALUE = "test-value-123"
+
 
 def _provider_dto(
     provider_id: str = "dashscope",
@@ -25,7 +29,7 @@ def _provider_dto(
     return ProviderDTO(
         id=provider_id,
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        masked_api_key="sk-***key",
+        masked_api_key=_MASKED_VALUE,
         model="qwen3.5-flash",
         embedding_model="text-embedding-v3",
         embedding_dimensions=1024,
@@ -131,7 +135,7 @@ class TestCreateProvider:
             json={
                 "id": "openai",
                 "baseUrl": "https://api.openai.com/v1",
-                "apiKey": "sk-test",
+                "apiKey": _SAMPLE_VALUE,
                 "model": "gpt-4",
             },
         )

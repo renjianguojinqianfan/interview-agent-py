@@ -14,11 +14,11 @@
     MinIO:      APP_STORAGE_ENDPOINT / APP_STORAGE_ACCESS_KEY / APP_STORAGE_SECRET_KEY / APP_STORAGE_BUCKET
 """
 
+import http.client
 import os
 import socket
 import sys
-import urllib.request
-import urllib.error
+import urllib.parse
 
 # 强制 stdout/stderr 使用 UTF-8（解决 Windows GBK 终端编码问题）
 sys.stdout.reconfigure(encoding="utf-8")
@@ -195,6 +195,30 @@ def check_redis():
     return False
 
 
+def _http_get(url: str, headers: dict[str, str] | None = None, timeout: int = 10) -> tuple[int, bytes]:
+    """标准库 HTTP GET（http.client 实现，规避 urllib.urlopen 的 SSRF 关注点）。
+
+    仅允许 http/https scheme；端点来自本地环境变量（见模块 docstring），
+    非用户可触达的服务端输入。返回 (status, body)，4xx/5xx 不抛异常。
+    """
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"不支持的 scheme: {parsed.scheme!r}（仅允许 http/https，请确保端点含协议前缀）")
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    conn_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
+    conn = conn_cls(host, port, timeout=timeout)
+    try:
+        conn.request("GET", path, headers=headers or {})
+        resp = conn.getresponse()
+        return resp.status, resp.read()
+    finally:
+        conn.close()
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  MinIO — HTTP 健康检查 + Bucket 列表验证
 # ══════════════════════════════════════════════════════════════════════════
@@ -210,22 +234,22 @@ def check_minio():
     # 1) 健康检查（无需认证）
     health_url = endpoint.rstrip("/") + "/minio/health/live"
     try:
-        req = urllib.request.Request(health_url, method="GET")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            if resp.status == 200:
-                print(f"  {GREEN}健康检查通过{RESET}  ({health_url} -> 200)")
-            else:
-                _fail("MinIO", f"健康检查返回 HTTP {resp.status}")
-                return False
-    except urllib.error.HTTPError as e:
-        _fail("MinIO", f"健康检查失败: HTTP {e.code} {e.reason} ({health_url})")
+        status, _ = _http_get(health_url, timeout=5)
+        if status == 200:
+            print(f"  {GREEN}健康检查通过{RESET}  ({health_url} -> 200)")
+        else:
+            _fail("MinIO", f"健康检查返回 HTTP {status}")
+            return False
+    except ValueError as e:
+        _fail("MinIO", f"{e} ({health_url})")
         return False
-    except urllib.error.URLError as e:
-        reason = str(e.reason)
+    except (socket.timeout, TimeoutError):
+        _fail("MinIO", f"连接超时: {endpoint}")
+        return False
+    except OSError as e:
+        reason = str(e)
         if "Connection refused" in reason or "ConnectionRefused" in reason:
             _fail("MinIO", f"连接被拒绝: {endpoint}（服务可能未启动）")
-        elif "timed out" in reason.lower():
-            _fail("MinIO", f"连接超时: {endpoint}")
         else:
             _fail("MinIO", f"连接失败: {reason}")
         return False
@@ -278,33 +302,37 @@ def check_minio():
             f"SignedHeaders={signed_headers}, Signature={signature}"
         )
 
-        req = urllib.request.Request(endpoint.rstrip("/") + "/", method="GET")
-        req.add_header("Authorization", auth_header)
-        req.add_header("x-amz-date", amz_date)
-        req.add_header("x-amz-content-sha256", payload_hash)
-
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            if resp.status == 200:
-                body = resp.read().decode("utf-8", errors="replace")
-                has_bucket = bucket in body
-                if has_bucket:
-                    _ok("MinIO", f"连接成功 -> {endpoint}  (Bucket '{bucket}' 存在)")
-                else:
-                    _ok("MinIO",
-                        f"连接成功 -> {endpoint}  (凭证有效，但 Bucket '{bucket}' 尚未创建)")
-                return True
+        status, body_bytes = _http_get(
+            endpoint.rstrip("/") + "/",
+            headers={
+                "Authorization": auth_header,
+                "x-amz-date": amz_date,
+                "x-amz-content-sha256": payload_hash,
+            },
+            timeout=10,
+        )
+        if status == 200:
+            body = body_bytes.decode("utf-8", errors="replace")
+            has_bucket = bucket in body
+            if has_bucket:
+                _ok("MinIO", f"连接成功 -> {endpoint}  (Bucket '{bucket}' 存在)")
             else:
-                _fail("MinIO", f"ListBuckets 返回 HTTP {resp.status}")
-                return False
-
-    except urllib.error.HTTPError as e:
-        if e.code == 403:
-            _fail("MinIO", f"凭证无效 (HTTP 403): AccessKey/SecretKey 不正确")
-        elif e.code == 401:
-            _fail("MinIO", f"认证失败 (HTTP 401): 请检查 AccessKey/SecretKey")
-        else:
-            body = e.read().decode("utf-8", errors="replace")[:200]
-            _fail("MinIO", f"ListBuckets 失败: HTTP {e.code} {e.reason}  {body}")
+                _ok("MinIO",
+                    f"连接成功 -> {endpoint}  (凭证有效，但 Bucket '{bucket}' 尚未创建)")
+            return True
+        if status in (401, 403):
+            _fail("MinIO", f"凭证无效 (HTTP {status}): AccessKey/SecretKey 不正确" if status == 403 else f"认证失败 (HTTP {status}): 请检查 AccessKey/SecretKey")
+            return False
+        _fail("MinIO", f"ListBuckets 失败: HTTP {status}  {body_bytes.decode('utf-8', errors='replace')[:200]}")
+        return False
+    except ValueError as e:
+        _fail("MinIO", str(e))
+        return False
+    except (socket.timeout, TimeoutError):
+        _fail("MinIO", f"ListBuckets 超时: {endpoint}")
+        return False
+    except OSError as e:
+        _fail("MinIO", f"ListBuckets 连接失败: {e}")
         return False
     except Exception as e:
         _fail("MinIO", f"凭证验证未知错误: {type(e).__name__}: {e}")
